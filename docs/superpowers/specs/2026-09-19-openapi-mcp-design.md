@@ -9,7 +9,9 @@ agents given a generic HTTP client lose the edge that tailored tools have: short
 descriptions, sensible defaults, excluded noise, shaped responses, workflow guidance.
 This library turns an OpenAPI document annotated with a small `x-agent` vocabulary into
 targeted tools, at runtime, so the API owner curates once inside the spec and every
-consumer (MCP server, AI SDK agent, WebMCP page) gets the same tools.
+consumer (MCP server, AI SDK agent, WebMCP page) gets the same tools. Owning the
+converter also lets json-layout's form-editing tools plug into write operations, which no
+third-party generator could offer.
 
 The quality question the project exists to answer: can annotations alone produce tools
 as good as `data-fair/data-fair/agent-tools` (hand-written, evaluated) for catalog
@@ -57,6 +59,8 @@ reduced to projection presets.
 | Tool selection | Opt-in with profiles | The annotation is the curation; one spec serves a 7-tool portal agent and a 20-tool back-office agent |
 | Composition | None executable; skills are text | An operation referencing others is a workflow language through the back door; if a round-trip is too costly the API should grow the feature (`?samples=3`) |
 | Generation | Runtime from a spec URL or object; no codegen | Freshness is the point |
+| Formatting escape hatch | Content negotiation: an operation that declares a `text/markdown` response is requested with that `Accept` and passed through untouched | Keeps rendering the API's responsibility, declared in the spec, instead of adding hooks to the converter |
+| Editing complex payloads | Opt-in `editor` on a write operation exposes json-layout's form tools over the body schema plus a submit tool | Reuses the evaluated json-layout WebMCP tools; the reason to own the converter in the first place |
 | Credentials | Caller-supplied `fetch` | API key, session cookie, NHI bearer, reverse-proxy headers all live outside the lib |
 
 ## 1. Shape
@@ -110,6 +114,17 @@ the spec stays for humans; `x-agent` replaces it for agents only where present.
   (data-fair spreads shared params, so a default there applies everywhere); the operation
   form wins on conflict.
 - `fixed` — `{ [paramName]: value }` sent on every call, never exposed.
+- `editor` — `true` or `{ readOperation?: operationId }`, on an operation with a
+  JSON request body (typically PUT/PATCH/POST). The body schema, with its json-layout
+  `layout` keywords when present, is compiled into a json-layout `StatefulLayout`, and the
+  tool becomes a group: `<name>_describe_state`, `<name>_set_field_value`,
+  `<name>_set_data`, `<name>_edit_array`, `<name>_get_field_suggestions`,
+  `<name>_get_data` (json-layout's WebMCP tools, unchanged) plus `<name>_submit`, which
+  performs the operation with the form's data once valid. `readOperation` names the GET
+  that loads the current document before editing (PATCH/PUT); it is the one
+  cross-operation reference in the vocabulary, tolerated because it declares a resource's
+  read counterpart, not a workflow. The group's skill text is json-layout's form-filling
+  guide.
 - `response` — `{ rows?: jsonPointer, concise?: field[], detailed?: true | field[],
   selectParam?: paramName, hints?: true }`. `concise`/`detailed` are projection presets;
   when both exist a `response_format` enum param is generated (`concise` default).
@@ -153,6 +168,14 @@ accept them.
 (data-fair: `form`, `explode: false`); objects with `patternProperties` spread as
 individual query params; `undefined` omitted, `""` kept; JSON body. A standard `Request`
 goes to the caller's `fetch`; base URL from `servers[0]` unless overridden.
+
+**Content negotiation.** When an operation's 2xx response declares `text/markdown`
+(or another `text/*` type flagged by the API as agent-oriented), the request carries an
+`Accept` header preferring it and the body is passed through untouched: the API renders,
+the converter does not. Projection params are still sent if the API declares them; the
+generic renderer below is skipped. This is the last-resort answer to "this response does
+not render well generically" — the API grows a markdown representation, the spec declares
+it, no converter code is written.
 
 **Rendering.** Text-only by default; `structuredContent` only when the adapter is told
 the client wants it. Steps: projection (`fields` > `response_format` > `concise` >
@@ -205,7 +228,9 @@ annotated copy is both fixture and eval input.
 1. Core: vocabulary, `load`, input derivation, serialization, renderer, `toMcpServer`,
    binary; unit tests; frozen fixture.
 2. Eval harness; parity run; gap list.
-3. AI SDK and WebMCP adapters; `agents` consumes the lib.
+3. AI SDK and WebMCP adapters; `agents` consumes the lib; `editor` tool groups over
+   json-layout (first target: a dataset metadata PATCH with `readOperation:
+   readDescription`).
 4. data-fair emits annotations; `data-fair/mcp` switches to the binary; per-dataset doc
    as second target.
 
