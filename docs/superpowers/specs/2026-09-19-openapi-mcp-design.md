@@ -13,7 +13,7 @@ consumer (MCP server, AI SDK agent, WebMCP page) gets the same tools.
 
 The quality question the project exists to answer: can annotations alone produce tools
 as good as `data-fair/data-fair/agent-tools` (hand-written, evaluated) for catalog
-exploration? The parity evaluation (section 7) answers it and lists what refuses to be
+exploration? The parity evaluation (section 5) answers it and lists what refuses to be
 declarative.
 
 ## Landscape (September 2026)
