@@ -121,38 +121,87 @@ the generated tool exposing the documented `after` parameter is the simpler cont
 
 Something genuinely missing, and useful to more than agents.
 
-### B1. `describe_dataset` returns schemas too large to consume
+### B1. `/datasets/{id}/schema` has no way to drop the prose, which is 59% of it
 
-**Today.** A dataset's full schema can be very large. Measured in the run:
-`sirene` renders at **94,894 characters**, `contours-des-communes` at **301,312**.
+**Today.** A dataset's schema is returned in full or not at all. `sirene` has **115
+columns** and its schema is **108,966 characters** on `/datasets/{id}/schema`. Measured by
+key across all 115 columns:
 
-**Evidence.** Eight calls in the baseline exceeded the agent SDK's per-tool-result cap and
-returned an error instead of data — five on the hand-written arm
-(`aggregation--A` call 6, `calculate-metric--A` call 3, `field-values--A` call 2,
-`filter-search--A` call 5, `multi-step-analysis--A` call 6) and three on the annotated arm
-(`aggregation--B`, `field-values--B`, `filter-search--B`, each call 2). A ninth
-(`multi-step-analysis--B` call 2, `base-sirene-des-entreprises`) hit the SDK's
-persisted-output path instead — 50.9 KB saved to a file with a preview returned.
+| key | chars | share |
+|---|---|---|
+| `description` | 59,827 | **59%** |
+| `x-labels` | 5,636 | 6% |
+| `x-capabilities` | 5,616 | 6% |
+| `label` | 4,824 | 5% |
+| `title` | 4,810 | 5% |
+| `enum` | 3,447 | 3% |
+| `key` | 3,338 | 3% |
 
-Two datasets account for every hard-cap occurrence: `sirene` (seven of the eight) and
-`contours-des-communes` (the eighth).
+The route already takes six parameters — `mimeType`, `type`, `format`, `capability`,
+`enum`, `calculated` — but **every one of them filters WHICH COLUMNS are returned, never
+WHICH KEYS**. So none of them touches the 59%. Measured:
 
-**Why it matters.** This was the single largest friction category in the run, and it hit
-**both** tool sets about equally — the one problem neither hand-writing nor annotation
-solved. An agent that cannot read a dataset's schema cannot query it correctly.
+| request | chars |
+|---|---|
+| `/schema` | 108,966 |
+| `/safe-schema` | 103,567 |
+| `/schema?calculated=false` | 107,032 |
+| `/safe-schema?calculated=false` | 101,633 |
 
-**Caveat, stated plainly.** Our harness inflates this. It runs with `tools: []`, which
-makes the SDK's own overflow recovery unreachable: the error text tells the agent to read
+Dropping enum values, cardinality *and* calculated columns together saves **7%**. (`enum`
+is a filter meaning "restrict to enumerable columns", not a switch for returning enum
+values — `?enum=false` returns an identical 108,966 characters.)
+
+**Evidence, and why this is the highest-leverage item in this document.** In the phase-2
+run, every scenario where the agent had a column name rejected had a *capped*
+`describe_dataset` earlier in the same transcript — and no scenario that read a schema
+successfully then guessed a column:
+
+```
+aggregation--A          describe capped @6 (sirene)       -> guesses rejected at 3, 4
+field-values--A         describe capped @2 (sirene)       -> guess rejected at 3
+filter-search--B        describe capped @2 (sirene)       -> guess rejected at 3
+multi-step-analysis--A  describe capped @6 (sirene)       -> guess rejected at 7
+multi-step-analysis--B  describe capped @2 (base-sirene)  -> guesses rejected at 3, 4
+```
+
+That is one causal chain — the agent cannot read the schema, so it guesses a column, so it
+gets a 400 — and it accounts for **five of the run's nine** friction points of this class.
+It hits both tool sets equally; neither hand-writing nor annotation can work around it,
+because the data never arrives.
+
+**Why it matters.** An agent that cannot list a dataset's columns cannot query it. A
+column picker in a UI has the same problem and the same need: `key`, `type`, `title`, and
+none of the prose.
+
+**Caveat, stated plainly.** Our harness inflates the severity. It runs with `tools: []`,
+so the SDK's own overflow recovery is unreachable — the error text tells the agent to read
 the saved file with `offset`/`limit`/`jq`, and our agent has no Read, Grep or Bash. In a
-normal session the agent would read the file. The problem is real — 300 KB of schema is
-not something to hand any caller — but it is less severe than nine friction points suggest.
+normal session it would read the file. The problem is real; it is less severe than nine
+friction points suggest.
 
-**Change.** A bounded schema representation: a summary (column key, type, title, concept,
-enum presence) with the long-form descriptions and full enums available separately or
-paginated. Useful to any consumer rendering a column picker, not only to agents.
+**Change.** Any of these would resolve it, and they compose:
 
-**Annotation once fixed.** `response.concise` can then project the summary form by default
-with `detailed` opting into the full schema — which is what the projection presets are for.
+1. **`select` on `/schema`** — the same projection `/lines` and `/datasets` already
+   implement. `?select=key,type,title` turns 108,966 characters into roughly 7,000. This is
+   the single biggest win and the most consistent with the rest of the API.
+2. **`truncate` on `/schema`** — `truncate` is already a recognised data-fair query
+   parameter (it appears in `query-advice.ts`'s known-parameter list beside `select`,
+   `sort` and `size`), and the codebase already truncates markdown fields. Applying it to
+   column `description` fits an existing convention rather than inventing one.
+3. **A tabular `mimeType`** — the parameter exists with three JSON dialects
+   (`application/json`, `application/tableschema+json`, `application/schema+json`). Adding
+   `text/csv` or `text/markdown` gives a column table that is compact by construction, and
+   pairs with the content negotiation this project already supports (an operation declaring
+   a `text/*` response is passed through unrendered).
+
+Together these make `/schema` a surface an agent can explore progressively: list the
+columns cheaply, then ask for detail on the few that matter.
+
+**Annotation once fixed.** `describe_dataset` currently calls `GET /datasets/{id}` and
+projects client-side, so it does not use `/schema` at all. Once the route can project, the
+annotation points at it and `response.concise` returns `key,type,title` with `detailed`
+opting into the full definitions.
 
 ---
 
@@ -220,16 +269,24 @@ field, and ideally a hint when a `q` matches nothing on a field that does have v
 
 - No `?format=llm`, no agent-only endpoints, no prose responses.
 - Every recommendation above passes the same test: **does it help any API consumer, or
-  only an agent?** A declared date filter, a real cursor, a bounded schema view, ranked
-  search and a 400 instead of a silent empty array are all things a human SDK user wants.
+  only an agent?** A declared date filter, an `after` that says where its value comes from,
+  a `select` on `/schema`, ranked search and a 400 instead of a silent empty array are all
+  things a human SDK user wants — a UI column picker needs exactly the projection item B1
+  asks for.
 - Nothing here asks data-fair to know about MCP or about this project.
 
 ## What is ours, not data-fair's
 
 Recorded so this list is not mistaken for the whole picture. These are phase-3 backlog for
-`openapi-mcp`, not requests to data-fair: the vocabulary cannot clear or widen an inherited
-`enum`, has no `title` override, and has no check that a rewritten description agrees with
-the schema it describes — the defect that produced three live bugs in phase 1, where a
-description promised a scalar (`Example: "-count"`) for a parameter whose schema is an
-array. Our renderer is also 10–18% bulkier than `agent-tools` on the same `sirene`
-schema (94,894 chars against 104,442), which is a rendering choice of ours.
+`openapi-mcp`, not requests to data-fair.
+
+Closed since this document was first written: the vocabulary now lints a rewritten
+description against the schema it describes, which is the defect that produced three live
+bugs in phase 1 (a description promising a scalar, `Example: "-count"`, for a parameter
+whose schema is an array). A `body: compact` mode also renders an oversized request-body
+schema as a listing, taking data-fair's dataset write tool from 28,033 characters to 2,840.
+
+Still open and ours: the vocabulary cannot clear or widen an inherited `enum` — though item
+A2 is the better fix for the one case we have — and our renderer is 10–18% bulkier than
+`agent-tools` on the same `sirene` schema (104,442 characters against 94,894), which is a
+rendering choice of ours.
