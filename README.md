@@ -45,6 +45,16 @@ Example MCP client configuration:
 }
 ```
 
+## Annotation lint
+
+`load` checks that a description an annotation authored still agrees with the schema it
+describes — a description promising a scalar for a parameter whose schema is an array gets
+the agent rejected before any request is sent. Descriptions inherited from the OpenAPI
+document are not linted: they belong upstream.
+
+A disagreement refuses the tool set by default, listing every one at once. Pass
+`lint: 'warn'` to print and continue, or `lint: 'off'` to skip the check.
+
 See [`docs/superpowers/specs/2026-09-19-openapi-mcp-design.md`](docs/superpowers/specs/2026-09-19-openapi-mcp-design.md) for the `x-agent` vocabulary.
 
 Experimental — phase 1 (core) of the design.

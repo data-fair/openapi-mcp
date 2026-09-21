@@ -6,6 +6,7 @@ import { buildInput } from './input.ts'
 import { buildRequest } from './request.ts'
 import { render } from './render.ts'
 import { localize } from './localize.ts'
+import { lintToolInput, formatFindings, type LintFinding } from './vocabulary/lint.ts'
 import type { JsonSchema, ResolvedOperation, Tool, ToolResult, ToolSet, AgentRoot, AgentTag } from './types.ts'
 
 const debug = Debug('openapi-mcp')
@@ -22,6 +23,13 @@ export interface LoadOptions {
   structuredContent?: boolean
   maxStringLength?: number
   maxErrorLength?: number
+  /**
+   * What to do when a description an annotation authored contradicts the schema it
+   * describes. 'error' (the default) refuses to build the tool set, listing every
+   * disagreement at once. 'warn' prints them and continues, for the case where the
+   * heuristic is wrong and you need to ship anyway. 'off' skips the check.
+   */
+  lint?: 'error' | 'warn' | 'off'
 }
 
 const ajv = new Ajv2020({ strict: false, allErrors: true, useDefaults: true, coerceTypes: false })
@@ -49,12 +57,13 @@ function errorsText (validate: ValidateFunction): string {
   return (validate.errors ?? []).map(e => `${e.instancePath || 'params'} ${e.message}`).join('; ')
 }
 
-function makeTool (op: ResolvedOperation, o: Required<Omit<LoadOptions, 'profile'>>): Tool {
-  const { inputSchema, bindings } = buildInput(op, o.locale)
+function makeTool (op: ResolvedOperation, o: Required<Omit<LoadOptions, 'profile'>>): Tool & { authoredDescriptions: Set<string> } {
+  const { inputSchema, bindings, authoredDescriptions } = buildInput(op, o.locale)
   const validate = ajv.compile(inputSchema)
   const description = (localize(op.agent.description, o.locale) ?? [op.summary, op.description].filter(Boolean).join('\n\n')).trim()
-  const tool: Tool = {
+  const tool: Tool & { authoredDescriptions: Set<string> } = {
     name: op.toolName,
+    authoredDescriptions,
     title: localize(op.agent.title, o.locale),
     description: description || op.operationId,
     inputSchema,
@@ -117,8 +126,23 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
     baseUrl,
     structuredContent: options.structuredContent ?? false,
     maxStringLength: options.maxStringLength ?? 500,
-    maxErrorLength: options.maxErrorLength ?? 4000
+    maxErrorLength: options.maxErrorLength ?? 4000,
+    lint: options.lint ?? 'error'
   }
   const ops = resolveOperations(doc, profile)
-  return { profile, instructions: buildInstructions(doc, profile, ops, o.locale), tools: ops.map(op => makeTool(op, o)) }
+  const built = ops.map(op => makeTool(op, o))
+
+  if (o.lint !== 'off') {
+    const findings: LintFinding[] = built.flatMap(t => lintToolInput(t.name, t.inputSchema, t.authoredDescriptions))
+    if (findings.length) {
+      // Reported all at once: fixing one and rerunning to meet the next is the loop this
+      // check exists to prevent.
+      if (o.lint === 'error') throw new Error(formatFindings(findings))
+      console.warn(formatFindings(findings))
+    }
+  }
+
+  // authoredDescriptions is scaffolding for the lint, not part of the public Tool.
+  const tools: Tool[] = built.map(({ authoredDescriptions, ...tool }) => tool)
+  return { profile, instructions: buildInstructions(doc, profile, ops, o.locale), tools }
 }

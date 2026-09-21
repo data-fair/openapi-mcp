@@ -65,10 +65,14 @@ function paramSchema (p: ResolvedParam, locale: string): JsonSchema {
   return schema
 }
 
-export function buildInput (op: ResolvedOperation, locale: string): { inputSchema: JsonSchema, bindings: Binding[] } {
+export function buildInput (op: ResolvedOperation, locale: string): { inputSchema: JsonSchema, bindings: Binding[], authoredDescriptions: Set<string> } {
   const properties: JsonSchema = {}
   const required: string[] = []
   const bindings: Binding[] = []
+  // Properties whose description this project wrote — an x-agent override, or one of the
+  // generated params below. Only these are linted: an inherited description belongs to the
+  // upstream document and cannot be fixed from here.
+  const authoredDescriptions = new Set<string>()
   const fixed = op.agent.fixed ?? {}
   const selectParam = op.agent.response?.selectParam
 
@@ -76,6 +80,7 @@ export function buildInput (op: ResolvedOperation, locale: string): { inputSchem
     if (p.agent.exclude || p.name in fixed || p.name === selectParam) continue
     const toolName = p.agent.name ?? p.name
     properties[toolName] = paramSchema(p, locale)
+    if (localize(p.agent.description, locale)) authoredDescriptions.add(toolName)
     if (p.agent.required ?? p.required) required.push(toolName)
     bindings.push({ toolName, kind: p.in, apiName: p.name, style: p.style, explode: p.explode })
   }
@@ -106,6 +111,7 @@ export function buildInput (op: ResolvedOperation, locale: string): { inputSchem
       items: { type: 'string', enum: fields },
       description: 'Response fields to return (default: the concise set). Use to fetch exactly what you need.'
     }
+    authoredDescriptions.add('fields')
     bindings.push({ toolName: 'fields', kind: 'fields', apiName: selectParam, style: apiParam.style ?? 'form', explode: apiParam.explode })
   }
 
@@ -113,10 +119,11 @@ export function buildInput (op: ResolvedOperation, locale: string): { inputSchem
   if (concise && detailed) {
     const detailedText = detailed === true ? 'every field' : detailed.join(', ')
     properties.response_format = { type: 'string', enum: ['concise', 'detailed'], default: 'concise', description: `concise: ${concise.join(', ')}. detailed: ${detailedText}.` }
+    authoredDescriptions.add('response_format')
     bindings.push({ toolName: 'response_format', kind: 'responseFormat', apiName: 'response_format', style: undefined, explode: undefined })
   }
 
   const inputSchema: JsonSchema = { type: 'object', properties, additionalProperties: false }
   if (required.length) inputSchema.required = required
-  return { inputSchema, bindings }
+  return { inputSchema, bindings, authoredDescriptions }
 }
