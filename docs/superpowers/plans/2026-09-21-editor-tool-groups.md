@@ -264,6 +264,7 @@ git commit -m "feat: resolve an operation by id regardless of profile"
 ### Task 3: `prepareSchema`
 
 **Files:**
+- Modify: `package.json` (+ `package-lock.json`)
 - Create: `src/editor/prepare-schema.ts`
 - Create: `test/fixtures/dataset-line-schema.json`
 - Test: `test/editor-prepare-schema.test.ts`
@@ -278,7 +279,38 @@ git commit -m "feat: resolve an operation by id regardless of profile"
 
 **Context for the implementer:** data-fair's own line-editing form (`data-fair/ui/src/components/dataset/form/dataset-edit-line-form.vue:70-100`) does exactly this before handing the schema to json-layout. A fetched dataset schema carries vjsf-v2 keywords, so compiling it raw logs `failed to normalize layout, use default component` and renders pickers as plain sections. `v2compat` is the fix and it now lives in `@json-layout/core/compat/v2` (core >= 2.10.0).
 
-- [ ] **Step 1: Write the fixture**
+- [ ] **Step 1: Declare the dependency**
+
+This is the first task that needs json-layout, so it installs it. Run:
+
+```bash
+npm install --save-dev @json-layout/agents@^0.1.0 @json-layout/core@^2.10.0
+```
+
+Then add to `package.json`, next to `dependencies`:
+
+```json
+  "peerDependencies": {
+    "@json-layout/agents": "^0.1.0",
+    "@json-layout/core": "^2.10.0"
+  },
+  "peerDependenciesMeta": {
+    "@json-layout/agents": { "optional": true },
+    "@json-layout/core": { "optional": true }
+  }
+```
+
+**Both are declared, not just `agents`.** `@json-layout/agents@0.1.0` depends on `@json-layout/core@^2.9.1`, so core would be reachable by hoisting alone — but importing a package you have not declared is a latent break the moment the tree is deduped differently, and `compat/v2` needs >= 2.10.0 specifically, which `^2.9.1` does not guarantee.
+
+Verify the export is actually reachable before going further:
+
+```bash
+node -e "import('@json-layout/core/compat/v2').then(m => console.log(typeof m.v2compat))"
+```
+
+Expected: `function`. If it prints an error, the installed core is older than 2.10.0 — report that rather than working around it.
+
+- [ ] **Step 2: Write the fixture**
 
 `test/fixtures/dataset-line-schema.json` — the shapes a real fetched schema mixes:
 
@@ -311,7 +343,7 @@ git commit -m "feat: resolve an operation by id regardless of profile"
 }
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 3: Write the failing test**
 
 `test/editor-prepare-schema.test.ts`:
 
@@ -365,12 +397,12 @@ describe('prepareSchema', () => {
 })
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [ ] **Step 4: Run the test to verify it fails**
 
 Run: `npm test -- test/editor-prepare-schema.test.ts`
 Expected: FAIL — cannot find `../src/editor/prepare-schema.ts`.
 
-- [ ] **Step 4: Implement**
+- [ ] **Step 5: Implement**
 
 `src/editor/prepare-schema.ts`:
 
@@ -406,12 +438,12 @@ export async function prepareSchema (fetched: JsonSchema): Promise<JsonSchema> {
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `npm test -- test/editor-prepare-schema.test.ts`
 Expected: 7/7 PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/editor/prepare-schema.ts test/editor-prepare-schema.test.ts test/fixtures/dataset-line-schema.json
@@ -905,7 +937,6 @@ git commit -m "feat: build a SessionSpec, with one schema closure per schema"
 - Create: `src/editor/index.ts`
 - Modify: `src/spec.ts` (remove the phase-1 `editor` throw)
 - Modify: `src/load.ts:123-156`
-- Modify: `package.json`
 - Test: `test/editor-bridge.test.ts`, `test/editor-group.test.ts`
 
 **Interfaces:**
@@ -1195,14 +1226,7 @@ In `src/load.ts`, replace the `built`/`tools` assembly (lines 142-155) with:
 
 with `import { buildEditorTools } from './editor/index.ts'` at the top. `buildInstructions` already receives every operation including the editor ones, so the group appears in the instructions through the existing path; if it does not, add a section naming the group's tools.
 
-In `package.json`, add:
-
-```json
-  "peerDependencies": { "@json-layout/agents": "^0.1.0" },
-  "peerDependenciesMeta": { "@json-layout/agents": { "optional": true } }
-```
-
-and `"@json-layout/agents": "^0.1.0"` to `devDependencies`, then `npm install`.
+`package.json` already carries the dependency and its optional-peer declaration — Task 3 added them. Confirm they are still there and do **not** add them twice.
 
 - [ ] **Step 8: Run the whole suite**
 
@@ -1212,7 +1236,7 @@ Expected: lint clean, `tsc` clean, every test PASS — including the phase-1 tes
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/editor/ src/spec.ts src/load.ts package.json package-lock.json test/editor-bridge.test.ts test/editor-group.test.ts
+git add src/editor/ src/spec.ts src/load.ts test/editor-bridge.test.ts test/editor-group.test.ts
 git commit -m "feat: eight json-layout editor tools from one annotated operation"
 ```
 
