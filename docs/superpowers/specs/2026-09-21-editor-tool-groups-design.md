@@ -70,15 +70,14 @@ the same symptom the abandoned PATCH probe hit as `failed to normalize layout, u
 component`. **The adapter must apply the same layer**; treating the fetched schema as
 compile-ready would reproduce that failure per dataset rather than per document.
 
-That layer is a packaging problem, not a technical one. It is pure JavaScript over `ajv`,
+That layer used to be a packaging problem: pure JavaScript over `ajv`,
 `@json-layout/vocabulary` and json-layout's own `resolveLocaleRefs` — no Vue, no component
-code — but it ships only as `@koumoul/vjsf/compat/v2`, from a Vue component library a
-server-side tool has no business depending on. json-layout already vendored a copy into
-`core/webmcp-eval/cases/vjsf-compat-v2.js` for the same reason, with a header explaining
-that CI has no sibling checkout to import from. That is two consumers outside vjsf wanting
-it. **Recommendation: move it to `@json-layout/vocabulary`, or export it as
-`@json-layout/core/compat/v2`,** and let vjsf re-export. Until then the adapter vendors a
-third copy, which is the wrong answer held deliberately.
+code — shipping only as `@koumoul/vjsf/compat/v2`, from a Vue component library a
+server-side tool has no business depending on. **It has been moved.** It is now
+`@json-layout/core/compat/v2` (json-layout `b0d56a9`); vjsf re-exports it so
+`@koumoul/vjsf/compat/v2` keeps working (vjsf `08588651`), and json-layout's webmcp eval
+dropped the pinned copy it had vendored for the same reason. The adapter imports it from
+core, which it already depends on through `@json-layout/agents`. Requires core >= 2.10.0.
 
 **The form also edits the schema before compiling it**, and each edit is a question for us:
 
@@ -226,7 +225,7 @@ whole document. `ctx.version` is forwarded as `If-Match` when `load` reported on
 | Tool surface | Flat, profile-gated | `includeSubAgent` makes the alternative a flag we can measure later rather than a design we must pick now. |
 | Media type | `application/json` only | `putDataset` declares `multipart/form-data`; both line operations declare `application/json`. An editor over a multipart body is not in scope. |
 | Schema preprocessing | A `prepareSchema` step between fetch and `compile`: `v2compat`, string-`layout` normalization, then hide attachment and `x-extension` columns | data-fair's production form does exactly this, and skipping it reproduces the `failed to normalize layout` failure per dataset. Column-shaped rules read from the schema, so they need no annotation. |
-| v2 compat source | Vendored, under protest, until json-layout exports it outside vjsf | The layer has no vjsf dependency; depending on `@koumoul/vjsf` from a server library to reach it is worse than a copy with a pointer to the upstream file. |
+| v2 compat source | `@json-layout/core/compat/v2` | Moved there for this, and for json-layout's own eval, which had vendored a copy. No new dependency: core arrives with `@json-layout/agents`. |
 | Dependency | `@json-layout/agents` as an optional peer, imported lazily | It pulls `@json-layout/core` and its transitive dependencies; a consumer using only read tools should not carry them. |
 
 ## The adapter
@@ -238,7 +237,6 @@ src/editor/session-spec.ts   ResolvedOperation -> SessionSpec (+ the schema-fn m
 src/editor/prepare-schema.ts a fetched schema -> a compilable one
 src/editor/bridge.ts         FormTool -> our Tool (name, description, inputSchema, execute)
 src/editor/index.ts          buildEditorTools(op, o) -> Tool[]
-src/editor/vendor/vjsf-compat-v2.js   copied from @koumoul/vjsf, header pointing home
 ```
 
 **Resource selection.** `FormSession`'s tools have fixed input schemas and no notion of
