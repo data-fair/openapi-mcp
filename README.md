@@ -2,6 +2,15 @@
 
 Turns an OpenAPI document annotated with a custom `x-agent` extension into MCP tools for AI agents. Use it as a library to build a tool set from a spec and wire it into any MCP server, or run the bundled standalone binary to serve a spec directly over stdio or HTTP.
 
+- **Annotation reference:** [`docs/x-agent.md`](docs/x-agent.md) — every key of the vocabulary.
+- **Form tools:** [`docs/editor-tool-groups.md`](docs/editor-tool-groups.md) — turn a write operation into eight json-layout editing tools.
+
+## Install
+
+```sh
+npm install @data-fair/openapi-mcp
+```
+
 ## Library
 
 ```ts
@@ -12,6 +21,11 @@ const toolSet = await load('https://example.com/openapi.json', { profile: 'explo
 const server = createMcpServer(toolSet, { name: 'my-api', version: '1.0.0' })
 // server.connect(transport) with any @modelcontextprotocol/sdk transport
 ```
+
+`load` returns `{ profile, instructions, tools }` — provider-agnostic tools, each with an
+input schema, a description, MCP annotations and an `execute(params)` that returns
+`{ text, structuredContent?, isError? }` and never throws. `toMcpServer(toolSet, server)`
+registers them on an existing SDK `Server` if you already have one.
 
 ## Standalone server
 
@@ -45,6 +59,31 @@ Example MCP client configuration:
 }
 ```
 
+## Editor tool groups
+
+Annotate a write operation with `editor` and it becomes eight json-layout form tools —
+`describeState`, `getData`, `setData`, `setFieldValue`, `getFieldSuggestions`,
+`editArray`, `saveForm`, `reloadForm` — instead of one opaque body-submitting tool. A
+session per record loads the current document, validates every edit, and saves the whole
+document when it is valid.
+
+```yaml
+put:
+  operationId: updateLine
+  x-agent:
+    profiles: [write]
+    name: dataset_line
+    editor:
+      schemaOperation: readSchema
+      schemaParams: { mimeType: application/schema+json }
+      readOperation: readLine
+```
+
+`@json-layout/agents` and `@json-layout/core` are optional peers, imported lazily and
+needed only when an editor annotation is present. See
+[`docs/editor-tool-groups.md`](docs/editor-tool-groups.md) for the annotation, the tool
+surface, schema preprocessing and limitations.
+
 ## Large request bodies
 
 A write operation's request body schema can be far too large to put in a tool definition —
@@ -67,30 +106,20 @@ document are not linted: they belong upstream.
 A disagreement refuses the tool set by default, listing every one at once. Pass
 `lint: 'warn'` to print and continue, or `lint: 'off'` to skip the check.
 
-See [`docs/superpowers/specs/2026-09-19-openapi-mcp-design.md`](docs/superpowers/specs/2026-09-19-openapi-mcp-design.md) for the `x-agent` vocabulary.
+## Coding agent skill
 
-Experimental — phase 1 (core) of the design.
+A skill that teaches coding agents to write and review `x-agent` annotations lives in
+[`skills/openapi-mcp`](skills/openapi-mcp/SKILL.md). Install it into a project with:
 
-## Evaluating
-
-An eval harness compares this project's annotation-derived tools against the hand-written
-`data-fair/mcp` tool set on the same scenarios, judged blind to which arm produced each
-transcript. Design and results: [`docs/superpowers/specs/2026-09-19-eval-harness-design.md`](docs/superpowers/specs/2026-09-19-eval-harness-design.md).
-
-```bash
-npm run eval:run     # runs every scenario against both arms
-npm run eval:judge    # judges each transcript, blind to arm
-npm run eval:report   # prints the comparison table and totals
-npm run eval           # all three, in order
+```sh
+npx skills add data-fair/openapi-mcp
 ```
 
-`OPENAPI_MCP_EVAL_MODEL` (default `haiku`) picks the runner model; `OPENAPI_MCP_EVAL_JUDGE_MODEL`
-(default `sonnet`) picks the judge model. `DATA_FAIR_MCP` points at the sibling
-`data-fair/mcp` checkout used for arm A (default `~/data-fair/mcp`).
+## Contributing
 
-This costs money (runner + judge model calls) and hits a live public data-fair instance —
-it is not run in CI. The first full run (22 scenario x arm runs plus 22 judge calls) cost
-about **$1.10** total (runner on `haiku` plus judging on `sonnet`). `eval:judge` has no
-skip-if-already-judged check — it re-judges every transcript in `evals/runs/` on every
-invocation, so re-running it (e.g. after a partial `eval:run`) re-bills all of them, not
-just the new ones. See `evals/baselines/2026-09-21/` for the newest baseline.
+Development commands, the evaluation harness and the release process are in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+## License
+
+AGPL-3.0-only

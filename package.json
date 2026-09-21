@@ -5,8 +5,28 @@
   "type": "module",
   "license": "AGPL-3.0-only",
   "author": "Alban Mouton <alban.mouton@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/data-fair/openapi-mcp.git"
+  },
+  "homepage": "https://github.com/data-fair/openapi-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/data-fair/openapi-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "openapi",
+    "ai-agents",
+    "data-fair",
+    "json-layout",
+    "x-agent"
+  ],
   "engines": {
-    "node": "v24"
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "exports": {
     ".": {
@@ -22,7 +42,8 @@
     "openapi-mcp": "./dist/bin/server.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "skills"
   ],
   "scripts": {
     "lint": "eslint .",
