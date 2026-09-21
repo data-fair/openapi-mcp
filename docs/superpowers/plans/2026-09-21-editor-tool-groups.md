@@ -70,24 +70,25 @@
 
 Add to `test/vocabulary.test.ts`:
 
+`validateVocabulary(doc)` returns `void` and **throws** on an invalid document — assert with `doesNotThrow` / `throws`, matching the existing cases at `test/vocabulary.test.ts:22-49`. It is already imported at the top of that file.
+
 ```ts
 describe('editor annotation', () => {
   it('accepts the full object form', () => {
-    const doc = editorDoc({ schemaOperation: 'readSchema', schemaParams: { mimeType: 'application/schema+json' }, readOperation: 'readLine' })
-    assert.deepEqual(validateVocabulary(doc), [])
+    const d = editorDoc({ schemaOperation: 'readSchema', schemaParams: { mimeType: 'application/schema+json' }, readOperation: 'readLine' })
+    assert.doesNotThrow(() => validateVocabulary(d))
   })
 
   it('accepts the true shorthand, which means the declared body schema', () => {
-    assert.deepEqual(validateVocabulary(editorDoc(true)), [])
+    assert.doesNotThrow(() => validateVocabulary(editorDoc(true)))
   })
 
   it('accepts an object with no schemaOperation', () => {
-    assert.deepEqual(validateVocabulary(editorDoc({ readOperation: 'readLine' })), [])
+    assert.doesNotThrow(() => validateVocabulary(editorDoc({ readOperation: 'readLine' })))
   })
 
   it('rejects an unknown key', () => {
-    const findings = validateVocabulary(editorDoc({ schemaOperation: 'readSchema', schemaOperaton: 'typo' }))
-    assert.equal(findings.length > 0, true)
+    assert.throws(() => validateVocabulary(editorDoc({ schemaOperation: 'readSchema', schemaOperaton: 'typo' })), /editor/)
   })
 })
 ```
@@ -101,8 +102,6 @@ const editorDoc = (editor: unknown) => ({
   paths: { '/things/{id}': { put: { operationId: 'updateThing', 'x-agent': { name: 'thing', editor } } } }
 })
 ```
-
-Match the existing file's import of the vocabulary validator; if it is named differently from `validateVocabulary`, use that name and keep the assertions as written.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
