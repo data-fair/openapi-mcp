@@ -568,3 +568,37 @@ showed up, not whether these structural gaps exist.
   runner tier (`haiku`) specifically because it's cheap enough to re-run. None of the
   numbers above should be read as more precise than "directionally, on this run" until a
   second run either reproduces or contradicts them.
+
+### Tool examples: considered and deferred
+
+Adding `x-agent.examples` to the six `explore` tools was the obvious next move — the
+vocabulary supports it end to end, the MCP adapter emits it as
+`_meta: { 'anthropic/inputExamples': … }`, and the data-fair annotation set declares none.
+Anthropic reports examples taking complex parameter handling from 72% to 90%.
+
+This run says not yet, for two reasons.
+
+**Our arm shows no shape failures for examples to fix.** Sorting the run's rejections by
+kind, the only malformed-argument errors are on the hand-written arm:
+
+```
+aggregation--A  call 3  sort: "\"-count\""   -> 400, field "-count" does not exist
+aggregation--A  call 4  sort: "\"-metric\""  -> 400, field "-metric" does not exist
+```
+
+Both are one mistake — a doubly-quoted string where a plain one was wanted. The annotated
+arm made none: its `filters` description already carries an inline example
+(`{ "ville_eq": "Paris", "age_lte": "30", … }`) and it produced the right shape every time.
+Examples would be insurance against a failure this baseline does not contain.
+
+**The failures it does contain are ones examples cannot fix.** Every remaining rejection is
+a guessed *column name* — `forme_juridique`, `commune_siege`, `ville`, `nom_rais_sociale` —
+and those are per-dataset. No example can supply them. They trace to the capped
+`describe_dataset` documented as item B1 in the data-fair agent-readiness notes: in every
+scenario where a column was rejected, the schema had failed to load earlier in the same
+transcript, and in no scenario did an agent read a schema successfully and then guess.
+
+So a re-run with examples would mostly re-measure the schema-cap problem. The decision is
+to revisit once B1 lands and that noise clears, at which point a before/after on examples
+would measure examples. Recorded rather than dropped: the mechanism is built and tested,
+only the annotations are unwritten.
