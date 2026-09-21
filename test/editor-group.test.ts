@@ -87,4 +87,12 @@ describe('editor tool group', () => {
     const { instructions } = await load(doc, { profile: 'write', fetch: fetchFn, baseUrl: 'https://api.test/v1' })
     assert.match(instructions, /dataset_line/)
   })
+
+  it('publishes the operation title in every tool description', async () => {
+    const { tools } = await load(doc, { profile: 'write', fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    for (const tool of tools) {
+      assert.match(tool.description, /Edit a record/, `${tool.name} should carry the operation title`)
+      assert.doesNotMatch(tool.description, /"form"/, `${tool.name} should not carry the bootstrap title`)
+    }
+  })
 })

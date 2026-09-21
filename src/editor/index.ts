@@ -1,12 +1,12 @@
 import { resolveEditorOperations } from './operations.ts'
 import { buildSessionSpec, createSchemaRegistry, type EditorContext } from './session-spec.ts'
 import { bridgeTool, type FormTool } from './bridge.ts'
+import { localize } from '../localize.ts'
 import type { ResolvedOperation, Tool } from '../types.ts'
 
 export type { EditorContext } from './session-spec.ts'
 
 const STUB_SPEC = {
-  title: 'form',
   load: () => ({}),
   schema: () => ({ type: 'object', properties: {} })
 }
@@ -26,7 +26,13 @@ export async function buildEditorTools (op: ResolvedOperation, ctx: EditorContex
   const store = createSessionStore<any>()
   const pathParams = op.params.filter(p => p.in === 'path')
 
-  const bootstrap = createFormSession({ ...STUB_SPEC, prefixName: `${op.toolName}_` } as any)
+  // The title is the same expression buildSessionSpec uses: the package interpolates it
+  // into every tool description, so published and runtime text must not drift.
+  const bootstrap = createFormSession({
+    ...STUB_SPEC,
+    title: localize(op.agent.title, ctx.locale) ?? op.operationId,
+    prefixName: `${op.toolName}_`
+  } as any)
   await bootstrap.open()
   const descriptors: FormTool[] = bootstrap.getTools()
   bootstrap.close()
