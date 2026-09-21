@@ -4,7 +4,7 @@
 
 ## Where these came from
 
-Two exercises against `opendata.koumoul.com`:
+Three exercises against `opendata.koumoul.com`:
 
 1. **Phase 1** annotated data-fair's root OpenAPI document with `x-agent` and generated
    six `explore` tools from it, then diffed them against the hand-written
@@ -13,6 +13,9 @@ Two exercises against `opendata.koumoul.com`:
 2. **Phase 2** ran 11 scenarios against both tool sets through a real agent and judged
    the transcripts. Its baseline lives in `evals/baselines/2026-09-21/`, and every
    anchor below was re-verified against those files before being written down.
+3. **Phase 3** probed json-layout editor sessions against two candidate write targets.
+   The first, dataset PATCH, was abandoned; what it found about the API on the way is
+   recorded here as A5 and A6.
 
 Each item says what data-fair does today, what to change, and — where relevant — which
 `x-agent` annotation becomes possible once it is changed. Several of the annotations we
@@ -114,6 +117,58 @@ needed.
 **Not recommended.** `agent-tools` accepts the whole `next` URL as a tool input and
 re-issues it. That is a legitimate design but a different one, and we are not copying it —
 the generated tool exposing the documented `after` parameter is the simpler contract.
+
+---
+
+### A5. `/datasets/{id}/schema` declares one response shape for three `mimeType` values
+
+**Today.** The operation accepts `mimeType` with an enum of `application/json`,
+`application/tableschema+json` and `application/schema+json`, and declares a single 200
+response for all three: `{"type": "array", "items": {"type": "object"}}`.
+
+**Evidence.** `application/schema+json` on `communes-de-france` returns not an array of
+columns but a JSON Schema object — `{"type":"object","required":[],"properties":{"code_commune":…}}`,
+4,992 characters. The declared shape is wrong for at least one of the three legal values.
+
+**Why it matters.** This is the operation the line editor reads its schema from (see
+`2026-09-21-editor-tool-groups-design.md`). Nothing in the document says that one
+parameter value turns the response into a JSON Schema, so the annotation has to assert it
+out of band: `editor.schemaOperation` names the operation and `editor.schemaParams` pins
+`mimeType`. A generator that trusted the declared response would build a tool documented
+to return a column list and in fact returning a schema.
+
+**Change.** Declare the three shapes under their real media types in the response's
+`content` map and let `Accept` select between them, keeping `mimeType` as the documented
+override for clients that cannot set a header. This is the same content-negotiation route
+phase 1 already uses for `text/markdown`. Then the schema shape is discoverable from the
+document, and the annotation only has to name an operation rather than pin a value.
+
+### A6. A dataset fetched from the API does not validate against its own write schema
+
+**Today.** `GET /datasets/{id}` returns a document that `datasetPatch` — the schema for
+writing it back — rejects, unmodified.
+
+**Evidence.** `communes-de-france` fetched live, 33 keys, validated against the
+`datasetPatch` schema from the frozen root document:
+
+```
+valid: false, 3 errors
+  /rest/ttl → required information
+  /rest     → must be null
+  /rest     → must match a schema in anyOf
+```
+
+The document's `rest` value satisfies neither branch of its own `anyOf`.
+
+**Why it matters.** Read-modify-write is the normal shape of an edit, and here it cannot
+start: the document is invalid before anything touches it. A validating client — a form, a
+generated editor, a careful agent — must then be told to ignore errors it did not cause,
+which is exactly the instruction that stops it distinguishing those from errors it did
+cause. This finding is why dataset PATCH is no longer the editor's first target.
+
+**Change.** The read shape and the write schema disagree and one of them has to move.
+`ttl.prop` being `required` inside a branch the emitted document does not populate reads
+like a schema authored for the create path and reused for the patch path.
 
 ---
 

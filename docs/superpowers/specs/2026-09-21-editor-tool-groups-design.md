@@ -1,8 +1,9 @@
 # Editor tool groups — design
 
 *2026-09-21. Experimental; not aiming for production yet.*
-*Rewritten after finding `@json-layout/agents`, which implements most of what an earlier
-draft of this document specified from scratch.*
+*Second rewrite. The first was written from scratch before `@json-layout/agents` was
+found; this one moves the target from dataset PATCH to dataset lines after a probe
+disqualified the former.*
 
 ## Why
 
@@ -13,17 +14,52 @@ For a body whose difficulty is only its **size**, the answer is already built: `
 compact` renders the schema as a listing and validates the real thing at execution, taking
 data-fair's dataset write tool from 28,033 characters to 2,840.
 
-This document is for the other case — a body whose difficulty is **branching and remote
-values**. data-fair's `datasetPatch` carries 42 `layout` keywords and six `oneOf` branches:
-which fields are legal depends on which branch is active, and an agent emitting the
-document in one shot has to guess the branch before it knows it is in one. That is what
-`@json-layout/core` solves, in production, through tools that let an agent read a form,
-activate a variant, fill one field at a time and see validation scoped to what it changed.
+This document is for the case `body: compact` structurally cannot reach: **a body whose
+schema is not in the OpenAPI document at all**. It is decided at runtime, per resource.
 
-## What already exists, and what is left for us
+## The target: dataset lines
 
-`@json-layout/agents` is the server-side half of that story, and it is nearly all of this
-feature:
+`POST /datasets/{id}/lines` (`createLine`) and `PUT /datasets/{id}/lines/{lineId}`
+(`updateLine`) write one record into a REST dataset. What their body accepts depends
+entirely on which dataset `{id}` names.
+
+The document cannot say so. Its declared body for both is the synthetic seven-column
+sample — `name, description, category, value, siret, image, document` — that finding A3
+of the readiness notes already condemns. It is fiction for every real dataset.
+
+The real schema is one GET away:
+
+```
+GET /datasets/communes-de-france/schema?mimeType=application/schema+json
+→ {"type":"object","required":[],"properties":{"code_commune":{…},"nom_commune":{…}}}
+  4,992 characters, a genuine JSON Schema
+```
+
+That is the whole reason a session exists here. `body: compact` renders a schema the
+document holds; there is no such schema to render. Fetching one at call time and rendering
+it into a single tool description is not possible either — tool descriptions are published
+once, before any dataset is named. A schema that arrives after the tool list has shipped
+needs somewhere to live between calls, and that is a session.
+
+**This target was chosen over dataset PATCH**, which the first draft assumed. The probe
+that killed it is recorded as finding A6: a `communes-de-france` document fetched live is
+already invalid against `datasetPatch` before any edit — three errors on `rest`. An editor
+whose first act is to report three errors the agent did not cause is worse than no editor.
+Lines have no such problem, and `updateLine` is a **PUT**, so the session submits the whole
+document and needs no diff against `SaveContext.base`.
+
+Two further shapes of the same need exist in the product, and the design should not
+foreclose them:
+
+| Shape | Where the schema comes from | Covered here |
+|---|---|---|
+| Dataset lines | runtime `GET /datasets/{id}/schema` | yes — this document |
+| Application config | runtime GET on the application's config schema | same mechanism, not built yet |
+| Portals page / portal config | a layout **precompiled at build time**, imported per locale (`portals/ui/src/composables/use-page-config-webmcp.ts`) | no — see Non-goals |
+
+## What already exists
+
+`@json-layout/agents` is the server-side half of this feature, and it is nearly all of it:
 
 | Concern | Where it lives |
 |---|---|
@@ -33,102 +69,175 @@ feature:
 | In-flight save protection | `save()` rejects a second save while one is running |
 | Optimistic concurrency | `SaveContext { version, base }`, `unwrapEnvelope` |
 | Compiled-layout reuse across sessions | `resolveCompiledLayout` / `clearLayoutCache` |
-| Tool surface | `session.tools` — core's six plus `saveForm` and `reloadForm` |
+| Tool surface | `getTools()` — core's six plus `saveForm` and `reloadForm` |
 | Flat vs sub-agent | `includeSubAgent`, `includeFillFormSkill` flags |
 | Tool prefixing | `prefixName` |
 
 **What is left for us is one adapter**: turn an annotated OpenAPI operation into a
-`SessionSpec`, and give the agent a way to say *which* resource it is editing.
+`SessionSpec`, and give the agent a way to say which resource it is editing.
+
+## The annotation
+
+`editor` names up to two *other* operations by `operationId`:
+
+```yaml
+# PUT /datasets/{id}/lines/{lineId}
+x-agent:
+  profiles: [write]
+  name: dataset_line
+  title: { en: Edit a dataset record, fr: Éditer un enregistrement }
+  editor:
+    schemaOperation: readSchema
+    schemaParams: { mimeType: application/schema+json, calculated: 'false' }
+    readOperation: readLine
+```
+
+```yaml
+# POST /datasets/{id}/lines
+x-agent:
+  profiles: [write]
+  name: dataset_new_line
+  title: { en: Add a dataset record, fr: Ajouter un enregistrement }
+  editor:
+    schemaOperation: readSchema
+    schemaParams: { mimeType: application/schema+json, calculated: 'false' }
+    # no readOperation — nothing to load
+```
+
+- **`schemaOperation`** — the operation whose *response body* is the JSON Schema for this
+  operation's request body. Absent means the schema is the one the document already
+  declares for this request body, which is what the existing `editor: true` shorthand
+  means and what a layout-annotated in-document schema needs. The dataset-line target
+  always names one.
+- **`schemaParams`** — fixed values for that operation's parameters. Required in practice
+  here, because `readSchema` returns a JSON Schema only under one `mimeType` value, and
+  the document does not say so (finding A5). `calculated: 'false'` drops the columns an
+  agent must not write.
+- **`readOperation`** — the operation that loads the current document. Absent means a
+  create: `load` returns `{}` with no HTTP call.
+
+Path parameters are matched **by name** between the three operations. `readSchema` takes
+`id`; `updateLine` takes `id` and `lineId`; `readLine` takes both. `load` fails if a named
+operation has a path parameter the write operation does not supply — a document error we
+want at load time, not at call time.
+
+**Known divergence.** `createLine`'s declared body carries an `_action` enum
+(`create`/`delete`/`update`/`createOrUpdate`/`patch`) that the fetched `/schema` response
+does not. The editor drops it; a POST with no `_action` creates. An agent needing the other
+verbs uses the one-shot tools, not the editor.
+
+## Two keys, and why they are different
+
+Conflating these costs one schema compilation per line edited.
+
+**Session key** — which form is open. Derived from the write operation's name and *all* its
+path parameters: `updateLine:communes-de-france:abc123`. One session per line. This is the
+`SessionStore` key, and re-naming the same line resumes rather than reloads.
+
+**Schema-function identity** — which layout is compiled. `resolveCompiledLayout` caches in
+a `WeakMap` keyed by **the `spec.schema` function object itself**, sub-keyed by compile
+options, and invalidated when that function reports a new `version`. A fresh closure per
+session means a fresh compilation per session.
+
+So the adapter keeps a second map, `Map<schemaKey, schemaFn>`, keyed by the *schema
+operation's* parameters only — `readSchema:communes-de-france` — and hands every session
+over that dataset the **same closure**. Editing two hundred lines of one dataset then
+compiles once. An operation with no `schemaOperation` keys on its own name and gets one
+closure for the life of the process, which is the same rule with a constant schema.
+
+The closure returns the `{ schema, version }` envelope `unwrapEnvelope` recognises. The
+version is what invalidates the compilation when a dataset's columns change. `ETag` on the
+schema response if there is one, otherwise a hash of the response body — this still costs
+one GET per session open, but the GET is 5 KB and the compilation is the expensive part.
+Which of the two it is, is a probe below.
+
+## Mapping an operation to a `SessionSpec`
 
 ```
-SessionSpec.load()   -> GET via the annotation's readOperation
-SessionSpec.save()   -> the annotated write operation
-SessionSpec.schema() -> the operation's request body schema, from the document
-SessionSpec.options  -> { fetch, fetchBaseURL } — the caller's credentials, as everywhere else
-SessionSpec.title    -> the operation's x-agent title
+load()         -> readOperation, or () => ({}) when absent, returning { data, version }
+save(data, ctx)-> the annotated write operation with `data` as the JSON body
+schema()       -> schemaOperation + schemaParams, returning { schema, version };
+                  the declared request body schema, as a literal, when neither is set
+options        -> { fetch, fetchBaseURL } — the caller's credentials, as everywhere else
+title          -> the operation's x-agent title, localized
+prefixName     -> the operation's x-agent name plus '_'
 ```
+
+`ctx.base` goes unused: `updateLine` is a PUT and `createLine` a POST, so both send the
+whole document. `ctx.version` is forwarded as `If-Match` when `load` reported one.
 
 ## Decisions
 
 | Decision | Choice | Why |
 |---|---|---|
-| Session identity | The resource's own path parameters, as the store key | The package documents keying by `${userId}:${resourcePath}:${recordId}`. The resource id *is* the token, so there is nothing opaque to carry and re-opening the same dataset resumes rather than reloads. |
-| Resource selection | Every editor tool takes the operation's path parameters | No hidden "current form". Two datasets can be edited in one session without a mode. |
-| Validity gate | `FormSession`'s own, `allowInvalid` left at its default | It already exists and reports the errors; adding ours would be a second gate disagreeing with the first. |
-| Descriptor bootstrapping | Open a throwaway session over a stub `load` at `load()` time | Tool descriptions come from the package rather than being re-typed here, and it costs no HTTP. See below. |
+| Resource selection | Every editor tool takes the write operation's path parameters | No hidden "current form". Two lines, or two datasets, can be edited in one session without a mode. |
+| Create-session identity | `createLine:{id}` — no line id exists yet | One draft per dataset at a time. A second "add a record" to the same dataset resumes the first draft, which is the behaviour a draft should have; `reloadForm` discards it. |
+| Validity gate | `FormSession`'s own, `allowInvalid` left at its default | It already exists and reports the errors; a second gate would only disagree with the first. |
+| Descriptor bootstrapping | Open a throwaway session over a stub `load` and a stub `schema` at `load()` time | Tool descriptions come from the package rather than being re-typed here, and it costs no HTTP. |
 | Tool surface | Flat, profile-gated | `includeSubAgent` makes the alternative a flag we can measure later rather than a design we must pick now. |
-| Dependency | `@json-layout/agents` as an optional peer, imported lazily | It pulls `@json-layout/core` and nine transitive dependencies; a consumer using only read tools should not carry them. |
+| Media type | `application/json` only | `putDataset` declares `multipart/form-data`; both line operations declare `application/json`. An editor over a multipart body is not in scope. |
+| Dependency | `@json-layout/agents` as an optional peer, imported lazily | It pulls `@json-layout/core` and its transitive dependencies; a consumer using only read tools should not carry them. |
 
 ## The adapter
 
 Three small files:
 
 ```
-src/editor/session-spec.ts   ResolvedOperation -> SessionSpec
+src/editor/session-spec.ts   ResolvedOperation -> SessionSpec (+ the schema-fn map)
 src/editor/bridge.ts         FormTool -> our Tool (name, description, inputSchema, execute)
 src/editor/index.ts          buildEditorTools(op, o) -> Tool[]
 ```
 
 **Resource selection.** `FormSession`'s tools have fixed input schemas and no notion of
-which dataset is being edited, so our bridge wraps each one: it adds the operation's path
-parameters to the tool's `inputSchema`, resolves the session through
+which resource is being edited, so the bridge wraps each one: it adds the write operation's
+path parameters to the tool's `inputSchema`, resolves the session through
 `store.getOrCreate(key, factory)` keyed by those parameters, then delegates the remaining
 arguments to the package's tool. The factory creates the `FormSession` and opens it, so a
-first call loads the document and a later call resumes the same form.
+first call loads and a later call resumes.
 
-**Descriptor bootstrapping.** `session.tools` throws while the session is closed, but
-`load()` must publish tool descriptors before any resource is named and without making an
-HTTP call. So at load time we build one throwaway session whose `load` returns `{}` — a
-literal, no I/O — open it, take its `tools` for their names, descriptions and input
-schemas, and discard it. The eight descriptions then come from the package rather than
-being duplicated here, which matters because they are the text an agent reads to decide
-what to call.
+**Descriptor bootstrapping.** `getTools()` throws while the session is closed, but `load()`
+must publish descriptors before any resource is named and without making an HTTP call. So
+at load time we build one throwaway session whose `load` returns `{}` and whose `schema`
+returns a literal empty object schema, open it, take its tools for their names, descriptions
+and input schemas, and discard it. The eight descriptions then come from the package rather
+than being duplicated here — they are the text an agent reads to decide what to call.
+
+**Names.** `<x-agent name>_<verb>`, the verbs being the package's own camelCase names:
+`dataset_line_getData`, `_setData`, `_describeState`, `_setFieldValue`,
+`_getFieldSuggestions`, `_editArray`, `_saveForm`, `_reloadForm`. `prefixName` does the
+prefixing.
 
 **Errors.** `FormSession` throws `sessionError` with a status (`closed`, `readonly`,
 `saving`, `invalid`). The bridge turns those into `{ isError: true, text }` results rather
-than exceptions, consistent with every other tool in this library: a tool call that fails
-is a datum the agent can act on, not a crash.
+than exceptions, consistent with every other tool in this library: a failed tool call is a
+datum the agent can act on, not a crash.
 
-## Annotation
-
-The vocabulary slot exists from phase 1; only `readOperation` becomes meaningful.
-
-```yaml
-x-agent:
-  profiles: [edit]
-  name: dataset_metadata
-  editor: { readOperation: readDescription }
-  title: { en: Edit dataset metadata, fr: Éditer les métadonnées }
-```
-
-Tools are `<toolName>_<verb>`, and the verbs are the package's own camelCase names:
-`dataset_metadata_describeState`, `_setFieldValue`, `_setData`, `_editArray`,
-`_getFieldSuggestions`, `_getData`, `_saveForm`, `_reloadForm`. `prefixName` does the
-prefixing.
-
-`load` changes in three places: `resolveOperations` stops throwing on `editor` and instead
-throws only when the operation has no JSON request body or names no `readOperation`;
-`makeTool` returns `Tool[]` for an editor operation and `load` flattens; and the guide from
+**Changes to `load`.** `resolveOperations` stops throwing on `editor` and instead throws
+when the operation has no JSON request body, or names an operation that does not exist
+or needs a path parameter the write operation lacks;
+`makeTool` returns `Tool[]` for an editor operation and `load` flattens; the guide from
 core's `generateSkill` is appended to `instructions` as its own section, keeping phase 1's
 rule that skills are text.
 
 ## Open questions, to settle by probing before implementation
 
-Two things an earlier probe surfaced that this design does not yet answer, both cheap to
-resolve and both better resolved before code than during it:
+Cheap to resolve, and better resolved before code than during it.
 
-1. **Does a real fetched document validate against the write schema?** Seeding a layout
-   with a stub produced three errors on `datasetPatch`'s `/rest` branch before any edit.
-   If a real document does the same, `allowInvalid` becomes a per-operation annotation
-   rather than a default; if it validates, the gate is simply the package's.
-2. **Does `datasetPatch` compile cleanly?** The same probe emitted `failed to normalize
-   layout, use default component` and `/title must be string`, which suggests some of its
-   42 `layout` keywords are vjsf-v2 style and would need the compatibility layer
-   json-layout applies to `app-calendar` in its own eval. That would be real extra scope.
-
-A third, smaller: `putDataset` declares `multipart/form-data`, not `application/json`, so
-the operation `editor` attaches to may need to be `patchDataset` — or the annotation may
-need to name the media type. To check against the frozen document.
+1. **Does a fetched dataset schema compile cleanly?** The response carries `x-refersTo`,
+   `x-capabilities` and friends, and French `title` strings. Unknown keywords should be
+   ignored, but the earlier PATCH probe emitted `failed to normalize layout, use default
+   component` on vjsf-v2-style `layout` keywords, so "should" is not evidence.
+2. **Does a fetched line validate against its own fetched schema?** A line carries `_id`
+   and other calculated columns that `calculated: 'false'` removes from the schema. The
+   schema sets no `additionalProperties: false`, so it should pass — the same "should".
+   This is A6's question asked of the new target, and it is the one that would disqualify
+   it the way A6 disqualified the last.
+3. **Is there an `ETag` on `/datasets/{id}/schema`?** Decides whether the schema closure's
+   version is a header or a hash.
+4. **Is the save gate worth anything on a plain dataset?** A fetched schema with
+   `required: []` and few formats validates almost everything, so the gate may never fire.
+   That is not a reason to remove it, but it is a reason not to claim it as a benefit until
+   a typed dataset shows it firing.
 
 ## Testing
 
@@ -136,11 +245,16 @@ The package carries its own suite (`session.spec.js`, `session-store.spec.js`,
 `layout-cache.spec.js`); we do not retest it.
 
 - `session-spec` — an operation maps to `load`/`save`/`schema`/`options` correctly, with a
-  stubbed `fetch` asserting the right method, URL and body.
+  stubbed `fetch` asserting method, URL, query string and body for all three calls;
+  `readOperation` absent yields a `load` that makes no request.
+- Schema-function identity — two sessions over the same dataset receive the *same* function
+  object and compile once; two datasets get two. This is the test that protects the cache.
+- Path-parameter matching — a `schemaOperation` needing a parameter the write operation
+  lacks fails at `load`, not at call time.
 - `bridge` — path parameters are added to each tool's input schema, the session key is
   derived from them, and a `sessionError` becomes an `isError` result rather than a throw.
-- Group assembly — eight tools, prefixed, profile-gated, appearing only in a profile that
-  includes the operation.
+- Group assembly — eight tools, prefixed, appearing only in a profile that includes the
+  operation.
 - One end-to-end check against the live API, run by hand and reported — the discipline that
   caught the `agg_size` bug no test saw.
 
@@ -148,8 +262,16 @@ The package carries its own suite (`session.spec.js`, `session-store.spec.js`,
 
 - No session store, save logic, TTL, concurrency handling or layout caching of our own.
   All of it exists; writing a second one would be the mistake this rewrite exists to avoid.
+- **No precompiled-layout source.** Portals holds layouts compiled at build time and
+  imported per locale. `SessionSpec.layout` accepts exactly that and wins over `schema`, so
+  the package is ready; what is missing is a way for an OpenAPI annotation to name a
+  compiled artifact, which is a packaging question, not this one.
+- No `patchLine`. PUT submits everything and needs no diff; PATCH would need one. This
+  holds the "restrict to PUT" ruling made when the target was datasets.
 - No sub-agent mode in this phase — `includeSubAgent` is a flag, so it becomes a
   measurement rather than a decision.
-- No new vocabulary beyond `editor.readOperation`.
+- No vocabulary beyond `editor.{schemaOperation, schemaParams, readOperation}`, which
+  extends the existing slot rather than replacing it: `editor: true` keeps meaning
+  "edit the declared request body as it stands".
 - The package's tools are consumed as they are. If one needs changing, it changes in
   `@json-layout/agents`, where its tests live.
