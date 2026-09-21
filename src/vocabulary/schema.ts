@@ -79,7 +79,20 @@ export const operationSchema: JsonSchema = {
         hints: { type: 'boolean' }
       }
     },
-    editor: { oneOf: [{ const: true }, { type: 'object', additionalProperties: false, properties: { readOperation: { type: 'string' } } }] }
+    editor: {
+      oneOf: [
+        { const: true },
+        {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            schemaOperation: { type: 'string' },
+            schemaParams: { type: 'object' },
+            readOperation: { type: 'string' }
+          }
+        }
+      ]
+    }
   }
 }
 

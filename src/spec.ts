@@ -84,6 +84,36 @@ function mergeParam (raw: JsonSchema, override: AgentParamOverride | undefined):
   }
 }
 
+function resolveOne (path: string, item: any, method: string, op: any, agent: AgentOperation, profiles: string[] | true, prefix: string): ResolvedOperation {
+  const tags: string[] = op.tags ?? []
+  // path-level params first, operation-level override by (in, name)
+  const rawParams = new Map<string, JsonSchema>()
+  for (const p of [...(item.parameters ?? []), ...(op.parameters ?? [])]) {
+    if (!['path', 'query', 'header'].includes(p.in)) continue
+    rawParams.set(`${p.in}:${p.name}`, p)
+  }
+  const params = [...rawParams.values()].map(p => mergeParam(p, agent.params?.[p.name]))
+
+  const bodyMedia = op.requestBody?.content?.['application/json']
+  const okCode = Object.keys(op.responses ?? {}).find(c => /^2\d\d$/.test(c))
+  const okContent = okCode ? op.responses[okCode]?.content ?? {} : {}
+
+  return {
+    operationId: op.operationId,
+    method: method.toUpperCase(),
+    path,
+    tags,
+    summary: op.summary,
+    description: op.description,
+    params,
+    requestBody: bodyMedia ? { schema: bodyMedia.schema ?? {}, required: op.requestBody.required === true } : undefined,
+    responseSchema: okContent['application/json']?.schema,
+    responseMediaTypes: Object.keys(okContent),
+    agent: { ...agent, profiles },
+    toolName: prefix + (agent.name ?? snakeCase(op.operationId))
+  }
+}
+
 export function resolveOperations (doc: JsonSchema, profile: string): ResolvedOperation[] {
   const root: AgentRoot = doc['x-agent'] ?? {}
   const prefix = root.namePrefix ?? ''
@@ -101,42 +131,29 @@ export function resolveOperations (doc: JsonSchema, profile: string): ResolvedOp
       const profiles = agent.profiles ?? tagProfiles ?? true
       if (!profilesInclude(profiles, profile)) continue
       if (!op.operationId) throw new Error(`operation ${method.toUpperCase()} ${path} has x-agent but no operationId`)
-      // editor validates against the vocabulary schema (json-layout form-editing tool groups
-      // over a write operation's body) but nothing in load.ts/input.ts reads it yet — silently
-      // ignoring it would yield a validating document that produces no tool group and no
-      // warning. Fail loudly instead of shipping a document that promises an editor tool set
-      // phase 1 does not build.
-      if (agent.editor) throw new Error(`${op.operationId}: "editor" is not implemented in phase 1`)
 
-      // path-level params first, operation-level override by (in, name)
-      const rawParams = new Map<string, JsonSchema>()
-      for (const p of [...(item.parameters ?? []), ...(op.parameters ?? [])]) {
-        if (!['path', 'query', 'header'].includes(p.in)) continue
-        rawParams.set(`${p.in}:${p.name}`, p)
-      }
-      const params = [...rawParams.values()].map(p => mergeParam(p, agent.params?.[p.name]))
-
-      const bodyMedia = op.requestBody?.content?.['application/json']
-      const okCode = Object.keys(op.responses ?? {}).find(c => /^2\d\d$/.test(c))
-      const okContent = okCode ? op.responses[okCode]?.content ?? {} : {}
-
-      out.push({
-        operationId: op.operationId,
-        method: method.toUpperCase(),
-        path,
-        tags,
-        summary: op.summary,
-        description: op.description,
-        params,
-        requestBody: bodyMedia ? { schema: bodyMedia.schema ?? {}, required: op.requestBody.required === true } : undefined,
-        responseSchema: okContent['application/json']?.schema,
-        responseMediaTypes: Object.keys(okContent),
-        agent: { ...agent, profiles },
-        toolName: prefix + (agent.name ?? snakeCase(op.operationId))
-      })
+      out.push(resolveOne(path, item, method, op, agent, profiles, prefix))
     }
   }
   const dupes = out.map(o => o.toolName).filter((n, i, a) => a.indexOf(n) !== i)
   if (dupes.length) throw new Error(`duplicate tool names: ${[...new Set(dupes)].join(', ')}`)
   return out
+}
+
+/**
+ * Resolve one operation by id with the x-agent and profile gates lifted. An `editor`
+ * annotation names operations that usually have no annotation of their own, so they are
+ * invisible to resolveOperations.
+ */
+export function resolveOperationById (doc: JsonSchema, operationId: string): ResolvedOperation | undefined {
+  const prefix = (doc['x-agent'] as AgentRoot | undefined)?.namePrefix ?? ''
+  for (const [path, item] of Object.entries<any>(doc.paths ?? {})) {
+    for (const method of METHODS) {
+      const op = item?.[method]
+      if (op?.operationId !== operationId) continue
+      const agent: AgentOperation = op['x-agent'] ?? {}
+      return resolveOne(path, item, method, op, agent, agent.profiles ?? true, prefix)
+    }
+  }
+  return undefined
 }

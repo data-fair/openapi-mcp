@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { loadSpec, inlineRefs, resolveOperations, snakeCase, defaultProfile } from '../src/spec.ts'
+import { loadSpec, inlineRefs, resolveOperations, resolveOperationById, snakeCase, defaultProfile } from '../src/spec.ts'
 
 const petstore = JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8'))
 
@@ -78,9 +78,33 @@ describe('resolveOperations', () => {
     }
     assert.throws(() => resolveOperations(inlineRefs(dupeDoc), 'explore'), /duplicate tool names: pets_list_pets/)
   })
-  it('fails loudly on editor: true, not implemented in phase 1', () => {
-    const editorDoc = structuredClone(petstore)
-    editorDoc.paths['/pets'].post['x-agent'].editor = true
-    assert.throws(() => resolveOperations(inlineRefs(editorDoc), 'edit'), /createPet.*"editor" is not implemented in phase 1/)
+})
+
+describe('resolveOperationById', () => {
+  const doc = {
+    openapi: '3.1.0',
+    info: { title: 't', version: '1' },
+    paths: {
+      '/datasets/{id}/schema': {
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        get: {
+          operationId: 'readSchema',
+          parameters: [{ name: 'mimeType', in: 'query', schema: { type: 'string' } }],
+          responses: { 200: { description: 'ok', content: { 'application/json': { schema: { type: 'object' } } } } }
+        }
+      }
+    }
+  }
+
+  it('resolves an operation that has no x-agent at all', () => {
+    const op = resolveOperationById(doc, 'readSchema')
+    assert.equal(op?.operationId, 'readSchema')
+    assert.equal(op?.method, 'GET')
+    assert.equal(op?.path, '/datasets/{id}/schema')
+    assert.deepEqual(op?.params.map(p => `${p.in}:${p.name}`), ['path:id', 'query:mimeType'])
+  })
+
+  it('returns undefined for an unknown id', () => {
+    assert.equal(resolveOperationById(doc, 'nope'), undefined)
   })
 })

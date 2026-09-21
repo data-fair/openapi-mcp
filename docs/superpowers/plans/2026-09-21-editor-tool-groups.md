@@ -70,24 +70,25 @@
 
 Add to `test/vocabulary.test.ts`:
 
+`validateVocabulary(doc)` returns `void` and **throws** on an invalid document — assert with `doesNotThrow` / `throws`, matching the existing cases at `test/vocabulary.test.ts:22-49`. It is already imported at the top of that file.
+
 ```ts
 describe('editor annotation', () => {
   it('accepts the full object form', () => {
-    const doc = editorDoc({ schemaOperation: 'readSchema', schemaParams: { mimeType: 'application/schema+json' }, readOperation: 'readLine' })
-    assert.deepEqual(validateVocabulary(doc), [])
+    const d = editorDoc({ schemaOperation: 'readSchema', schemaParams: { mimeType: 'application/schema+json' }, readOperation: 'readLine' })
+    assert.doesNotThrow(() => validateVocabulary(d))
   })
 
   it('accepts the true shorthand, which means the declared body schema', () => {
-    assert.deepEqual(validateVocabulary(editorDoc(true)), [])
+    assert.doesNotThrow(() => validateVocabulary(editorDoc(true)))
   })
 
   it('accepts an object with no schemaOperation', () => {
-    assert.deepEqual(validateVocabulary(editorDoc({ readOperation: 'readLine' })), [])
+    assert.doesNotThrow(() => validateVocabulary(editorDoc({ readOperation: 'readLine' })))
   })
 
   it('rejects an unknown key', () => {
-    const findings = validateVocabulary(editorDoc({ schemaOperation: 'readSchema', schemaOperaton: 'typo' }))
-    assert.equal(findings.length > 0, true)
+    assert.throws(() => validateVocabulary(editorDoc({ schemaOperation: 'readSchema', schemaOperaton: 'typo' })), /editor/)
   })
 })
 ```
@@ -101,8 +102,6 @@ const editorDoc = (editor: unknown) => ({
   paths: { '/things/{id}': { put: { operationId: 'updateThing', 'x-agent': { name: 'thing', editor } } } }
 })
 ```
-
-Match the existing file's import of the vocabulary validator; if it is named differently from `validateVocabulary`, use that name and keep the assertions as written.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -218,11 +217,13 @@ Expected: FAIL — `resolveOperationById is not defined`.
 
 - [ ] **Step 3: Extract and export**
 
-In `src/spec.ts`, move the body of the inner `for (const method of METHODS)` loop — everything from the `rawParams` map down to the object pushed onto `out` — into a module-level function, and have both callers use it:
+In `src/spec.ts`, move the part of the inner `for (const method of METHODS)` loop that starts at the `rawParams` map (the `// path-level params first` comment) and runs down to the object pushed onto `out`, into a module-level function, and have both callers use it.
+
+**`profiles` is computed above that point and is used in the returned `agent` field**, so it is a parameter, not something `resolveOne` recomputes — `resolveOperations` passes its tag-resolved value, `resolveOperationById` passes `agent.profiles ?? true`:
 
 ```ts
-function resolveOne (doc: JsonSchema, path: string, item: any, method: string, op: any, agent: AgentOperation, prefix: string): ResolvedOperation {
-  // ...the existing body, unchanged, returning the ResolvedOperation instead of pushing it
+function resolveOne (path: string, item: any, method: string, op: any, agent: AgentOperation, profiles: string[] | true, prefix: string): ResolvedOperation {
+  // ...the existing body verbatim, returning the ResolvedOperation instead of pushing it
 }
 
 /**
@@ -236,7 +237,8 @@ export function resolveOperationById (doc: JsonSchema, operationId: string): Res
     for (const method of METHODS) {
       const op = item?.[method]
       if (op?.operationId !== operationId) continue
-      return resolveOne(doc, path, item, method, op, op['x-agent'] ?? {}, prefix)
+      const agent: AgentOperation = op['x-agent'] ?? {}
+      return resolveOne(path, item, method, op, agent, agent.profiles ?? true, prefix)
     }
   }
   return undefined
@@ -262,6 +264,7 @@ git commit -m "feat: resolve an operation by id regardless of profile"
 ### Task 3: `prepareSchema`
 
 **Files:**
+- Modify: `package.json` (+ `package-lock.json`)
 - Create: `src/editor/prepare-schema.ts`
 - Create: `test/fixtures/dataset-line-schema.json`
 - Test: `test/editor-prepare-schema.test.ts`
@@ -276,7 +279,38 @@ git commit -m "feat: resolve an operation by id regardless of profile"
 
 **Context for the implementer:** data-fair's own line-editing form (`data-fair/ui/src/components/dataset/form/dataset-edit-line-form.vue:70-100`) does exactly this before handing the schema to json-layout. A fetched dataset schema carries vjsf-v2 keywords, so compiling it raw logs `failed to normalize layout, use default component` and renders pickers as plain sections. `v2compat` is the fix and it now lives in `@json-layout/core/compat/v2` (core >= 2.10.0).
 
-- [ ] **Step 1: Write the fixture**
+- [ ] **Step 1: Declare the dependency**
+
+This is the first task that needs json-layout, so it installs it. Run:
+
+```bash
+npm install --save-dev @json-layout/agents@^0.1.0 @json-layout/core@^2.10.0
+```
+
+Then add to `package.json`, next to `dependencies`:
+
+```json
+  "peerDependencies": {
+    "@json-layout/agents": "^0.1.0",
+    "@json-layout/core": "^2.10.0"
+  },
+  "peerDependenciesMeta": {
+    "@json-layout/agents": { "optional": true },
+    "@json-layout/core": { "optional": true }
+  }
+```
+
+**Both are declared, not just `agents`.** `@json-layout/agents@0.1.0` depends on `@json-layout/core@^2.9.1`, so core would be reachable by hoisting alone — but importing a package you have not declared is a latent break the moment the tree is deduped differently, and `compat/v2` needs >= 2.10.0 specifically, which `^2.9.1` does not guarantee.
+
+Verify the export is actually reachable before going further:
+
+```bash
+node -e "import('@json-layout/core/compat/v2').then(m => console.log(typeof m.v2compat))"
+```
+
+Expected: `function`. If it prints an error, the installed core is older than 2.10.0 — report that rather than working around it.
+
+- [ ] **Step 2: Write the fixture**
 
 `test/fixtures/dataset-line-schema.json` — the shapes a real fetched schema mixes:
 
@@ -309,7 +343,7 @@ git commit -m "feat: resolve an operation by id regardless of profile"
 }
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 3: Write the failing test**
 
 `test/editor-prepare-schema.test.ts`:
 
@@ -363,12 +397,12 @@ describe('prepareSchema', () => {
 })
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [ ] **Step 4: Run the test to verify it fails**
 
 Run: `npm test -- test/editor-prepare-schema.test.ts`
 Expected: FAIL — cannot find `../src/editor/prepare-schema.ts`.
 
-- [ ] **Step 4: Implement**
+- [ ] **Step 5: Implement**
 
 `src/editor/prepare-schema.ts`:
 
@@ -404,12 +438,12 @@ export async function prepareSchema (fetched: JsonSchema): Promise<JsonSchema> {
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `npm test -- test/editor-prepare-schema.test.ts`
 Expected: 7/7 PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/editor/prepare-schema.ts test/editor-prepare-schema.test.ts test/fixtures/dataset-line-schema.json
@@ -903,7 +937,6 @@ git commit -m "feat: build a SessionSpec, with one schema closure per schema"
 - Create: `src/editor/index.ts`
 - Modify: `src/spec.ts` (remove the phase-1 `editor` throw)
 - Modify: `src/load.ts:123-156`
-- Modify: `package.json`
 - Test: `test/editor-bridge.test.ts`, `test/editor-group.test.ts`
 
 **Interfaces:**
@@ -1193,14 +1226,7 @@ In `src/load.ts`, replace the `built`/`tools` assembly (lines 142-155) with:
 
 with `import { buildEditorTools } from './editor/index.ts'` at the top. `buildInstructions` already receives every operation including the editor ones, so the group appears in the instructions through the existing path; if it does not, add a section naming the group's tools.
 
-In `package.json`, add:
-
-```json
-  "peerDependencies": { "@json-layout/agents": "^0.1.0" },
-  "peerDependenciesMeta": { "@json-layout/agents": { "optional": true } }
-```
-
-and `"@json-layout/agents": "^0.1.0"` to `devDependencies`, then `npm install`.
+`package.json` already carries the dependency and its optional-peer declaration — Task 3 added them. Confirm they are still there and do **not** add them twice.
 
 - [ ] **Step 8: Run the whole suite**
 
@@ -1210,7 +1236,7 @@ Expected: lint clean, `tsc` clean, every test PASS — including the phase-1 tes
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/editor/ src/spec.ts src/load.ts package.json package-lock.json test/editor-bridge.test.ts test/editor-group.test.ts
+git add src/editor/ src/spec.ts src/load.ts test/editor-bridge.test.ts test/editor-group.test.ts
 git commit -m "feat: eight json-layout editor tools from one annotated operation"
 ```
 

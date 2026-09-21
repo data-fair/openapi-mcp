@@ -17,6 +17,12 @@ const doc = (patch: Record<string, unknown>) => ({
   ...patch
 })
 
+const editorDoc = (editor: unknown) => ({
+  openapi: '3.1.0',
+  info: { title: 't', version: '1' },
+  paths: { '/things/{id}': { put: { operationId: 'updateThing', 'x-agent': { name: 'thing', editor } } } }
+})
+
 describe('validateVocabulary', () => {
   it('accepts a document without x-agent', () => {
     assert.doesNotThrow(() => validateVocabulary(doc({})))
@@ -47,5 +53,24 @@ describe('validateVocabulary', () => {
   })
   it('rejects a wrong type at root', () => {
     assert.throws(() => validateVocabulary(doc({ 'x-agent': { namePrefix: 3 } })), /x-agent invalid at \/: .*namePrefix/)
+  })
+})
+
+describe('editor annotation', () => {
+  it('accepts the full object form', () => {
+    const d = editorDoc({ schemaOperation: 'readSchema', schemaParams: { mimeType: 'application/schema+json' }, readOperation: 'readLine' })
+    assert.doesNotThrow(() => validateVocabulary(d))
+  })
+
+  it('accepts the true shorthand, which means the declared body schema', () => {
+    assert.doesNotThrow(() => validateVocabulary(editorDoc(true)))
+  })
+
+  it('accepts an object with no schemaOperation', () => {
+    assert.doesNotThrow(() => validateVocabulary(editorDoc({ readOperation: 'readLine' })))
+  })
+
+  it('rejects an unknown key', () => {
+    assert.throws(() => validateVocabulary(editorDoc({ schemaOperation: 'readSchema', schemaOperaton: 'typo' })), /editor/)
   })
 })
