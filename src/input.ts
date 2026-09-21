@@ -1,4 +1,5 @@
 import { localize } from './localize.ts'
+import { summariseSchema } from './schema-summary.ts'
 import type { JsonSchema, ResolvedOperation, ResolvedParam } from './types.ts'
 
 export interface Binding {
@@ -65,7 +66,7 @@ function paramSchema (p: ResolvedParam, locale: string): JsonSchema {
   return schema
 }
 
-export function buildInput (op: ResolvedOperation, locale: string): { inputSchema: JsonSchema, bindings: Binding[], authoredDescriptions: Set<string> } {
+export function buildInput (op: ResolvedOperation, locale: string): { inputSchema: JsonSchema, bindings: Binding[], authoredDescriptions: Set<string>, bodySchema?: JsonSchema } {
   const properties: JsonSchema = {}
   const required: string[] = []
   const bindings: Binding[] = []
@@ -85,7 +86,20 @@ export function buildInput (op: ResolvedOperation, locale: string): { inputSchem
     bindings.push({ toolName, kind: p.in, apiName: p.name, style: p.style, explode: p.explode })
   }
 
-  if (op.requestBody) {
+  // In compact mode the body is one property described by a listing, and the real schema
+  // is returned for the caller to validate against — a tool definition carrying data-fair's
+  // 28 KB dataset body costs more than the entire six-tool explore set.
+  let bodySchema: JsonSchema | undefined
+  if (op.requestBody && op.agent.body === 'compact') {
+    properties.body = {
+      type: 'object',
+      description: `The request body. Properties (\`?\` marks optional):\n\n${summariseSchema(op.requestBody.schema)}`
+    }
+    if (op.requestBody.required) required.push('body')
+    bindings.push({ toolName: 'body', kind: 'body', apiName: 'body', style: undefined, explode: undefined })
+    authoredDescriptions.add('body')
+    bodySchema = op.requestBody.schema
+  } else if (op.requestBody) {
     const body = op.requestBody.schema
     if (body.type === 'object' && body.properties) {
       for (const [name, schema] of Object.entries<any>(body.properties)) {
@@ -125,5 +139,5 @@ export function buildInput (op: ResolvedOperation, locale: string): { inputSchem
 
   const inputSchema: JsonSchema = { type: 'object', properties, additionalProperties: false }
   if (required.length) inputSchema.required = required
-  return { inputSchema, bindings, authoredDescriptions }
+  return { inputSchema, bindings, authoredDescriptions, bodySchema }
 }

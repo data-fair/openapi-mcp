@@ -35,6 +35,13 @@ export interface AgentOperation {
   annotations?: ToolAnnotations
   params?: Record<string, AgentParamOverride>
   fixed?: Record<string, unknown>
+  /**
+   * How a JSON request body reaches the tool's input schema. 'flat' (the default) merges
+   * its properties at top level. 'compact' exposes a single `body` property described by a
+   * compact listing, and validates the real schema at execution — for bodies whose schema
+   * is too large to put in a tool definition.
+   */
+  body?: 'flat' | 'compact'
   response?: AgentResponse
   editor?: true | { readOperation?: string }
 }

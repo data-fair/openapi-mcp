@@ -45,6 +45,18 @@ Example MCP client configuration:
 }
 ```
 
+## Large request bodies
+
+A write operation's request body schema can be far too large to put in a tool definition —
+data-fair's dataset body is 28 KB, roughly twice its entire six-tool read set. Annotate the
+operation with `body: compact` and the tool exposes a single `body` property described by a
+compact listing (name, required, type, allowed values, a short description) instead of
+merging the schema's properties at top level.
+
+The real schema still validates the body before a request is sent, so a caller that
+misreads the listing gets a JSON path and a keyword locally rather than a round trip.
+`body: flat`, the default, keeps the previous behaviour.
+
 ## Annotation lint
 
 `load` checks that a description an annotation authored still agrees with the schema it

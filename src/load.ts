@@ -58,8 +58,13 @@ function errorsText (validate: ValidateFunction): string {
 }
 
 function makeTool (op: ResolvedOperation, o: Required<Omit<LoadOptions, 'profile'>>): Tool & { authoredDescriptions: Set<string> } {
-  const { inputSchema, bindings, authoredDescriptions } = buildInput(op, o.locale)
+  const { inputSchema, bindings, authoredDescriptions, bodySchema } = buildInput(op, o.locale)
   const validate = ajv.compile(inputSchema)
+  // In compact mode the tool's own schema describes the body only as `object`, so the real
+  // one validates it here. This is the point of summarising rather than dropping: a
+  // caller that misreads the listing gets a path and a keyword locally instead of a round
+  // trip and whatever the API says — blind repair is the failure mode this avoids.
+  const validateBody = bodySchema ? ajv.compile(bodySchema) : undefined
   const description = (localize(op.agent.description, o.locale) ?? [op.summary, op.description].filter(Boolean).join('\n\n')).trim()
   const tool: Tool & { authoredDescriptions: Set<string> } = {
     name: op.toolName,
@@ -73,6 +78,9 @@ function makeTool (op: ResolvedOperation, o: Required<Omit<LoadOptions, 'profile
     async execute (rawParams): Promise<ToolResult> {
       const params = structuredClone(rawParams ?? {})
       if (!validate(params)) return { isError: true, text: `Invalid parameters: ${errorsText(validate)}` }
+      if (validateBody && !validateBody(params.body)) {
+        return { isError: true, text: `Invalid body: ${errorsText(validateBody)}` }
+      }
       let res: Response
       try {
         const req = buildRequest(op, bindings, params, o.baseUrl)

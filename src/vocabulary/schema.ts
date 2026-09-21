@@ -67,6 +67,7 @@ export const operationSchema: JsonSchema = {
     annotations,
     params: { type: 'object', additionalProperties: paramOverrideSchema },
     fixed: { type: 'object' },
+    body: { enum: ['flat', 'compact'] },
     response: {
       type: 'object',
       additionalProperties: false,
