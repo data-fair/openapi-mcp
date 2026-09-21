@@ -86,33 +86,42 @@ which is the plan (it is phase 4's target). What would help is marking the synth
 as such in the root document, so a generator can tell "this enum is illustrative" from
 "this enum is authoritative".
 
+### A4. The document never connects `after` to the `next` URL it returns
+
+**Today.** `/lines` returns `next`, a fully-formed URL for the following page, and accepts
+`after`, an integer cursor. The value `after` wants is sitting in `next`'s query string,
+but neither parameter's description says so.
+
+**Evidence.** `evals/baselines/2026-09-21/pagination--B.json` calls 3 and 4 — the agent
+read `after=12` out of the returned `next` URL, re-supplied `datasetId` and all five
+`select` columns, and got its second page. Verdict: satisfactory, no friction point.
+**`after` is sufficient and it works.** This item is a documentation gap, not a missing
+feature.
+
+**Why it matters.** The agent inferred the connection here, but it had to. A caller that
+does not infer it either follows `next` as a URL — which a tool caller cannot do — or
+misses pagination entirely.
+
+There is a second-order risk worth knowing about, though it did not materialise in the
+run: paginating by `after` means re-supplying every other parameter, so a forgotten filter
+yields page 2 of a *different* result set rather than an error. Following `next` as a URL
+cannot drift that way because it carries the whole original query.
+
+**Change.** One line in each description: say that `after` takes the value found in
+`next`'s query string, and that `next` is a complete URL for the same query. No API change
+needed.
+
+**Not recommended.** `agent-tools` accepts the whole `next` URL as a tool input and
+re-issues it. That is a legitimate design but a different one, and we are not copying it —
+the generated tool exposing the documented `after` parameter is the simpler contract.
+
 ---
 
-## B. API surface additions
+## B. API surface addition
 
 Something genuinely missing, and useful to more than agents.
 
-### B1. No cursor parameter pairing with the `next` URL
-
-**Today.** `/lines` returns `next`, a fully-formed URL for the following page, and accepts
-`after`, an integer cursor. An HTTP client follows `next`; a tool caller has to parse the
-integer out of that URL's query string.
-
-**Evidence.** `evals/baselines/2026-09-21/pagination--B.json` — the agent read `after=12`
-out of the returned `next` URL and passed it back correctly, but only after being told the
-shape. `agent-tools` sidesteps this by accepting the whole `next` URL as a tool input and
-re-issuing it, which the vocabulary cannot express because `next` is not a declared
-parameter.
-
-**Why it matters.** The API speaks two pagination dialects — a URL out, an integer in —
-and nothing in the document connects them. Any generated client has to bridge that by
-convention.
-
-**Change.** Either return the cursor as a plain field alongside `next`, or declare that
-`after` takes the value found in `next`'s query string. The first is cleaner and helps
-every SDK.
-
-### B2. `describe_dataset` returns schemas too large to consume
+### B1. `describe_dataset` returns schemas too large to consume
 
 **Today.** A dataset's full schema can be very large. Measured in the run:
 `sirene` renders at **94,894 characters**, `contours-des-communes` at **301,312**.
@@ -219,7 +228,8 @@ field, and ideally a hint when a `q` matches nothing on a field that does have v
 
 Recorded so this list is not mistaken for the whole picture. These are phase-3 backlog for
 `openapi-mcp`, not requests to data-fair: the vocabulary cannot clear or widen an inherited
-`enum`, has no `title` override, cannot declare a tool input that is not an OpenAPI
-parameter (B1), and has no check that a rewritten description agrees with the schema it
-describes. Our renderer is also 10–18% bulkier than `agent-tools` on the same `sirene`
+`enum`, has no `title` override, and has no check that a rewritten description agrees with
+the schema it describes — the defect that produced three live bugs in phase 1, where a
+description promised a scalar (`Example: "-count"`) for a parameter whose schema is an
+array. Our renderer is also 10–18% bulkier than `agent-tools` on the same `sirene`
 schema (94,894 chars against 104,442), which is a rendering choice of ours.
