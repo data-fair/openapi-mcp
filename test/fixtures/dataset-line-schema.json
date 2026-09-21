@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "required": [],
+  "properties": {
+    "code_commune": { "type": "string", "title": "Code commune" },
+    "note": { "type": "string", "title": "Note", "layout": "textarea" },
+    "departement": {
+      "type": "object",
+      "title": "Département",
+      "x-fromUrl": "https://example.com/departements",
+      "x-itemsProp": "results",
+      "x-itemTitle": "nom",
+      "x-itemKey": "code"
+    },
+    "piece_jointe": {
+      "type": "string",
+      "title": "Pièce jointe",
+      "x-refersTo": "http://schema.org/DigitalDocument"
+    },
+    "population_calculee": {
+      "type": "number",
+      "title": "Population calculée",
+      "x-extension": "population"
+    }
+  }
+}

@@ -5,13 +5,25 @@
   "type": "module",
   "license": "AGPL-3.0-only",
   "author": "Alban Mouton <alban.mouton@gmail.com>",
-  "engines": { "node": "v24" },
-  "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-    "./adapters/mcp": { "types": "./dist/adapters/mcp.d.ts", "default": "./dist/adapters/mcp.js" }
+  "engines": {
+    "node": "v24"
   },
-  "bin": { "openapi-mcp": "./dist/bin/server.js" },
-  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./adapters/mcp": {
+      "types": "./dist/adapters/mcp.d.ts",
+      "default": "./dist/adapters/mcp.js"
+    }
+  },
+  "bin": {
+    "openapi-mcp": "./dist/bin/server.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "lint": "eslint .",
     "lint-fix": "eslint --fix .",
@@ -31,10 +43,24 @@
     "ajv-formats": "^3.0.1",
     "debug": "^4.4.1"
   },
+  "peerDependencies": {
+    "@json-layout/agents": "^0.1.0",
+    "@json-layout/core": "^2.10.0"
+  },
+  "peerDependenciesMeta": {
+    "@json-layout/agents": {
+      "optional": true
+    },
+    "@json-layout/core": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.269",
     "@data-fair/agent-tools-data-fair": "^0.6.4",
     "@data-fair/lib-utils": "^1.5.0",
+    "@json-layout/agents": "^0.1.0",
+    "@json-layout/core": "^2.10.0",
     "@types/debug": "^4.1.12",
     "@types/node": "^24.0.0",
     "eslint": "^9.32.0",
