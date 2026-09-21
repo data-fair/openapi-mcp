@@ -218,11 +218,13 @@ Expected: FAIL — `resolveOperationById is not defined`.
 
 - [ ] **Step 3: Extract and export**
 
-In `src/spec.ts`, move the body of the inner `for (const method of METHODS)` loop — everything from the `rawParams` map down to the object pushed onto `out` — into a module-level function, and have both callers use it:
+In `src/spec.ts`, move the part of the inner `for (const method of METHODS)` loop that starts at the `rawParams` map (the `// path-level params first` comment) and runs down to the object pushed onto `out`, into a module-level function, and have both callers use it.
+
+**`profiles` is computed above that point and is used in the returned `agent` field**, so it is a parameter, not something `resolveOne` recomputes — `resolveOperations` passes its tag-resolved value, `resolveOperationById` passes `agent.profiles ?? true`:
 
 ```ts
-function resolveOne (doc: JsonSchema, path: string, item: any, method: string, op: any, agent: AgentOperation, prefix: string): ResolvedOperation {
-  // ...the existing body, unchanged, returning the ResolvedOperation instead of pushing it
+function resolveOne (path: string, item: any, method: string, op: any, agent: AgentOperation, profiles: string[] | true, prefix: string): ResolvedOperation {
+  // ...the existing body verbatim, returning the ResolvedOperation instead of pushing it
 }
 
 /**
@@ -236,7 +238,8 @@ export function resolveOperationById (doc: JsonSchema, operationId: string): Res
     for (const method of METHODS) {
       const op = item?.[method]
       if (op?.operationId !== operationId) continue
-      return resolveOne(doc, path, item, method, op, op['x-agent'] ?? {}, prefix)
+      const agent: AgentOperation = op['x-agent'] ?? {}
+      return resolveOne(path, item, method, op, agent, agent.profiles ?? true, prefix)
     }
   }
   return undefined
