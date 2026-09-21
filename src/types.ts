@@ -43,7 +43,17 @@ export interface AgentOperation {
    */
   body?: 'flat' | 'compact'
   response?: AgentResponse
-  editor?: true | { readOperation?: string }
+  editor?: true | AgentEditor
+}
+
+/** Names the operations a json-layout editor group reads its schema and document from. */
+export interface AgentEditor {
+  /** operationId whose response body IS the request body's JSON Schema; absent means the declared one */
+  schemaOperation?: string
+  /** fixed parameter values for that operation */
+  schemaParams?: Record<string, unknown>
+  /** operationId that loads the document being edited; absent means a create */
+  readOperation?: string
 }
 
 export interface AgentSkill {
