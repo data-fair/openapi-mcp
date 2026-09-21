@@ -1,0 +1,27 @@
+{
+  "A": {
+    "toolNames": [
+      "list_datasets",
+      "describe_dataset",
+      "search_data",
+      "aggregate_data",
+      "get_field_values",
+      "calculate_metric",
+      "geocode_address"
+    ],
+    "definitionBytes": 10899
+  },
+  "B": {
+    "toolNames": [
+      "list_datasets",
+      "describe_dataset",
+      "search_data",
+      "get_field_values",
+      "aggregate_data",
+      "calculate_metric"
+    ],
+    "definitionBytes": 15136
+  },
+  "measuredAt": "2026-09-21T06:25:57.146Z",
+  "model": "haiku"
+}

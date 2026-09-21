@@ -1,0 +1,23 @@
+{
+  "scenario": "field-values",
+  "verdict": "satisfactory",
+  "reasoning": "The agent located the Sirene enterprise dataset, attempted to describe it (which failed due to size), guessed a plausible field name for legal category that turned out wrong, then pivoted to search_data to inspect an actual record and discover the correct field key (categorieJuridiqueUniteLegaleLibelle). It then successfully called get_field_values on that field and received a large list of real legal-category labels (Entrepreneur individuel, Association déclarée, Collectivité territoriale, etc.), which it used to build its final answer. This matches the expected workflow: find dataset → identify legal-category column → get_field_values → report actual values. The final answer is grounded in the retrieved data and does not appear to invent values wholesale, though the thematic grouping introduces some abbreviations (SARL, SAS, etc.) not directly visible in the truncated transcript excerpt shown here.",
+  "friction": [
+    {
+      "call": 2,
+      "tool": "describe_dataset",
+      "observed": "Error: result (94,894 characters) exceeds maximum allowed tokens... Use offset and limit parameters...",
+      "inferred": "The agent could not get dataset schema/field list directly and had to abandon this approach, switching to a different discovery method.",
+      "severity": "medium"
+    },
+    {
+      "call": 3,
+      "tool": "get_field_values",
+      "observed": "400 - field \"forme_juridique\" is unknown",
+      "inferred": "The agent guessed a plausible but incorrect field key name for the legal category, requiring it to fall back to search_data to find the real field key.",
+      "severity": "low"
+    }
+  ],
+  "judgeModel": "sonnet",
+  "judgedAt": "2026-09-21T06:35:55.674Z"
+}

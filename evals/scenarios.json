@@ -1,0 +1,57 @@
+[
+  {
+    "id": "search-air-quality",
+    "question": "Quels jeux de données sont disponibles sur la qualité de l'air sur opendata.koumoul.com ?",
+    "expected": "Should use search_datasets to find air quality datasets and list them with titles and descriptions."
+  },
+  {
+    "id": "describe-dataset",
+    "question": "Décris-moi la structure du premier jeu de données que tu trouves sur les communes de France sur opendata.koumoul.com.",
+    "expected": "Should search for commune datasets, then use describe_dataset on one. Answer should mention column names, types, and row count."
+  },
+  {
+    "id": "calculate-metric",
+    "question": "Quelle est la population moyenne des communes françaises ? Cherche dans les données disponibles sur opendata.koumoul.com.",
+    "expected": "Should find a communes dataset, identify a population column, then use calculate_metric with avg. Answer should contain a specific number."
+  },
+  {
+    "id": "filter-search",
+    "question": "Trouve des données sur les entreprises situées à Lyon dans opendata.koumoul.com. Donne-moi quelques exemples.",
+    "expected": "Should search for enterprise/SIRENE datasets, describe to find city column, then use search_data with a filter on Lyon. Answer should include actual data rows."
+  },
+  {
+    "id": "field-values",
+    "question": "Quelles sont les différentes catégories juridiques présentes dans un jeu de données d'entreprises sur opendata.koumoul.com ?",
+    "expected": "Should find an enterprise dataset, identify a legal category column, then use get_field_values. Answer should list actual category values."
+  },
+  {
+    "id": "aggregation",
+    "question": "Quelle est la répartition des entreprises par département dans opendata.koumoul.com ? Donne les 10 premiers.",
+    "expected": "Should use aggregate_data grouping by department. Answer should contain department names/codes with counts."
+  },
+  {
+    "id": "multi-step-analysis",
+    "question": "Compare le nombre d'entreprises entre Paris et Lyon en utilisant les données de opendata.koumoul.com.",
+    "expected": "Should search, describe, then use search_data or aggregate_data with filters for both cities. Answer should contain numbers for both."
+  },
+  {
+    "id": "stats-metric",
+    "question": "Donne-moi des statistiques (min, max, moyenne) sur un champ numérique d'un jeu de données de opendata.koumoul.com de ton choix.",
+    "expected": "Should use calculate_metric with 'stats' metric. Answer should include min, max, avg values."
+  },
+  {
+    "id": "empty-results",
+    "question": "Y a-t-il des données sur les colonies martiennes dans opendata.koumoul.com ?",
+    "expected": "Should handle gracefully when search returns no relevant results. Should not error or hallucinate data."
+  },
+  {
+    "id": "explore-unknown",
+    "question": "Quels types de données sont disponibles sur les élections dans opendata.koumoul.com ? Explore et résume.",
+    "expected": "Should search for election datasets, describe one or more, and provide a meaningful summary of what data is available."
+  },
+  {
+    "id": "pagination",
+    "question": "Liste-moi 20 communes françaises à partir des données de opendata.koumoul.com. Utilise la pagination pour obtenir plus de résultats que la première page.",
+    "expected": "Should find a communes dataset, use search_data to get first page (10 results), then use the next field from the response to fetch a second page. Answer should contain approximately 20 commune names, demonstrating that pagination was used."
+  }
+]

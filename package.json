@@ -1,0 +1,44 @@
+{
+  "name": "@data-fair/openapi-mcp",
+  "version": "0.1.0",
+  "description": "MCP tools for AI agents from OpenAPI documents annotated with x-agent",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "author": "Alban Mouton <alban.mouton@gmail.com>",
+  "engines": { "node": "v24" },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./adapters/mcp": { "types": "./dist/adapters/mcp.d.ts", "default": "./dist/adapters/mcp.js" }
+  },
+  "bin": { "openapi-mcp": "./dist/bin/server.js" },
+  "files": ["dist"],
+  "scripts": {
+    "lint": "eslint .",
+    "lint-fix": "eslint --fix .",
+    "check-types": "tsc",
+    "test": "NODE_ENV=test node --test --test-force-exit 'test/**/*.test.ts'",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build",
+    "quality": "npm run lint && npm run check-types && npm run test",
+    "eval:run": "node evals/run.ts",
+    "eval:judge": "node evals/judge.ts",
+    "eval:report": "node evals/report.ts",
+    "eval": "npm run eval:run && npm run eval:judge; npm run eval:report"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "debug": "^4.4.1"
+  },
+  "devDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.269",
+    "@data-fair/agent-tools-data-fair": "^0.6.4",
+    "@data-fair/lib-utils": "^1.5.0",
+    "@types/debug": "^4.1.12",
+    "@types/node": "^24.0.0",
+    "eslint": "^9.32.0",
+    "neostandard": "^0.12.0",
+    "typescript": "^5.8.3"
+  }
+}

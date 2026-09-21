@@ -1,0 +1,102 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Pets", "version": "1" },
+  "servers": [{ "url": "https://pets.example/api" }],
+  "x-agent": {
+    "namePrefix": "pets_",
+    "profiles": { "explore": { "title": "Explore" }, "edit": { "title": "Edit" } },
+    "skills": [
+      { "name": "workflow", "description": { "en": "Start with list_pets, then get_pet.", "fr": "Commencez par list_pets." } },
+      { "name": "editing", "description": "Use create_pet only when asked.", "profiles": ["edit"] }
+    ]
+  },
+  "tags": [
+    { "name": "Pets", "x-agent": { "profiles": ["explore"], "skill": "Pets have an id and a name." } },
+    { "name": "Admin" }
+  ],
+  "components": {
+    "schemas": {
+      "pet": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "x-agent": { "hint": "opaque, never shown to users" } },
+          "name": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "owner": { "type": "object", "properties": { "name": { "type": "string" }, "email": { "type": "string", "x-agent": { "exclude": true } } } },
+          "internalCode": { "type": "string", "x-agent": { "exclude": true } }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/pets": {
+      "get": {
+        "operationId": "listPets",
+        "tags": ["Pets"],
+        "summary": "List pets",
+        "parameters": [
+          { "in": "query", "name": "q", "schema": { "type": "string" }, "description": "Full text search" },
+          { "in": "query", "name": "size", "schema": { "type": "integer", "default": 12, "maximum": 1000 }, "x-agent": { "maximum": 100 } },
+          { "in": "query", "name": "select", "schema": { "type": "array", "items": { "type": "string" } }, "style": "form", "explode": false },
+          { "in": "query", "name": "filters", "schema": { "type": "object", "patternProperties": { ".*": { "type": "string" } } } },
+          { "in": "query", "name": "debug", "schema": { "type": "boolean" } }
+        ],
+        "x-agent": {
+          "name": "list_pets",
+          "description": { "en": "List pets. Use q for text search.", "fr": "Lister les animaux." },
+          "params": { "q": { "name": "query" }, "debug": { "exclude": true }, "size": { "default": 10 } },
+          "fixed": { "select": "id,name" },
+          "response": { "rows": "/results", "concise": ["id", "name"], "detailed": true, "selectParam": "select", "hints": true },
+          "examples": [{ "query": "rex", "size": 5 }]
+        },
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total": { "type": "integer" },
+                    "results": { "type": "array", "items": { "$ref": "#/components/schemas/pet" } },
+                    "next": { "type": "string" },
+                    "meta": { "type": "object", "properties": { "hints": { "type": "array", "items": { "type": "string" } } } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createPet",
+        "tags": ["Pets"],
+        "x-agent": { "profiles": ["edit"] },
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/pet" } } } },
+        "responses": { "201": { "description": "created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/pet" } } } } }
+      }
+    },
+    "/pets/{petId}": {
+      "parameters": [{ "in": "path", "name": "petId", "required": true, "schema": { "type": "string" } }],
+      "get": {
+        "operationId": "getPet",
+        "tags": ["Pets"],
+        "x-agent": { "params": { "petId": { "name": "id", "description": "The pet id from list_pets" } } },
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "text/markdown": { "schema": { "type": "string" } },
+              "application/json": { "schema": { "$ref": "#/components/schemas/pet" } }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deletePet",
+        "tags": ["Admin"],
+        "responses": { "204": { "description": "gone" } }
+      }
+    }
+  }
+}

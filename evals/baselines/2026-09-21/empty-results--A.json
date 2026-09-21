@@ -1,0 +1,45 @@
+{
+  "scenario": "empty-results",
+  "arm": "A",
+  "model": "haiku",
+  "startedAt": "2026-09-21T06:31:57.936Z",
+  "provenance": {
+    "source": "/home/alban/data-fair/mcp",
+    "version": "0.7.5",
+    "commit": "9a92dc9"
+  },
+  "question": "Y a-t-il des données sur les colonies martiennes dans opendata.koumoul.com ?",
+  "calls": [
+    {
+      "tool": "list_datasets",
+      "args": {
+        "q": "colonies martiennes"
+      },
+      "response": "{\"count\":0,\"results\":[]}",
+      "outputBytes": 24,
+      "isError": false
+    },
+    {
+      "tool": "list_datasets",
+      "args": {
+        "q": "Mars"
+      },
+      "response": "{\"count\":3,\"results\":[{\"id\":\"banatic\",\"title\":\"Base nationale sur l'intercommunalité\",\"page\":\"https://opendata.koumoul.com/datasets/banatic\",\"slug\":\"banatic\",\"summary\":\"La Base Nationale sur l’Intercommunalité (BANATIC) recense EPCI, métropoles et communautés de communes en France : périmètres, compétences, communes membres et évolutions.\"},{\"id\":\"a4jz4xdfoymfiquex913bfgp\",\"title\":\"Résultats des contrôles officiels sanitaires : dispositif d'information « Alim’confiance »\",\"page\":\"https://opendata.koumoul.com/datasets/alimconfiance\",\"slug\":\"alimconfiance\",\"summary\":\"Alim’confiance : Résultats des contrôles sanitaires (restaurants, commerces alimentaires) avec 4 niveaux d’hygiène (très satisfaisant à insatisfaisant). Transparence pour les consommateurs et professionnels.\"},{\"id\":\"sirene\",\"title\":\"Base Sirene des entreprises et de leurs établissements (SIREN, SIRET)\",\"page\":\"https://opendata.koumoul.com/datasets/sirene\",\"slug\":\"sirene\",\"summary\":\"Base Sirene : Répertoire des entreprises et établissements en France (SIREN, SIRET, raison sociale, adresse, activité, effectifs). Géré par l’INSEE, essentiel pour l’économie et les démarches légales.\"}]}",
+      "outputBytes": 1162,
+      "isError": false
+    }
+  ],
+  "answer": "**Réponse courte : Non ! 😄**\n\nIl n'existe pas de données sur les colonies martiennes dans opendata.koumoul.com. \n\nQuand j'ai cherché :\n- **\"colonies martiennes\"** → 0 résultat\n- **\"Mars\"** → 3 résultats, mais qui concernent uniquement des données terrestres (intercommunalités, contrôles alimentaires, entreprises en France)\n\nopendata.koumoul.com est une plateforme de **données ouvertes françaises réelles** – elle recense des informations sur les entreprises, collectivités, services publics, équipements, etc. en France métropolitaine et DOM-TOM. \n\nLes colonies martiennes, elles, ne figurent pas encore dans les registres de l'INSEE ! 🚀 Peut-être dans quelques décennies... 😊\n\nAvez-vous besoin de données sur autre chose ?",
+  "isError": false,
+  "metrics": {
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "inputTokens": 942,
+    "outputTokens": 759,
+    "cacheReadTokens": 10415,
+    "cacheCreationTokens": 5900,
+    "totalTokens": 18016,
+    "costUsd": 0.017578499999999997,
+    "numTurns": 3
+  }
+}

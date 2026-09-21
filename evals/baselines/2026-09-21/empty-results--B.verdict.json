@@ -1,0 +1,8 @@
+{
+  "scenario": "empty-results",
+  "verdict": "satisfactory",
+  "reasoning": "The agent performed a single reasonable search query, correctly recognized that none of the six returned datasets (intercommunalities, food safety inspections, business registry, loss coefficients) had any relevance to Martian colonies, and reported clearly that no such data exists without inventing anything. The answer stayed grounded in the actual tool output and gave a helpful, honest response with light appropriate humor. No hallucination occurred and no retry was needed.",
+  "friction": [],
+  "judgeModel": "sonnet",
+  "judgedAt": "2026-09-21T06:35:10.212Z"
+}

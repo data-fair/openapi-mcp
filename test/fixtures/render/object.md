@@ -1,0 +1,5 @@
+- **id**: p1 _(opaque, never shown to users)_
+- **name**: Rex
+- **tags**: dog, big
+- **owner**:
+  - **name**: Ann

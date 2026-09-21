@@ -1,0 +1,35 @@
+{
+  "scenario": "empty-results",
+  "arm": "B",
+  "model": "haiku",
+  "startedAt": "2026-09-21T06:32:08.229Z",
+  "provenance": {
+    "fixtureHash": "75d4825320c6",
+    "profile": "explore"
+  },
+  "question": "Y a-t-il des données sur les colonies martiennes dans opendata.koumoul.com ?",
+  "calls": [
+    {
+      "tool": "list_datasets",
+      "args": {
+        "q": "colonies martiennes Mars"
+      },
+      "response": "- **count**: 6\n\n| id | slug | title | summary | count | status | updatedAt | page |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| 58qpvtyzf8l7rpohh9r6iozw | coefficients_de_pertes | Coefficients de pertes | Les pertes sont calculées à partir des volumes de consommation brute et de refoulement, en appliquant un polynôme dont les coefficients sont réévalués régulièrement. | 17 | finalized | 2026-02-09T09:41:30.937Z | https://opendata.koumoul.com/datasets/coefficients_de_pertes |\n| banatic | banatic | Base nationale sur l'intercommunalité | La Base Nationale sur l’Intercommunalité (BANATIC) recense EPCI, métropoles et communautés de communes en France : périmètres, compétences, communes membres et évolutions. | 10285 | finalized | 2026-08-19T13:48:34.981Z | https://opendata.koumoul.com/datasets/banatic |\n| 1mk155dt0llppntd4x592mi6 | alimconfiance-old | Résultats des contrôles officiels sanitaires : dispositif d'information « Alim’confiance » - old | Alim’confiance : Résultats des contrôles sanitaires (restaurants, commerces alimentaires) avec 4 niveaux d’hygiène (très satisfaisant à insatisfaisant). Transparence pour les consommateurs et professionnels. | 80824 | finalized | 2026-03-25T10:47:09.396Z | https://opendata.koumoul.com/datasets/alimconfiance-old |\n| a4jz4xdfoymfiquex913bfgp | alimconfiance | Résultats des contrôles officiels sanitaires : dispositif d'information « Alim’confiance » | Alim’confiance : Résultats des contrôles sanitaires (restaurants, commerces alimentaires) avec 4 niveaux d’hygiène (très satisfaisant à insatisfaisant). Transparence pour les consommateurs et professionnels. | 72505 | finalized | 2026-07-16T21:48:59.127Z | https://opendata.koumoul.com/datasets/alimconfiance |\n| cnn4jwafd-bs-xraifpozmt0 | resultats-des-controles-officiels-sanitaires-dispositif-dinformation-alimconfiance-paris | Résultats des contrôles officiels sanitaires : dispositif d'information « Alim’confiance » - PARIS | Résultats des contrôles d'hygiène des restaurants, commerces et établissements alimentaires de Paris : établissement, adresse, activité, date et niveau d'évaluation de chaque inspection, dans le cadre du dispositif Alim'confiance. | 5155 | finalized | 2026-09-11T14:01:41.047Z | https://opendata.koumoul.com/datasets/resultats-des-controles-officiels-sanitaires-dispositif-dinformation-alimconfiance-paris |\n| sirene | sirene | Base Sirene des entreprises et de leurs établissements (SIREN, SIRET) | Base Sirene : Répertoire des entreprises et établissements en France (SIREN, SIRET, raison sociale, adresse, activité, effectifs). Géré par l’INSEE, essentiel pour l’économie et les démarches légales. | 44201773 | finalized | 2026-09-06T04:09:41.293Z | https://opendata.koumoul.com/datasets/sirene |",
+      "outputBytes": 2751,
+      "isError": false
+    }
+  ],
+  "answer": "**Non, il n'y a pas de données sur les colonies martiennes** dans opendata.koumoul.com. \n\nLa recherche ne retourne aucun jeu de données pertinent. C'est logique puisque :\n\n1. **Les colonies martiennes n'existent pas** - Mars n'a pas de colonies habitées en 2026\n2. **opendata.koumoul.com** héberge des données publiques réelles sur la France et son administration (entreprises, intercommunalités, contrôles sanitaires, etc.)\n\nLes résultats de recherche vous proposent plutôt des données sur des sujets terrestres comme les communes, les entreprises (base Sirene), ou les contrôles sanitaires des restaurants.\n\nSi vous cherchez des données sur un autre sujet français, n'hésitez pas à me le demander ! 😊",
+  "isError": false,
+  "metrics": {
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "inputTokens": 934,
+    "outputTokens": 739,
+    "cacheReadTokens": 13064,
+    "cacheCreationTokens": 2501,
+    "totalTokens": 17238,
+    "costUsd": 0.0109374,
+    "numTurns": 2
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "scenario": "empty-results",
+  "verdict": "satisfactory",
+  "reasoning": "The agent first searched with the exact query term, got zero results, then broadened the search to a single keyword ('Mars') to check for any tangential matches. Finding only unrelated terrestrial datasets, it correctly concluded no Martian colony data exists on the platform, clearly explained its search process, and did not hallucinate any data. This is exactly the graceful no-results handling expected.",
+  "friction": [],
+  "judgeModel": "sonnet",
+  "judgedAt": "2026-09-21T06:35:05.957Z"
+}

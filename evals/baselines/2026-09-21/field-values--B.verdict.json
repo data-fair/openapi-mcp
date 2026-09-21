@@ -1,0 +1,23 @@
+{
+  "scenario": "field-values",
+  "verdict": "satisfactory",
+  "reasoning": "The agent located the enterprise dataset (sirene), attempted a full description that failed due to size limits, recovered by sampling rows via search_data to discover the relevant field names, then queried get_field_values on both the detailed label field and the Niv1 (top-level) field, obtaining real category values. The final answer correctly lists the 9 top-level legal categories verbatim from the tool output and gives plausible detailed examples drawn from the returned list, so it reaches the expected kind of grounded answer despite the initial tool failure.",
+  "friction": [
+    {
+      "call": 2,
+      "tool": "describe_dataset",
+      "observed": "Error: result (111,510 characters across 1,817 lines) exceeds maximum allowed tokens... Use offset and limit parameters...",
+      "inferred": "The agent abandoned describe_dataset entirely rather than following the suggested offset/limit recovery, and instead switched to search_data to discover field names — a workable but indirect detour caused by the tool rejecting its default detailed output.",
+      "severity": "medium"
+    },
+    {
+      "call": 4,
+      "tool": "get_field_values",
+      "observed": "A long alphabetical list of legal category labels ending with '…(truncated)' and no total count provided",
+      "inferred": "The agent's final answer states 'plus de 330 catégories juridiques différentes,' a specific figure not present in the (truncated) tool output, suggesting it inferred or estimated a count it did not actually verify.",
+      "severity": "low"
+    }
+  ],
+  "judgeModel": "sonnet",
+  "judgedAt": "2026-09-21T06:36:13.203Z"
+}

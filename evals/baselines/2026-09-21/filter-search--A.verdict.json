@@ -1,0 +1,23 @@
+{
+  "scenario": "filter-search",
+  "verdict": "satisfactory",
+  "reasoning": "The agent explored the catalog, found the right enterprise datasets (SIRENE and its geolocalized variant), geocoded Lyon to get a city code, and ultimately retrieved real SIRENE records for companies located in Lyon, presenting concrete examples (name, SIRET, address, activity, status) drawn from the tool output rather than invented data. It had to overcome two obstacles along the way — a filter that unexpectedly returned zero results and a describe_dataset call that exceeded token limits — but it adapted by switching dataset/approach and using a free-text query instead, ultimately landing on a set of plausible Lyon-based enterprises and correctly excluding an irrelevant same-named town (La Plagne) from its final list.",
+  "friction": [
+    {
+      "call": 4,
+      "tool": "search_data",
+      "observed": "{\"datasetId\":\"geolocalisation-des-etablissements-du-repertoire-sirene\",\"total\":0,\"results\":[],\"filteredViewUrl\":\"...\"}",
+      "inferred": "The agent assumed the INSEE commune code for Lyon (69123) returned by geocode_address would directly filter the geolocalisation dataset, but got zero results, likely because this dataset uses arrondissement-level commune codes (e.g. 69381-69389) rather than the aggregate city code. This forced the agent to abandon this dataset and pivot to the raw 'sirene' dataset instead.",
+      "severity": "medium"
+    },
+    {
+      "call": 5,
+      "tool": "describe_dataset",
+      "observed": "Error: result (94,894 characters) exceeds maximum allowed tokens... REQUIREMENTS FOR SUMMARIZATION: You MUST read the content ... in sequential chunks until 100% of the content has been read.",
+      "inferred": "The agent could not obtain the SIRENE schema to identify a precise city/commune filter field, and instead of following the tool's instructed recovery procedure (reading the saved file in chunks), it skipped straight to a free-text query search, which risked including unrelated results (e.g., an entity from La Plagne matching 'Lyon' in its name) that had to be manually filtered out when composing the final answer.",
+      "severity": "medium"
+    }
+  ],
+  "judgeModel": "sonnet",
+  "judgedAt": "2026-09-21T06:36:40.384Z"
+}

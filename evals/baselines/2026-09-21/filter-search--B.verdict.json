@@ -1,0 +1,23 @@
+{
+  "scenario": "filter-search",
+  "verdict": "satisfactory",
+  "reasoning": "The agent found the Sirene dataset, attempted (and failed) to get its full schema, then guessed a wrong filter field name which the API rejected. It recovered by switching to a free-text query search for 'LYON', which succeeded and returned real rows including SIRET numbers, addresses, and legal status. The final answer presents concrete data plausibly drawn from that result set (one of the three examples cited, SIRET 77984714400010, is directly visible in the returned table), and it correctly frames the dataset source and scope. Despite never getting a clean schema description, the agent reached a satisfactory, non-fabricated answer through a reasonable fallback strategy.",
+  "friction": [
+    {
+      "call": 2,
+      "tool": "describe_dataset",
+      "observed": "Error: result (104,442 characters across 1,619 lines) exceeds maximum allowed tokens. Output has been saved to a file... Use offset and limit parameters to read specific portions...",
+      "inferred": "The agent abandoned schema inspection entirely instead of paging through the saved file, proceeding to guess field names for filtering.",
+      "severity": "medium"
+    },
+    {
+      "call": 3,
+      "tool": "search_data",
+      "observed": "HTTP 400: Impossible d'appliquer un filtre sur le champ ville, il n'existe pas dans le jeu de données.",
+      "inferred": "The agent's guessed field name 'ville' was wrong (a direct consequence of skipping schema inspection), forcing it to abandon field-based filtering and fall back to a free-text query instead.",
+      "severity": "medium"
+    }
+  ],
+  "judgeModel": "sonnet",
+  "judgedAt": "2026-09-21T06:36:58.118Z"
+}
