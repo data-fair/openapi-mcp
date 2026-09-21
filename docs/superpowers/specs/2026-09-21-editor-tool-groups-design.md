@@ -57,6 +57,52 @@ foreclose them:
 | Application config | runtime GET on the application's config schema | same mechanism, not built yet |
 | Portals page / portal config | a layout **precompiled at build time**, imported per locale (`portals/ui/src/composables/use-page-config-webmcp.ts`) | no — see Non-goals |
 
+## What data-fair's own form already does
+
+`ui/src/components/dataset/form/dataset-edit-line-form.vue` builds the human line-editing
+form from exactly this schema, with json-layout underneath. It is the best available
+specification of this task, and it is not a bare `compile()` call.
+
+**The schema compiles — through the vjsf v2 compatibility layer.** Line 73 is
+`v2compat(jsonSchema)` before anything else, and line 80 then normalizes a string `layout`
+into `{ comp }`. Dataset schemas carry v2-era keywords (`x-fromUrl` and friends), which is
+the same symptom the abandoned PATCH probe hit as `failed to normalize layout, use default
+component`. **The adapter must apply the same layer**; treating the fetched schema as
+compile-ready would reproduce that failure per dataset rather than per document.
+
+That layer is a packaging problem, not a technical one. It is pure JavaScript over `ajv`,
+`@json-layout/vocabulary` and json-layout's own `resolveLocaleRefs` — no Vue, no component
+code — but it ships only as `@koumoul/vjsf/compat/v2`, from a Vue component library a
+server-side tool has no business depending on. json-layout already vendored a copy into
+`core/webmcp-eval/cases/vjsf-compat-v2.js` for the same reason, with a header explaining
+that CI has no sibling checkout to import from. That is two consumers outside vjsf wanting
+it. **Recommendation: move it to `@json-layout/vocabulary`, or export it as
+`@json-layout/core/compat/v2`,** and let vjsf re-export. Until then the adapter vendors a
+third copy, which is the wrong answer held deliberately.
+
+**The form also edits the schema before compiling it**, and each edit is a question for us:
+
+| What the form does | Line | Does the editor want it? |
+|---|---|---|
+| `readOnly` on the primary key columns | 83-85 | **Wanted on update** — rewriting a primary key is a different record, not an edit — but see below. |
+| `readOnly` on caller-named `readonlyCols` | 80-82 | No — that is a per-embed prop, not a property of the API. |
+| `layout.comp = 'none'` on attachment (`DigitalDocument`) columns | 91-94 | **Yes.** An attachment is a file upload; an agent has no file to give. |
+| `layout.comp = 'none'` on `x-extension` columns | 95-98 | **Yes.** Extension columns are computed by data-fair; writing them is meaningless. |
+| `delete _owner` / `_ownerName` on own-lines routes | 75-77 | Only if we annotate `createOwnLine` / `updateOwnLine`, which this phase does not. |
+
+Two of those — attachments and extension columns — are readable from the fetched schema
+itself, which carries `x-refersTo` and `x-extension` on each property. They cost nothing
+and belong in the adapter rather than in an annotation, since nothing about them varies
+per API.
+
+**The primary key does not.** `primaryKey` lives on the dataset document, not in the
+schema response, so the form gets it from a `restDataset` it already holds and the editor
+would need a third GET per session. Three ways out, in preference order: ask for
+`readOnly: true` on primary-key properties in the `application/schema+json` response,
+where it belongs and where it would also fix data-fair's own form doing this by hand; or
+let `editor` name a third operation for the parent resource; or ship without it and let
+the save fail. The first is a readiness item to raise once A5 and A7 are on the table.
+
 ## What already exists
 
 `@json-layout/agents` is the server-side half of this feature, and it is nearly all of it:
@@ -88,7 +134,7 @@ x-agent:
   title: { en: Edit a dataset record, fr: Éditer un enregistrement }
   editor:
     schemaOperation: readSchema
-    schemaParams: { mimeType: application/schema+json, calculated: 'false' }
+    schemaParams: { mimeType: application/schema+json, extension: 'true', arrays: true }
     readOperation: readLine
 ```
 
@@ -100,7 +146,7 @@ x-agent:
   title: { en: Add a dataset record, fr: Ajouter un enregistrement }
   editor:
     schemaOperation: readSchema
-    schemaParams: { mimeType: application/schema+json, calculated: 'false' }
+    schemaParams: { mimeType: application/schema+json, extension: 'true', arrays: true }
     # no readOperation — nothing to load
 ```
 
@@ -110,9 +156,11 @@ x-agent:
   means and what a layout-annotated in-document schema needs. The dataset-line target
   always names one.
 - **`schemaParams`** — fixed values for that operation's parameters. Required in practice
-  here, because `readSchema` returns a JSON Schema only under one `mimeType` value, and
-  the document does not say so (finding A5). `calculated: 'false'` drops the columns an
-  agent must not write.
+  here, because `readSchema` returns a JSON Schema only under one `mimeType` value and the
+  document does not say so (A5). The values above are the ones data-fair's own form sends
+  (`dataset-store.ts:61`), three of which the document does not declare either (A7). Once
+  A5 lands as agreed, `mimeType` drops out — the runtime sets `Accept` from the declared
+  response media types already.
 - **`readOperation`** — the operation that loads the current document. Absent means a
   create: `load` returns `{}` with no HTTP call.
 
@@ -146,10 +194,11 @@ compiles once. An operation with no `schemaOperation` keys on its own name and g
 closure for the life of the process, which is the same rule with a constant schema.
 
 The closure returns the `{ schema, version }` envelope `unwrapEnvelope` recognises. The
-version is what invalidates the compilation when a dataset's columns change. `ETag` on the
-schema response if there is one, otherwise a hash of the response body — this still costs
-one GET per session open, but the GET is 5 KB and the compilation is the expensive part.
-Which of the two it is, is a probe below.
+version is what invalidates the compilation when a dataset's columns change: a hash of the
+response body, since the response carries no validator header today (A7) and the
+`updatedAt` the UI versions by is not reachable without a second GET. That costs one 5 KB
+GET per session open and one compilation per distinct schema, which is the right trade —
+the compilation is the expensive half.
 
 ## Mapping an operation to a `SessionSpec`
 
@@ -176,6 +225,8 @@ whole document. `ctx.version` is forwarded as `If-Match` when `load` reported on
 | Descriptor bootstrapping | Open a throwaway session over a stub `load` and a stub `schema` at `load()` time | Tool descriptions come from the package rather than being re-typed here, and it costs no HTTP. |
 | Tool surface | Flat, profile-gated | `includeSubAgent` makes the alternative a flag we can measure later rather than a design we must pick now. |
 | Media type | `application/json` only | `putDataset` declares `multipart/form-data`; both line operations declare `application/json`. An editor over a multipart body is not in scope. |
+| Schema preprocessing | A `prepareSchema` step between fetch and `compile`: `v2compat`, string-`layout` normalization, then hide attachment and `x-extension` columns | data-fair's production form does exactly this, and skipping it reproduces the `failed to normalize layout` failure per dataset. Column-shaped rules read from the schema, so they need no annotation. |
+| v2 compat source | Vendored, under protest, until json-layout exports it outside vjsf | The layer has no vjsf dependency; depending on `@koumoul/vjsf` from a server library to reach it is worse than a copy with a pointer to the upstream file. |
 | Dependency | `@json-layout/agents` as an optional peer, imported lazily | It pulls `@json-layout/core` and its transitive dependencies; a consumer using only read tools should not carry them. |
 
 ## The adapter
@@ -184,8 +235,10 @@ Three small files:
 
 ```
 src/editor/session-spec.ts   ResolvedOperation -> SessionSpec (+ the schema-fn map)
+src/editor/prepare-schema.ts a fetched schema -> a compilable one
 src/editor/bridge.ts         FormTool -> our Tool (name, description, inputSchema, execute)
 src/editor/index.ts          buildEditorTools(op, o) -> Tool[]
+src/editor/vendor/vjsf-compat-v2.js   copied from @koumoul/vjsf, header pointing home
 ```
 
 **Resource selection.** `FormSession`'s tools have fixed input schemas and no notion of
@@ -223,17 +276,27 @@ rule that skills are text.
 
 Cheap to resolve, and better resolved before code than during it.
 
-1. **Does a fetched dataset schema compile cleanly?** The response carries `x-refersTo`,
-   `x-capabilities` and friends, and French `title` strings. Unknown keywords should be
-   ignored, but the earlier PATCH probe emitted `failed to normalize layout, use default
-   component` on vjsf-v2-style `layout` keywords, so "should" is not evidence.
-2. **Does a fetched line validate against its own fetched schema?** A line carries `_id`
-   and other calculated columns that `calculated: 'false'` removes from the schema. The
-   schema sets no `additionalProperties: false`, so it should pass — the same "should".
-   This is A6's question asked of the new target, and it is the one that would disqualify
-   it the way A6 disqualified the last.
-3. **Is there an `ETag` on `/datasets/{id}/schema`?** Decides whether the schema closure's
-   version is a header or a hash.
+**Answered: does a fetched dataset schema compile cleanly?** Yes — data-fair generates its
+own line-editing form from it in production. With the condition above: through `v2compat`,
+and after normalizing string `layout` values. That condition is the finding, not a caveat.
+
+Still open:
+
+1. **Does a fetched line validate against its own fetched schema?** A line carries `_id`
+   and other calculated columns. The schema sets no `additionalProperties: false`, so it
+   should pass — but "should" is what A6 disproved on the last target, and this is A6's
+   question asked of this one. It is the check that would disqualify lines the way A6
+   disqualified datasets, so it goes first.
+2. **`extension: 'true'` or `calculated: 'false'`?** The form fetches extension columns
+   and hides them; the document offers a `calculated` parameter that would drop them
+   server-side. Whether those two produce the same column set on a real dataset is a
+   single request to find out, and the answer decides whether `schemaParams` filters or
+   the adapter does.
+3. **What versions the schema?** data-fair's UI versions it by `dataset.updatedAt`, passed
+   as a cache-busting query parameter (A7). The editor cannot reach `updatedAt` without a
+   dataset GET, so it hashes the response body instead — one 5 KB GET per session open,
+   one compilation per distinct schema. If A7's `ETag` recommendation lands, the hash
+   becomes a conditional request and the GET goes away too.
 4. **Is the save gate worth anything on a plain dataset?** A fetched schema with
    `required: []` and few formats validates almost everything, so the gate may never fire.
    That is not a reason to remove it, but it is a reason not to claim it as a benefit until
@@ -244,6 +307,9 @@ Cheap to resolve, and better resolved before code than during it.
 The package carries its own suite (`session.spec.js`, `session-store.spec.js`,
 `layout-cache.spec.js`); we do not retest it.
 
+- `prepare-schema` — a fixture schema carrying a v2 keyword, a string `layout`, an
+  attachment column and an `x-extension` column comes out compilable, with the last two
+  hidden. `compile()` on the fixture is the assertion, not a snapshot of the output.
 - `session-spec` — an operation maps to `load`/`save`/`schema`/`options` correctly, with a
   stubbed `fetch` asserting method, URL, query string and body for all three calls;
   `readOperation` absent yields a `load` that makes no request.

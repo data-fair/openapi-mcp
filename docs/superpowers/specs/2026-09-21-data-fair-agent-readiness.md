@@ -137,11 +137,20 @@ out of band: `editor.schemaOperation` names the operation and `editor.schemaPara
 `mimeType`. A generator that trusted the declared response would build a tool documented
 to return a column list and in fact returning a schema.
 
-**Change.** Declare the three shapes under their real media types in the response's
-`content` map and let `Accept` select between them, keeping `mimeType` as the documented
-override for clients that cannot set a header. This is the same content-negotiation route
-phase 1 already uses for `text/markdown`. Then the schema shape is discoverable from the
-document, and the annotation only has to name an operation rather than pin a value.
+**Change — decided.** Declare the three shapes under their real media types in the
+response's `content` map and select between them with standard `Accept` content
+negotiation. This is the route phase 1 already uses for `text/markdown`, and it is the
+route agreed for this operation.
+
+The `mimeType` query parameter then has nothing left to do; whether it stays as a
+documented override for clients that cannot set a header is data-fair's call. Note that
+only `mimeType` is subsumed — `extension`, `arrays`, `draft`, `type`, `format`,
+`capability`, `enum` and `calculated` select *content*, not representation, and stay as
+query parameters.
+
+Once this lands, `editor.schemaParams` no longer has to pin a `mimeType`: the runtime
+already sets `Accept` from the operation's declared response media types
+(`src/request.ts:21`), so naming the operation becomes enough.
 
 ### A6. A dataset fetched from the API does not validate against its own write schema
 
@@ -169,6 +178,38 @@ cause. This finding is why dataset PATCH is no longer the editor's first target.
 **Change.** The read shape and the write schema disagree and one of them has to move.
 `ttl.prop` being `required` inside a branch the emitted document does not populate reads
 like a schema authored for the create path and reused for the patch path.
+
+---
+
+### A7. `/datasets/{id}/schema` accepts four parameters the document never declares
+
+**Today.** The operation declares `mimeType`, `type`, `format`, `capability`, `enum` and
+`calculated`. data-fair's own UI sends four more.
+
+**Evidence.** `data-fair/ui/src/composables/dataset/dataset-store.ts:61-68` builds the
+query the line-editing form runs on:
+
+```ts
+query: () => ({ draft, mimeType: 'application/schema+json', extension: 'true',
+                arrays: true, updatedAt: dataset.value?.updatedAt })
+```
+
+`draft`, `extension`, `arrays` and `updatedAt` appear nowhere in the root document — not
+on this operation, not on any other. The same class of gap as A1, found the same way:
+by reading what the product actually calls.
+
+**Why it matters.** `extension` and `arrays` change which columns and which types come
+back, so an editor built from the document gets a different schema from the one
+data-fair's own form gets, with no way to discover why. `draft` decides whether the
+draft or the published schema answers — a correctness question, not a preference.
+
+**Change.** Declare the three real parameters.
+
+`updatedAt` is a different animal: it is a cache-buster, not a filter, and declaring it
+would enshrine a workaround. The operation should carry `ETag` / `Last-Modified` and
+honour `If-None-Match` instead. That also removes a cost on our side — the editor needs a
+version for its schema, and without a validator header it has to hash the response body
+(see the editor spec).
 
 ---
 
