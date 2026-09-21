@@ -133,7 +133,7 @@ x-agent:
   title: { en: Edit a dataset record, fr: Éditer un enregistrement }
   editor:
     schemaOperation: readSchema
-    schemaParams: { mimeType: application/schema+json, extension: 'true', arrays: true }
+    schemaParams: { mimeType: application/schema+json, extension: 'true' }
     readOperation: readLine
 ```
 
@@ -145,7 +145,7 @@ x-agent:
   title: { en: Add a dataset record, fr: Ajouter un enregistrement }
   editor:
     schemaOperation: readSchema
-    schemaParams: { mimeType: application/schema+json, extension: 'true', arrays: true }
+    schemaParams: { mimeType: application/schema+json, extension: 'true' }
     # no readOperation — nothing to load
 ```
 
@@ -278,24 +278,49 @@ Cheap to resolve, and better resolved before code than during it.
 own line-editing form from it in production. With the condition above: through `v2compat`,
 and after normalizing string `layout` values. That condition is the finding, not a caveat.
 
+**Answered: does a fetched line validate against its own fetched schema?** Yes, on the
+target. This was the gate — A6's question asked of the new target — so it was measured
+rather than assumed, across `opendata.koumoul.com`:
+
+```
+REST datasets   8/8 valid   (up to 207 properties, date formats, 12-207 columns)
+file datasets   5/8 valid
+```
+
+A line carries `_id`, `_i`, `_rand` and `_score`, none of them in the schema; the schema
+sets no `additionalProperties: false`, so they pass through as unvalidated extras. Lines
+are not A6.
+
+**And the three failures name a parameter to drop.** All three were file datasets, all
+three failed the same way — `/topics must be array`, `/week must be array` — and the cause
+is exactly `arrays=true`:
+
+```
+l8wsvr0e…  arrays=true  6 array columns → INVALID (3 errors)   arrays=false → VALID
+sfd9d0rt…  arrays=true  1 array column  → INVALID (1 error)    arrays=false → VALID
+32jduzte…  arrays=true  8 array columns → INVALID (8 errors)   arrays=false → VALID
+```
+
+`arrays=true` describes multi-valued columns as arrays — a *separator-split* view for an
+editing surface — while `/lines` returns the stored scalar. The two representations do not
+agree, and a client pairing them has to split the values itself, which is what data-fair's
+form does and what ours would have to. So `schemaParams` does **not** copy `arrays: true`
+from that form. It is also inert for our target: 0 of 12 REST datasets declare an array
+column even with the parameter on, which is why the 8/8 above never met it. Dropping it
+costs nothing today and removes the failure mode if the target ever widens.
+
 Still open:
 
-1. **Does a fetched line validate against its own fetched schema?** A line carries `_id`
-   and other calculated columns. The schema sets no `additionalProperties: false`, so it
-   should pass — but "should" is what A6 disproved on the last target, and this is A6's
-   question asked of this one. It is the check that would disqualify lines the way A6
-   disqualified datasets, so it goes first.
-2. **`extension: 'true'` or `calculated: 'false'`?** The form fetches extension columns
-   and hides them; the document offers a `calculated` parameter that would drop them
-   server-side. Whether those two produce the same column set on a real dataset is a
-   single request to find out, and the answer decides whether `schemaParams` filters or
-   the adapter does.
-3. **What versions the schema?** data-fair's UI versions it by `dataset.updatedAt`, passed
+1. **`extension: 'true'` or `calculated: 'false'`?** The form fetches extension columns and
+   hides them; the document offers a `calculated` parameter that would drop them
+   server-side. The spec keeps `extension: 'true'` and hides them in the adapter, matching
+   the form, but which of the two produces the better column set is one request to settle.
+2. **What versions the schema?** data-fair's UI versions it by `dataset.updatedAt`, passed
    as a cache-busting query parameter (A7). The editor cannot reach `updatedAt` without a
    dataset GET, so it hashes the response body instead — one 5 KB GET per session open,
    one compilation per distinct schema. If A7's `ETag` recommendation lands, the hash
    becomes a conditional request and the GET goes away too.
-4. **Is the save gate worth anything on a plain dataset?** A fetched schema with
+3. **Is the save gate worth anything on a plain dataset?** A fetched schema with
    `required: []` and few formats validates almost everything, so the gate may never fire.
    That is not a reason to remove it, but it is a reason not to claim it as a benefit until
    a typed dataset shows it firing.

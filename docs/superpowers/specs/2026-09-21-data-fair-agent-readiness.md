@@ -203,7 +203,17 @@ back, so an editor built from the document gets a different schema from the one
 data-fair's own form gets, with no way to discover why. `draft` decides whether the
 draft or the published schema answers — a correctness question, not a preference.
 
-**Change.** Declare the three real parameters.
+**Change.** Declare the three real parameters — and `arrays` needs more than a name.
+Measured on `opendata.koumoul.com`: `arrays=true` describes a multi-valued column as an
+array, while `/lines` returns the stored scalar for that same column. Three of eight file
+datasets sampled produced a line that fails its own schema for exactly this reason
+(`/topics must be array`, `/week must be array`), and all three validate with the
+parameter off. That is not a bug — it is a separator-split view meant for an editing
+surface — but a client pairing the two endpoints has to do the splitting itself, and
+nothing says so. Whatever the declaration says about `arrays`, it should say that.
+
+REST datasets are unaffected: 0 of 12 sampled declare an array column even with the
+parameter on.
 
 `updatedAt` is a different animal: it is a cache-buster, not a filter, and declaring it
 would enshrine a workaround. The operation should carry `ETag` / `Last-Modified` and
