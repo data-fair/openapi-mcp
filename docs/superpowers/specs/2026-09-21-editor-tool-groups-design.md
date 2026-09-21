@@ -1,103 +1,95 @@
 # Editor tool groups — design
 
 *2026-09-21. Experimental; not aiming for production yet.*
+*Rewritten after finding `@json-layout/agents`, which implements most of what an earlier
+draft of this document specified from scratch.*
 
 ## Why
 
-Phase 1 produced read tools from annotations and phase 2 showed they hold up against
+Phase 1 produced read tools from annotations; phase 2 showed they hold up against
 hand-written ones. Writing is the half neither covered.
 
-A write operation's request body is a JSON schema, and for the schemas that matter it is
-not a small one: data-fair's `datasetPatch` is 26 KB carrying **42 `layout` keywords** and
-six `oneOf` branches. An agent asked to emit that document in one shot has to guess which
-branch's fields are legal before it knows which branch it is in.
+For a body whose difficulty is only its **size**, the answer is already built: `body:
+compact` renders the schema as a listing and validates the real thing at execution, taking
+data-fair's dataset write tool from 28,033 characters to 2,840.
 
-`@json-layout/core` already solves exactly this, in production, through six MCP tools that
-let an agent read a form, activate a variant, fill one field at a time and see validation
-scoped to what it just changed. Its own README argues the case from measurements: a
-`portal-page` schema is 285,874 characters where a whole editing session costs about 7.4 KB
-of tool output, and the accepted values of a field are often not in the schema at all.
+This document is for the other case — a body whose difficulty is **branching and remote
+values**. data-fair's `datasetPatch` carries 42 `layout` keywords and six `oneOf` branches:
+which fields are legal depends on which branch is active, and an agent emitting the
+document in one shot has to guess the branch before it knows it is in one. That is what
+`@json-layout/core` solves, in production, through tools that let an agent read a form,
+activate a variant, fill one field at a time and see validation scoped to what it changed.
 
-Wiring those tools onto an annotated write operation is the capability no third-party
-OpenAPI-to-MCP generator can offer, and it is the reason this project owns its converter
-rather than adopting one.
+## What already exists, and what is left for us
+
+`@json-layout/agents` is the server-side half of that story, and it is nearly all of this
+feature:
+
+| Concern | Where it lives |
+|---|---|
+| Session lifetime, sliding TTL, eviction, concurrent-call de-duplication | `SessionStore` (`getOrCreate` shares one factory run per key) |
+| Open, reload, save; status machine (`closed`/`opening`/`ready`/`stale`/`saving`/`error`) | `FormSession` |
+| The save gate | `save()` refuses when `!valid` unless `allowInvalid` |
+| In-flight save protection | `save()` rejects a second save while one is running |
+| Optimistic concurrency | `SaveContext { version, base }`, `unwrapEnvelope` |
+| Compiled-layout reuse across sessions | `resolveCompiledLayout` / `clearLayoutCache` |
+| Tool surface | `session.tools` — core's six plus `saveForm` and `reloadForm` |
+| Flat vs sub-agent | `includeSubAgent`, `includeFillFormSkill` flags |
+| Tool prefixing | `prefixName` |
+
+**What is left for us is one adapter**: turn an annotated OpenAPI operation into a
+`SessionSpec`, and give the agent a way to say *which* resource it is editing.
+
+```
+SessionSpec.load()   -> GET via the annotation's readOperation
+SessionSpec.save()   -> the annotated write operation
+SessionSpec.schema() -> the operation's request body schema, from the document
+SessionSpec.options  -> { fetch, fetchBaseURL } — the caller's credentials, as everywhere else
+SessionSpec.title    -> the operation's x-agent title
+```
 
 ## Decisions
 
 | Decision | Choice | Why |
 |---|---|---|
-| Form state between calls | An explicit session token in a process-global store | Editing is stateful; the library is not. Keying by token rather than by MCP session is what keeps it working under the binary's per-request `Server` in HTTP mode. |
-| Tool surface | Flat — eight tools, profile-gated | Works in every MCP client including the standalone binary, which is what we can test end to end. The sub-agent shape depends on a consumer convention we would be inventing. |
-| Dependency | `@json-layout/core` as an optional peer, imported lazily | Nine transitive dependencies is real weight to impose on someone who only wants read tools. |
-| Suggestions | json-layout's own `getFieldSuggestions`, given our `fetch` | Keeps the caller's credentials on the one inner tool that touches the network. |
-| The guide | Appended to `instructions` as text | Phase 1's rule stands: skills are text, never an executable workflow. |
-| Concurrency | None beyond what the API has | Last write wins, as the underlying API already does. We do not invent optimistic concurrency data-fair lacks. |
+| Session identity | The resource's own path parameters, as the store key | The package documents keying by `${userId}:${resourcePath}:${recordId}`. The resource id *is* the token, so there is nothing opaque to carry and re-opening the same dataset resumes rather than reloads. |
+| Resource selection | Every editor tool takes the operation's path parameters | No hidden "current form". Two datasets can be edited in one session without a mode. |
+| Validity gate | `FormSession`'s own, `allowInvalid` left at its default | It already exists and reports the errors; adding ours would be a second gate disagreeing with the first. |
+| Descriptor bootstrapping | Open a throwaway session over a stub `load` at `load()` time | Tool descriptions come from the package rather than being re-typed here, and it costs no HTTP. See below. |
+| Tool surface | Flat, profile-gated | `includeSubAgent` makes the alternative a flag we can measure later rather than a design we must pick now. |
+| Dependency | `@json-layout/agents` as an optional peer, imported lazily | It pulls `@json-layout/core` and nine transitive dependencies; a consumer using only read tools should not carry them. |
 
-## Shape
+## The adapter
 
-Three new files, and `@json-layout/core` as an optional peer dependency (a devDependency
-here, so the tests exercise it). A missing install fails at `load` with
-*"operation X declares `editor` but @json-layout/core is not installed"* — the same loud
-style as the rest of the vocabulary.
+Three small files:
 
 ```
-src/editor/session-store.ts   token -> { statefulLayout, op, pathParams, createdAt, lastUsed }
-src/editor/bridge.ts          WebMCP descriptors -> our Tool shape
-src/editor/index.ts           buildEditorTools(op, o) -> Tool[]
+src/editor/session-spec.ts   ResolvedOperation -> SessionSpec
+src/editor/bridge.ts         FormTool -> our Tool (name, description, inputSchema, execute)
+src/editor/index.ts          buildEditorTools(op, o) -> Tool[]
 ```
 
-The construction sequence is the one json-layout's own eval harness uses, so it is
-known-good:
+**Resource selection.** `FormSession`'s tools have fixed input schemas and no notion of
+which dataset is being edited, so our bridge wraps each one: it adds the operation's path
+parameters to the tool's `inputSchema`, resolves the session through
+`store.getOrCreate(key, factory)` keyed by those parameters, then delegates the remaining
+arguments to the package's tool. The factory creates the `FormSession` and opens it, so a
+first call loads the document and a later call resumes the same form.
 
-```ts
-const compiled = compile(bodySchema, { locale })
-const tree = compiled.skeletonTrees[compiled.mainTree]
-const layout = new StatefulLayout(compiled, tree, { validateOn: 'input', fetchBaseURL }, currentDocument)
-const tools = new WebMCP(layout, { dataTitle, prefixName }).getTools()
-```
+**Descriptor bootstrapping.** `session.tools` throws while the session is closed, but
+`load()` must publish tool descriptors before any resource is named and without making an
+HTTP call. So at load time we build one throwaway session whose `load` returns `{}` — a
+literal, no I/O — open it, take its `tools` for their names, descriptions and input
+schemas, and discard it. The eight descriptions then come from the package rather than
+being duplicated here, which matters because they are the text an agent reads to decide
+what to call.
 
-`fetchBaseURL` is the base URL the tools already use, so json-layout's `getFieldSuggestions`
-resolves relative `x-fromUrl` paths against the same API. `datasetPatch` carries no
-`x-fromUrl` today (zero occurrences), so this is wiring for when it does, not a claim about
-now.
+**Errors.** `FormSession` throws `sessionError` with a status (`closed`, `readonly`,
+`saving`, `invalid`). The bridge turns those into `{ isError: true, text }` results rather
+than exceptions, consistent with every other tool in this library: a tool call that fails
+is a datum the agent can act on, not a crash.
 
-`WebMCP.getTools()` returns `{ name, description, inputSchema?, execute(args) →
-{ content: [{ type: 'text', text }], isError? } }` and involves no browser — only its
-`registerTools()` touches `navigator.modelContext`. The bridge prefixes the name, flattens
-`content` to our `text`, and passes `isError` through.
-
-## The session
-
-`_open` and `_submit` are ours. The middle six are json-layout's, unchanged.
-
-**`<name>_open`** takes the operation's path parameters, runs the `readOperation` to fetch
-the current document, compiles the body schema, builds the `StatefulLayout` seeded with
-that document, stores it, and returns **a token plus the initial `describeState` output** —
-so the agent sees the form in the same call instead of being made to ask twice.
-
-With no `readOperation` the session starts from an empty document. That is right for a POST
-and wrong for a PATCH, so `editor` on a PATCH or PUT without one is a load-time error.
-
-**`<name>_submit`** takes the token, refuses if the form is invalid — returning the errors,
-not the document, which the agent already has — performs the write with the form's data as
-the body, discards the session, and renders the response normally. **A failed write keeps
-the session alive** so the agent can fix and resubmit rather than start over.
-
-**The store** is process-global and keyed by token, not by MCP session. That is precisely
-what lets it survive the binary's per-request `Server` in HTTP mode. Entries carry
-`createdAt`/`lastUsed` and are evicted by idle TTL (30 minutes, `editorSessionTtlMs`) and by
-a max-entry cap dropping the least recently used. An evicted token returns *"this editing
-session expired, call `_open` again"*, never a null dereference.
-
-Two limits, stated here rather than discovered later:
-
-- **Single process only.** Two replicas behind a load balancer do not share sessions. Fine
-  for stdio and a single in-stack container. The token indirection is what makes a shared
-  store a later swap that does not change the tool surface.
-- **No cross-session locking.** Two agents editing the same resource both submit and the
-  last wins — what the API already does. If data-fair grows an ETag, `_submit` can carry it.
-
-## Annotation and naming
+## Annotation
 
 The vocabulary slot exists from phase 1; only `readOperation` becomes meaningful.
 
@@ -109,44 +101,55 @@ x-agent:
   title: { en: Edit dataset metadata, fr: Éditer les métadonnées }
 ```
 
-Tools are `<toolName>_<verb>`: `dataset_metadata_open`, `_describe_state`,
-`_set_field_value`, `_set_data`, `_edit_array`, `_get_field_suggestions`, `_get_data`,
-`_submit`. json-layout's own `prefixName` option does the prefixing, so the six inner names
-come from it rather than from us re-deriving them.
+Tools are `<toolName>_<verb>`, and the verbs are the package's own camelCase names:
+`dataset_metadata_describeState`, `_setFieldValue`, `_setData`, `_editArray`,
+`_getFieldSuggestions`, `_getData`, `_saveForm`, `_reloadForm`. `prefixName` does the
+prefixing.
 
-Profile gating contains the cost: the group loads only in a profile that includes the
-operation, so an `explore` agent never pays for eight definitions.
+`load` changes in three places: `resolveOperations` stops throwing on `editor` and instead
+throws only when the operation has no JSON request body or names no `readOperation`;
+`makeTool` returns `Tool[]` for an editor operation and `load` flattens; and the guide from
+core's `generateSkill` is appended to `instructions` as its own section, keeping phase 1's
+rule that skills are text.
 
-## Changes to `load`
+## Open questions, to settle by probing before implementation
 
-1. `resolveOperations` currently throws on any `editor` — phase 1's honest placeholder. It
-   becomes: throw when `editor` sits on an operation with no JSON request body, or on a
-   PATCH/PUT with no `readOperation`.
-2. `makeTool` returns `Tool[]` for an editor operation — the group — and `load` flattens.
-3. json-layout's `generateSkill` guide is appended to the ToolSet's `instructions` as its
-   own section.
+Two things an earlier probe surfaced that this design does not yet answer, both cheap to
+resolve and both better resolved before code than during it:
 
-The annotation lint applies unchanged. json-layout authors those six descriptions, so they
-are authored-not-inherited and get checked: if its guide ever describes a scalar where its
-schema wants an array, we learn at `load` rather than from a transcript.
+1. **Does a real fetched document validate against the write schema?** Seeding a layout
+   with a stub produced three errors on `datasetPatch`'s `/rest` branch before any edit.
+   If a real document does the same, `allowInvalid` becomes a per-operation annotation
+   rather than a default; if it validates, the gate is simply the package's.
+2. **Does `datasetPatch` compile cleanly?** The same probe emitted `failed to normalize
+   layout, use default component` and `/title must be string`, which suggests some of its
+   42 `layout` keywords are vjsf-v2 style and would need the compatibility layer
+   json-layout applies to `app-calendar` in its own eval. That would be real extra scope.
+
+A third, smaller: `putDataset` declares `multipart/form-data`, not `application/json`, so
+the operation `editor` attaches to may need to be `patchDataset` — or the annotation may
+need to name the media type. To check against the frozen document.
 
 ## Testing
 
-The six inner tools are json-layout's and carry its own suite; we do not retest them.
+The package carries its own suite (`session.spec.js`, `session-store.spec.js`,
+`layout-cache.spec.js`); we do not retest it.
 
-- `session-store` — TTL eviction, LRU cap, the expired-token message. Pure and fast.
-- `bridge` — descriptor mapping, including `isError` and multi-block `content`.
-- `_open` / `_submit` against a stubbed `fetch` and the **real `datasetPatch` schema** taken
-  from the frozen fixture: open seeds from the GET, edits mutate, submit sends the right
-  body, an invalid submit refuses with errors, a failed write keeps the session.
+- `session-spec` — an operation maps to `load`/`save`/`schema`/`options` correctly, with a
+  stubbed `fetch` asserting the right method, URL and body.
+- `bridge` — path parameters are added to each tool's input schema, the session key is
+  derived from them, and a `sessionError` becomes an `isError` result rather than a throw.
+- Group assembly — eight tools, prefixed, profile-gated, appearing only in a profile that
+  includes the operation.
 - One end-to-end check against the live API, run by hand and reported — the discipline that
   caught the `agg_size` bug no test saw.
 
 ## Non-goals
 
-- No sub-agent mode. It is what json-layout ships in production and the obvious next step,
-  but it depends on a consumer convention we cannot validate here. Recorded, not built.
-- No optimistic concurrency, no locking, no shared session store.
+- No session store, save logic, TTL, concurrency handling or layout caching of our own.
+  All of it exists; writing a second one would be the mistake this rewrite exists to avoid.
+- No sub-agent mode in this phase — `includeSubAgent` is a flag, so it becomes a
+  measurement rather than a decision.
 - No new vocabulary beyond `editor.readOperation`.
-- The six inner tools are consumed as they are. If one needs changing, it changes in
-  json-layout, where its tests and its eval harness live.
+- The package's tools are consumed as they are. If one needs changing, it changes in
+  `@json-layout/agents`, where its tests live.
