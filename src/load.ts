@@ -2,6 +2,7 @@ import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js'
 import addFormatsModule, { type FormatsPlugin } from 'ajv-formats'
 import Debug from 'debug'
 import { loadSpec, resolveOperations, defaultProfile } from './spec.ts'
+import { buildEditorTools } from './editor/index.ts'
 import { buildInput } from './input.ts'
 import { buildRequest } from './request.ts'
 import { render } from './render.ts'
@@ -138,7 +139,9 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
     lint: options.lint ?? 'error'
   }
   const ops = resolveOperations(doc, profile)
-  const built = ops.map(op => makeTool(op, o))
+  const editorOps = ops.filter(op => op.agent.editor)
+  const plainOps = ops.filter(op => !op.agent.editor)
+  const built = plainOps.map(op => makeTool(op, o))
 
   if (o.lint !== 'off') {
     const findings: LintFinding[] = built.flatMap(t => lintToolInput(t.name, t.inputSchema, t.authoredDescriptions))
@@ -152,5 +155,14 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
 
   // authoredDescriptions is scaffolding for the lint, not part of the public Tool.
   const tools: Tool[] = built.map(({ authoredDescriptions, ...tool }) => tool)
-  return { profile, instructions: buildInstructions(doc, profile, ops, o.locale), tools }
+  // The group's text comes from the package, so the guide names the tools rather than
+  // repeating the descriptions an agent already reads on each one.
+  const editorSections: string[] = []
+  for (const op of editorOps) {
+    const group = await buildEditorTools(op, { doc, baseUrl, fetch: fetchFn, locale: o.locale })
+    tools.push(...group)
+    editorSections.push(`## ${op.toolName}\n\nTools: ${group.map(t => t.name).join(', ')}`)
+  }
+  const instructions = [buildInstructions(doc, profile, ops, o.locale), ...editorSections].filter(Boolean).join('\n\n')
+  return { profile, instructions, tools }
 }

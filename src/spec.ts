@@ -131,12 +131,6 @@ export function resolveOperations (doc: JsonSchema, profile: string): ResolvedOp
       const profiles = agent.profiles ?? tagProfiles ?? true
       if (!profilesInclude(profiles, profile)) continue
       if (!op.operationId) throw new Error(`operation ${method.toUpperCase()} ${path} has x-agent but no operationId`)
-      // editor validates against the vocabulary schema (json-layout form-editing tool groups
-      // over a write operation's body) but nothing in load.ts/input.ts reads it yet — silently
-      // ignoring it would yield a validating document that produces no tool group and no
-      // warning. Fail loudly instead of shipping a document that promises an editor tool set
-      // phase 1 does not build.
-      if (agent.editor) throw new Error(`${op.operationId}: "editor" is not implemented in phase 1`)
 
       out.push(resolveOne(path, item, method, op, agent, profiles, prefix))
     }

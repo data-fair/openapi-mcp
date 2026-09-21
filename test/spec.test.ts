@@ -78,11 +78,6 @@ describe('resolveOperations', () => {
     }
     assert.throws(() => resolveOperations(inlineRefs(dupeDoc), 'explore'), /duplicate tool names: pets_list_pets/)
   })
-  it('fails loudly on editor: true, not implemented in phase 1', () => {
-    const editorDoc = structuredClone(petstore)
-    editorDoc.paths['/pets'].post['x-agent'].editor = true
-    assert.throws(() => resolveOperations(inlineRefs(editorDoc), 'edit'), /createPet.*"editor" is not implemented in phase 1/)
-  })
 })
 
 describe('resolveOperationById', () => {
