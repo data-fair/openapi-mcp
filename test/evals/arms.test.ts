@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { armA, armB, discoverTools } from '../../evals/arms.ts'
+import { armA, armB, armC, discoverTools } from '../../evals/arms.ts'
 import { startFixtureServer } from '../../evals/fixture-server.ts'
 
 describe('armA', () => {
@@ -26,10 +26,20 @@ describe('armB', () => {
     const b = armB('http://127.0.0.1:1234/openapi.json', 'abc123def456')
     assert.equal(b.name, 'B')
     assert.match(b.config.args[0], /src\/bin\/server\.ts$/)
-    assert.equal(b.config.env.PROFILE, 'explore')
+    assert.equal(b.config.env.PROFILES, 'explore')
     assert.equal(b.config.env.OPENAPI_URL, 'http://127.0.0.1:1234/openapi.json')
     assert.equal(b.provenance.fixtureHash, 'abc123def456')
     assert.equal(b.provenance.profile, 'explore')
+  })
+})
+
+describe('armC', () => {
+  it('runs the binary over an index with the explore profile', () => {
+    const c = armC('http://127.0.0.1:1/index.json', 'abc123')
+    assert.equal(c.name, 'C')
+    assert.equal(c.serverName, 'datafair')
+    assert.deepEqual(c.config.env, { INDEX_URL: 'http://127.0.0.1:1/index.json', PROFILES: 'explore', REFRESH_INTERVAL: '0' })
+    assert.deepEqual(c.provenance, { fixtureHash: 'abc123', profiles: 'explore', composed: 'true' })
   })
 })
 
@@ -46,6 +56,17 @@ describe('discoverTools', () => {
       // every run just like the tool definitions — omitted from definitionBytes on
       // purpose, so it must be measured and reported separately (F5).
       assert.ok(d.instructionsBytes > 0, `instructionsBytes was ${d.instructionsBytes}`)
+    } finally {
+      await srv.close()
+    }
+  })
+
+  it('lists the same six tools through arm C, composed over the fixture index', async () => {
+    const srv = await startFixtureServer()
+    try {
+      const d = await discoverTools(armC(srv.indexUrl, srv.hash))
+      assert.deepEqual(d.toolNames.sort(), ['aggregate_data', 'calculate_metric', 'describe_dataset', 'get_field_values', 'list_datasets', 'search_data'])
+      assert.equal(d.allowedTools.length, 6)
     } finally {
       await srv.close()
     }

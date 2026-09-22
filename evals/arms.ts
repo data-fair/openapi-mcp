@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 
-export type ArmName = 'A' | 'B'
+export type ArmName = 'A' | 'B' | 'C'
 
 export interface ArmSpec {
   name: ArmName
@@ -65,9 +65,23 @@ export function armB (openapiUrl: string, fixtureHash: string): ArmSpec {
     config: {
       command: 'node',
       args: [resolve(repoRoot, 'src/bin/server.ts')],
-      env: { OPENAPI_URL: openapiUrl, PROFILE: 'explore' }
+      env: { OPENAPI_URL: openapiUrl, PROFILES: 'explore' }
     },
     provenance: { fixtureHash, profile: 'explore' }
+  }
+}
+
+/** The same document reached through an index and the composer: parity with B is the expectation. */
+export function armC (indexUrl: string, fixtureHash: string): ArmSpec {
+  return {
+    name: 'C',
+    serverName: SERVER_NAME,
+    config: {
+      command: 'node',
+      args: [resolve(repoRoot, 'src/bin/server.ts')],
+      env: { INDEX_URL: indexUrl, PROFILES: 'explore', REFRESH_INTERVAL: '0' }
+    },
+    provenance: { fixtureHash, profiles: 'explore', composed: 'true' }
   }
 }
 

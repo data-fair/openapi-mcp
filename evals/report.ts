@@ -23,19 +23,17 @@
  * total-token ratio, input+output is broken out on its own clearly-labelled line, with its
  * own B/A ratio — never merged into or confused with the headline.
  */
+import type { ArmName } from './arms.ts'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Transcript } from './transcript.ts'
 import type { Verdict } from './verdict.ts'
 
-export interface Run { scenario: string, arm: 'A' | 'B', transcript: Transcript | null, verdict: Verdict | null }
+export interface Run { scenario: string, arm: ArmName, transcript: Transcript | null, verdict: Verdict | null }
 // instructionsBytes is optional: the committed baseline's tool-definitions.json predates
 // it and is never rewritten (its numbers were measured after that run, not part of it).
-export interface ToolDefs {
-  A?: { toolNames: string[], definitionBytes: number, instructionsBytes?: number }
-  B?: { toolNames: string[], definitionBytes: number, instructionsBytes?: number }
-}
+export type ToolDefs = Partial<Record<ArmName, { toolNames: string[], definitionBytes: number, instructionsBytes?: number }>>
 
 const TOKEN_RATIO_CRITERION = 1.2
 
@@ -84,45 +82,52 @@ export function summarise (runs: Run[], toolDefs: ToolDefs | null): { lines: str
   lines.push('')
   lines.push(`never ran: ${neverRan}, not judged: ${notJudged}, harness errors: ${harnessErrors}`)
 
-  const byArm = (arm: 'A' | 'B') => runs.filter(r => r.arm === arm)
-  const tokens = (arm: 'A' | 'B') => byArm(arm).reduce((n, r) => n + (r.transcript?.metrics.totalTokens ?? 0), 0)
-  const ioTokens = (arm: 'A' | 'B') => byArm(arm).reduce((n, r) => n + (r.transcript ? r.transcript.metrics.inputTokens + r.transcript.metrics.outputTokens : 0), 0)
-  const friction = (arm: 'A' | 'B') => byArm(arm).reduce((n, r) => n + (r.verdict?.friction.length ?? 0), 0)
-  const passes = (arm: 'A' | 'B') => byArm(arm).filter(r => r.verdict?.verdict === 'satisfactory').length
+  const byArm = (arm: ArmName) => runs.filter(r => r.arm === arm)
+  const tokens = (arm: ArmName) => byArm(arm).reduce((n, r) => n + (r.transcript?.metrics.totalTokens ?? 0), 0)
+  const ioTokens = (arm: ArmName) => byArm(arm).reduce((n, r) => n + (r.transcript ? r.transcript.metrics.inputTokens + r.transcript.metrics.outputTokens : 0), 0)
+  const friction = (arm: ArmName) => byArm(arm).reduce((n, r) => n + (r.verdict?.friction.length ?? 0), 0)
+  const passes = (arm: ArmName) => byArm(arm).filter(r => r.verdict?.verdict === 'satisfactory').length
 
+  // A is the hand-written baseline; every other arm is compared to it.
+  const ARMS: readonly ArmName[] = ['A', 'B', 'C']
+  const present = ARMS.filter(arm => byArm(arm).length)
   lines.push('')
-  for (const arm of ['A', 'B'] as const) {
-    if (byArm(arm).length) lines.push(`arm ${arm}: ${passes(arm)}/${byArm(arm).length} satisfactory, ${tokens(arm)} tokens`)
-  }
-  lines.push(`friction points: A ${friction('A')}, B ${friction('B')}`)
+  for (const arm of present) lines.push(`arm ${arm}: ${passes(arm)}/${byArm(arm).length} satisfactory, ${tokens(arm)} tokens`)
+  lines.push(`friction points: ${present.map(arm => `${arm} ${friction(arm)}`).join(', ')}`)
 
-  const ta = tokens('A'); const tb = tokens('B')
-  if (ta > 0 && tb > 0) {
-    const ratio = tb / ta
-    lines.push(`B/A token ratio: ${ratio.toFixed(2)} (criterion: ≤ ${TOKEN_RATIO_CRITERION}${ratio > TOKEN_RATIO_CRITERION ? ' — over' : ''})`)
-  }
-
-  // Cache can dwarf input+output (a measured transcript was 58,610/60,925 cache) and B's
-  // larger tool definitions give it a structurally higher cache cost independent of tool
-  // quality — so this line never gets folded into the headline ratio above.
-  const ioA = ioTokens('A'); const ioB = ioTokens('B')
-  if (ioA > 0 && ioB > 0) {
-    const ioRatio = ioB / ioA
-    lines.push(`B/A input+output token ratio (excludes cache; headline above includes it): ${ioRatio.toFixed(2)} — input+output tokens: A ${ioA}, B ${ioB}`)
+  const ta = tokens('A')
+  for (const arm of present.filter(a => a !== 'A')) {
+    const tb = tokens(arm)
+    if (ta > 0 && tb > 0) {
+      const ratio = tb / ta
+      lines.push(`${arm}/A token ratio: ${ratio.toFixed(2)} (criterion: ≤ ${TOKEN_RATIO_CRITERION}${ratio > TOKEN_RATIO_CRITERION ? ' — over' : ''})`)
+    }
   }
 
-  if (toolDefs?.A || toolDefs?.B) {
+  // Cache can dwarf input+output (a measured transcript was 58,610/60,925 cache) and the
+  // generated arms' larger tool definitions give them a structurally higher cache cost
+  // independent of tool quality — so this line never gets folded into the headline ratio.
+  const ioA = ioTokens('A')
+  for (const arm of present.filter(a => a !== 'A')) {
+    const ioB = ioTokens(arm)
+    if (ioA > 0 && ioB > 0) {
+      const ioRatio = ioB / ioA
+      lines.push(`${arm}/A input+output token ratio (excludes cache; headline above includes it): ${ioRatio.toFixed(2)} — input+output tokens: A ${ioA}, ${arm} ${ioB}`)
+    }
+  }
+
+  if (ARMS.some(arm => toolDefs?.[arm])) {
     // instructionsBytes is sent through the protocol on every run just like the tool
     // definitions, and the design doc counts it as part of the same static preamble — so it
     // is reported alongside definitionBytes, not left out of the comparison (a pre-F5
     // tool-definitions.json, like the committed baseline's, simply omits it here).
-    const size = (arm: 'A' | 'B') => {
+    const size = (arm: ArmName) => {
       const d = toolDefs?.[arm]
       if (!d) return 'not measured'
       if (d.instructionsBytes == null) return `${d.toolNames.length} tools, ${d.definitionBytes} bytes`
       return `${d.toolNames.length} tools, ${d.definitionBytes} bytes definitions + ${d.instructionsBytes} bytes instructions = ${d.definitionBytes + d.instructionsBytes} bytes`
     }
-    lines.push(`tool definitions: A ${size('A')}; B ${size('B')}`)
+    lines.push(`tool definitions: ${ARMS.filter(arm => toolDefs?.[arm]).map(arm => `${arm} ${size(arm)}`).join('; ')}`)
   }
 
   return { lines, failed }
@@ -135,7 +140,7 @@ export function summarise (runs: Run[], toolDefs: ToolDefs | null): { lines: str
  * ran", instead of just not appearing. Pure and independent of the filesystem, so it is
  * testable without a runs directory: the CLI below is the only caller that touches disk.
  */
-export function fillMissingRuns (scenarios: { id: string }[], existing: Run[], arms: ('A' | 'B')[]): Run[] {
+export function fillMissingRuns (scenarios: { id: string }[], existing: Run[], arms: (ArmName)[]): Run[] {
   const byKey = new Map(existing.map(r => [`${r.scenario}--${r.arm}`, r]))
   for (const s of scenarios) {
     for (const arm of arms) {
@@ -170,7 +175,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const files = readdirSync(RUNS_DIR)
     .filter(f => f.endsWith('.json') && !f.endsWith('.verdict.json') && f !== 'tool-definitions.json')
 
-  const armsSeen = new Set<'A' | 'B'>()
+  const armsSeen = new Set<ArmName>()
   const existing: Run[] = files.map(file => {
     const transcript = readJsonSafe<Transcript>(join(RUNS_DIR, file))
     // Prefer the parsed transcript's own scenario/arm; fall back to the filename (which
@@ -179,7 +184,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     // silently vanishing.
     const [scenarioFromName, armFromName] = file.replace(/\.json$/, '').split('--')
     const scenario = transcript?.scenario ?? scenarioFromName
-    const arm = (transcript?.arm ?? armFromName) as 'A' | 'B'
+    const arm = (transcript?.arm ?? armFromName) as ArmName
     armsSeen.add(arm)
     const verdictPath = join(RUNS_DIR, file.replace(/\.json$/, '.verdict.json'))
     const verdict = existsSync(verdictPath) ? readJsonSafe<Verdict>(verdictPath) : null
@@ -190,8 +195,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // per eval:run invocation for exactly the arms that invocation covered (respecting
   // --arm), so it is the authoritative source when present. Fall back to whatever arms
   // actually show up in the runs directory only when it is missing.
-  const presentArms: ('A' | 'B')[] = toolDefs
-    ? (['A', 'B'] as const).filter(a => toolDefs[a])
+  const presentArms: (ArmName)[] = toolDefs
+    ? (['A', 'B', 'C'] as const).filter(a => toolDefs[a])
     : Array.from(armsSeen)
 
   const scenarios: { id: string }[] = JSON.parse(readFileSync(join(here, 'scenarios.json'), 'utf8'))

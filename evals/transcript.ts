@@ -8,6 +8,7 @@
  * Tool names are stripped of their `mcp__<server>__` prefix: the judge is not told which
  * arm it is reading, and a prefix is exactly the kind of tell that would leak it.
  */
+import type { ArmName } from './arms.ts'
 
 export interface RecordedCall {
   tool: string
@@ -31,7 +32,7 @@ export interface RunMetrics {
 
 export interface Transcript {
   scenario: string
-  arm: 'A' | 'B'
+  arm: ArmName
   /** The alias passed to the SDK (e.g. `haiku`), from `OPENAPI_MCP_EVAL_MODEL` — not
    * necessarily what a baseline months from now still resolves to. See `resolvedModels`. */
   model: string
