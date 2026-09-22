@@ -23,7 +23,7 @@ describe('data-fair explore profile', () => {
   it('produces the six exploration tools', async () => {
     const ts = await load(doc, { fetch })
     assert.deepEqual(ts.tools.map(t => t.name).sort(), ['aggregate_data', 'calculate_metric', 'describe_dataset', 'get_field_values', 'list_datasets', 'search_data'])
-    assert.match(ts.instructions, /^## Workflow/)
+    assert.match(ts.instructions, /^## workflow/)
     for (const t of ts.tools) assert.ok(t.description.length > 40, `${t.name} has a real description`)
   })
   it('input schemas match agent-tools up to the known gaps', async () => {

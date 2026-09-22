@@ -1,4 +1,5 @@
 import { validateVocabulary } from './vocabulary/validate.ts'
+import { expandProfiles } from './profiles.ts'
 import type { JsonSchema, AgentOperation, AgentParamOverride, AgentRoot, AgentTag, ResolvedOperation, ResolvedParam } from './types.ts'
 
 const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']
@@ -63,6 +64,7 @@ export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetc
   }
   if (typeof doc?.openapi !== 'string' || !doc.openapi.startsWith('3.')) throw new Error('only OpenAPI 3.x documents are supported')
   validateVocabulary(doc)
+  expandProfiles((doc['x-agent'] as AgentRoot | undefined)?.profiles)
   return inlineRefs(doc)
 }
 

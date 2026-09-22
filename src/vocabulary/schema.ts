@@ -35,7 +35,11 @@ export const rootSchema: JsonSchema = {
     profiles: {
       type: 'object',
       minProperties: 1,
-      additionalProperties: { type: 'object', additionalProperties: false, properties: { title: localized, description: localized } }
+      additionalProperties: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { title: localized, description: localized, includes: { type: 'array', items: { type: 'string' }, minItems: 1 } }
+      }
     },
     skills: {
       type: 'array',
@@ -43,7 +47,14 @@ export const rootSchema: JsonSchema = {
         type: 'object',
         additionalProperties: false,
         required: ['name', 'description'],
-        properties: { name: { type: 'string' }, description: localized, profiles: { type: 'array', items: { type: 'string' } }, tools: { type: 'array', items: { type: 'string' } } }
+        properties: {
+          // The MCP skills extension requires `name` to equal the last URI segment and
+          // delegates its format to the Agent Skills specification.
+          name: { type: 'string', pattern: '^[a-z0-9]+(-[a-z0-9]+)*$', maxLength: 64 },
+          description: localized,
+          profiles: { type: 'array', items: { type: 'string' } },
+          tools: { type: 'array', items: { type: 'string' } }
+        }
       }
     }
   }

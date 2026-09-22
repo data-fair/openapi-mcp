@@ -65,7 +65,8 @@ export interface AgentSkill {
 
 export interface AgentRoot {
   namePrefix?: string
-  profiles?: Record<string, { title?: Localized, description?: Localized }>
+  /** `includes` declares a superset: requesting this profile also selects every operation of the included ones. */
+  profiles?: Record<string, { title?: Localized, description?: Localized, includes?: string[] }>
   skills?: AgentSkill[]
 }
 

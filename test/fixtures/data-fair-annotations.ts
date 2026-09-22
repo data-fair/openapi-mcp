@@ -16,7 +16,7 @@ const geoParams = {
 export const root: AgentRoot = {
   profiles: { explore: { title: { en: 'Explore open data', fr: 'Explorer les données ouvertes' } } },
   skills: [{
-    name: 'Workflow',
+    name: 'workflow',
     description: `You are querying French open data through Data Fair.
 1. **list_datasets** — find datasets with French keywords (simple terms, not sentences). If 0 results try synonyms or broader terms.
 2. **describe_dataset** — schema and metadata of a dataset. Then call **search_data** with size=3 to see sample rows before filtering.

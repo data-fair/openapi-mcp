@@ -54,6 +54,13 @@ describe('validateVocabulary', () => {
   it('rejects a wrong type at root', () => {
     assert.throws(() => validateVocabulary(doc({ 'x-agent': { namePrefix: 3 } })), /x-agent invalid at \/: .*namePrefix/)
   })
+  it('accepts includes on a root profile', () => {
+    assert.doesNotThrow(() => validateVocabulary(doc({ 'x-agent': { profiles: { a: {}, b: { includes: ['a'] } } } })))
+  })
+  it('rejects a skill name outside the Agent Skills format', () => {
+    assert.throws(() => validateVocabulary(doc({ 'x-agent': { skills: [{ name: 'Workflow', description: 'd' }] } })), /x-agent invalid at \/: \/skills\/0\/name must match pattern/)
+    assert.doesNotThrow(() => validateVocabulary(doc({ 'x-agent': { skills: [{ name: 'publishing-workflow', description: 'd' }] } })))
+  })
 })
 
 describe('editor annotation', () => {
