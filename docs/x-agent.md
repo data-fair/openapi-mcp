@@ -39,7 +39,8 @@ x-agent:
   namePrefix: datafair_
   profiles:
     explore: { title: Explore, description: Read-only tools }
-    write: { title: Edit, description: Editing tools }
+    write_datasets: { title: Edit datasets }
+    write: { title: Edit, description: Editing tools, includes: [write_datasets] }
   skills:
     - name: workflow
       description: Start with describe_dataset, then search_data.
@@ -49,12 +50,31 @@ x-agent:
 
 - **`namePrefix`** — prepended to every generated tool name (pattern `^[a-z0-9_]*$`).
 - **`profiles`** — a non-empty map. The **first declared profile is the default** when
-  `load` is called without `profile`. Requesting a profile the root does not declare is an
-  error.
-- **`skills`** — text blocks rendered into the MCP `instructions`, in order. Each has a
-  `name`, a localized `description` (markdown), an optional `profiles` filter and an
-  optional `tools` list appended as a `Tools: …` line. Skills are text: nothing executable
-  is read from them.
+  `load` is called without `profiles`. Requesting a profile the root does not declare is an
+  error. `includes` names other declared profiles: requesting this one also selects their
+  operations. Expanded transitively; a cycle or an undeclared name refuses the document.
+- **`skills`** — text blocks rendered into the MCP `instructions`, in order, and served as
+  `skill://` resources through the MCP skills extension. Each has a `name` in the Agent
+  Skills format (`^[a-z0-9]+(-[a-z0-9]+)*$`, at most 64 characters — it becomes the last
+  segment of `skill://…/<name>/SKILL.md`), a localized `description` (markdown), an
+  optional `profiles` filter and an optional `tools` list appended as a `Tools: …` line.
+  The first paragraph of `description` becomes the SKILL.md description (capped at 1024
+  characters); the whole text is the body. Skills are text: nothing executable is read
+  from them.
+
+## Recommended profile names
+
+A consumer asks every service of a deployment for the same profile names, so the same name
+should mean the same thing everywhere:
+
+- `explore` — read-only: listing, describing, querying.
+- `edit` — everything `explore` has, plus the writes an ordinary user of the service
+  performs. Per-resource subsets (`edit_datasets`, `edit_applications`) are declared and
+  `edit` `includes` them.
+- `admin` — operations reserved to administrators.
+
+A service that has nothing for a name simply does not declare it; a consumer requesting it
+gets that service's contribution to the other names in the set. Convention, not validation.
 
 ## Tags
 
@@ -164,8 +184,9 @@ Projection order when rendering: explicit `fields` from the caller, then
 ```ts
 import { load } from '@data-fair/openapi-mcp'
 
-const { profile, instructions, tools } = await load(docOrUrl, {
-  profile: 'explore',   // default: the first profile declared at the root
+const { profiles, instructions, tools, skills } = await load(docOrUrl, {
+  profiles: ['explore', 'edit'], // default: the first profile declared at the root; `profile` is one-element sugar
+  namePrefix: undefined, // replaces the root namePrefix ('' strips it) — for compatibility routes
   fetch: myFetch,       // default: globalThis.fetch; carries credentials
   locale: 'en',         // default: 'en'
   baseUrl: 'https://api.example.com/v1', // default: servers[0].url
@@ -177,7 +198,9 @@ const { profile, instructions, tools } = await load(docOrUrl, {
 ```
 
 `load` inlines local `$ref`s (cycles become `{}`), validates the vocabulary, resolves the
-operations for the profile, and returns provider-agnostic tools:
+operations for the profile set — an operation in any requested profile, after `includes`
+expansion, is selected once — and returns provider-agnostic tools plus the text-only
+`skills` the set selects:
 
 ```ts
 interface Tool {
@@ -188,7 +211,14 @@ interface Tool {
   outputSchema?: JsonSchema
   annotations: ToolAnnotations
   examples?: Record<string, unknown>[]
-  execute (params: Record<string, unknown>): Promise<{ text: string, structuredContent?: unknown, isError?: boolean }>
+  execute (params: Record<string, unknown>, ctx?: CallContext): Promise<{ text: string, structuredContent?: unknown, isError?: boolean }>
+}
+
+interface CallContext {
+  fetch?: typeof fetch                // wins over the load-time fetch for this call
+  headers?: Record<string, string>    // merged into the upstream request
+  signal?: AbortSignal
+  identity?: string                   // partitions editor sessions per caller
 }
 ```
 

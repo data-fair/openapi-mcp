@@ -19,13 +19,19 @@ Layout:
 src/
   vocabulary/   x-agent JSON schema, validation, annotation lint
   spec.ts       OpenAPI loading, $ref inlining, operation resolution
+  profiles.ts   includes expansion, profile-set selection
   load.ts       ToolSet construction
+  context.ts    per-call context (fetch, headers, identity)
+  skills.ts     Skill objects and SKILL.md rendering
+  snapshot.ts   toolSetSnapshot for per-service goldens
+  index-contract.ts  the deployment index document
+  compose.ts    index → composer → compositions
   input.ts      input schema derivation
   request.ts    serialization → Request
   render.ts     projection + markdown renderer
   editor/       json-layout form tool groups (optional peers, lazily imported)
-  adapters/     mcp.ts
-  bin/          standalone MCP server
+  adapters/     mcp.ts — MCP SDK v2, both protocol eras, skills extension
+  bin/          standalone MCP server (single document or index)
 test/           fixtures/ (annotated data-fair root doc, golden renders)
 evals/          scenarios.json, harness, baselines/
 docs/           stable documentation (this repo's product docs)

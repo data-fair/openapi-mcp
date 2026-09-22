@@ -197,6 +197,22 @@ Rules that decide whether this works:
 
 Full guide: [`docs/editor-tool-groups.md`](https://github.com/data-fair/openapi-mcp/blob/main/docs/editor-tool-groups.md).
 
+## Guard the agent-facing surface in CI
+
+Every annotated service commits a golden of its tool surface and diffs it on each run:
+
+```ts
+import { load, toolSetSnapshot } from '@data-fair/openapi-mcp'
+const doc = buildApiDocs('https://example.test')          // the service's own generator
+for (const profile of Object.keys(doc['x-agent'].profiles)) {
+  const snapshot = toolSetSnapshot(await load(doc, { profiles: [profile], lint: 'error' }))
+  assert.deepEqual(snapshot, JSON.parse(readFileSync(`test/golden/agent-tools.${profile}.json`, 'utf8')))
+}
+```
+
+`lint: 'error'` refuses a description that contradicts its schema; the golden turns a renamed
+tool, a widened schema or a dropped parameter into a diff the reviewer sees.
+
 ## Common failure modes
 
 | Symptom | Cause |
@@ -214,6 +230,11 @@ Full guide: [`docs/editor-tool-groups.md`](https://github.com/data-fair/openapi-
 
 ## Reference
 
+- Profiles: an operation's `profiles` is a set; a root profile may `includes` others
+  (`edit: { includes: [edit_datasets] }`); a cycle or an undeclared name refuses the document.
+  Stack-wide names: `explore`, `edit`, `admin`.
+- Skill names follow the Agent Skills format: `^[a-z0-9]+(-[a-z0-9]+)*$`, at most 64
+  characters (`workflow`, `publishing-workflow` — never `Workflow`).
 - Vocabulary reference: `docs/x-agent.md` in the project repo (or the npm page).
 - Editor tool groups: `docs/editor-tool-groups.md`.
 - Source of truth for shapes: `src/vocabulary/schema.ts` — when in doubt, the validator beats prose.

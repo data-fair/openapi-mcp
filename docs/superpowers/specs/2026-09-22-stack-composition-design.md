@@ -239,6 +239,10 @@ and the bin, a manual call in tests.
 **Single-document compatibility.** `load()` keeps its signature and result; a
 `Composition` is what a server wants, a `ToolSet` is what a page wants.
 
+*Implementation note:* `compose()` returns a `Promise<Composition>` — `load()` is
+asynchronous (editor groups import their peer lazily), so a composition cannot be built
+synchronously; memoization is per set on the promise.
+
 ## 4. Per-call context
 
 ```ts
