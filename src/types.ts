@@ -128,7 +128,8 @@ export interface Tool {
 }
 
 export interface ToolSet {
-  profile: string
+  /** the profiles requested, in request order */
+  profiles: string[]
   instructions: string
   tools: Tool[]
 }

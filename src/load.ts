@@ -2,6 +2,7 @@ import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js'
 import addFormatsModule, { type FormatsPlugin } from 'ajv-formats'
 import Debug from 'debug'
 import { loadSpec, resolveOperations, defaultProfile } from './spec.ts'
+import { expandProfiles, selectProfiles } from './profiles.ts'
 import { buildEditorTools } from './editor/index.ts'
 import { buildInput } from './input.ts'
 import { buildRequest } from './request.ts'
@@ -17,7 +18,12 @@ const debug = Debug('openapi-mcp')
 const addFormats = addFormatsModule as unknown as FormatsPlugin
 
 export interface LoadOptions {
+  /** one profile; `profiles` wins when both are given */
   profile?: string
+  /** a set of profiles; an operation in any of them (after `includes` expansion) is selected once */
+  profiles?: string[]
+  /** replaces the document's `x-agent.namePrefix` (`''` strips it) */
+  namePrefix?: string
   fetch?: typeof fetch
   locale?: string
   baseUrl?: string
@@ -36,11 +42,12 @@ export interface LoadOptions {
 const ajv = new Ajv2020({ strict: false, allErrors: true, useDefaults: true, coerceTypes: false })
 addFormats(ajv)
 
-export function buildInstructions (doc: JsonSchema, profile: string, ops: ResolvedOperation[], locale: string): string {
+export function buildInstructions (doc: JsonSchema, profiles: string[], ops: ResolvedOperation[], locale: string): string {
   const root: AgentRoot = doc['x-agent'] ?? {}
+  const selected = selectProfiles(profiles, expandProfiles(root.profiles))
   const sections: string[] = []
   for (const skill of root.skills ?? []) {
-    if (skill.profiles && !skill.profiles.includes(profile)) continue
+    if (skill.profiles && !skill.profiles.some(p => selected.has(p))) continue
     let text = `## ${skill.name}\n\n${localize(skill.description, locale)}`
     if (skill.tools?.length) text += `\n\nTools: ${skill.tools.join(', ')}`
     sections.push(text)
@@ -58,7 +65,7 @@ function errorsText (validate: ValidateFunction): string {
   return (validate.errors ?? []).map(e => `${e.instancePath || 'params'} ${e.message}`).join('; ')
 }
 
-function makeTool (op: ResolvedOperation, o: Required<Omit<LoadOptions, 'profile'>>): Tool & { authoredDescriptions: Set<string> } {
+function makeTool (op: ResolvedOperation, o: Required<Omit<LoadOptions, 'profile' | 'profiles' | 'namePrefix'>>): Tool & { authoredDescriptions: Set<string> } {
   const { inputSchema, bindings, authoredDescriptions, bodySchema } = buildInput(op, o.locale)
   const validate = ajv.compile(inputSchema)
   // In compact mode the tool's own schema describes the body only as `object`, so the real
@@ -124,9 +131,12 @@ function makeTool (op: ResolvedOperation, o: Required<Omit<LoadOptions, 'profile
 export async function load (spec: string | JsonSchema, options: LoadOptions = {}): Promise<ToolSet> {
   const fetchFn = options.fetch ?? globalThis.fetch
   const doc = await loadSpec(spec, fetchFn)
-  const profile = options.profile ?? defaultProfile(doc)
   const declared = Object.keys((doc['x-agent'] as AgentRoot | undefined)?.profiles ?? {})
-  if (declared.length && !declared.includes(profile)) throw new Error(`unknown profile "${profile}" (declared: ${declared.join(', ')})`)
+  const profiles = options.profiles ?? (options.profile ? [options.profile] : [defaultProfile(doc)])
+  if (!profiles.length) throw new Error('profiles must name at least one profile')
+  for (const p of profiles) {
+    if (declared.length && !declared.includes(p)) throw new Error(`unknown profile "${p}" (declared: ${declared.join(', ')})`)
+  }
   const baseUrl = options.baseUrl ?? doc.servers?.[0]?.url
   if (!baseUrl) throw new Error('no base URL: pass options.baseUrl or declare servers[0] in the document')
   const o = {
@@ -138,7 +148,7 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
     maxErrorLength: options.maxErrorLength ?? 4000,
     lint: options.lint ?? 'error'
   }
-  const ops = resolveOperations(doc, profile)
+  const ops = resolveOperations(doc, profiles, { namePrefix: options.namePrefix })
   const editorOps = ops.filter(op => op.agent.editor)
   const plainOps = ops.filter(op => !op.agent.editor)
   const built = plainOps.map(op => makeTool(op, o))
@@ -163,6 +173,6 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
     tools.push(...group)
     editorSections.push(`## ${op.toolName}\n\nTools: ${group.map(t => t.name).join(', ')}`)
   }
-  const instructions = [buildInstructions(doc, profile, ops, o.locale), ...editorSections].filter(Boolean).join('\n\n')
-  return { profile, instructions, tools }
+  const instructions = [buildInstructions(doc, profiles, ops, o.locale), ...editorSections].filter(Boolean).join('\n\n')
+  return { profiles, instructions, tools }
 }

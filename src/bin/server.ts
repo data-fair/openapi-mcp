@@ -53,9 +53,9 @@ if ((env.TRANSPORT ?? 'stdio') === 'http') {
       }
     }
   })
-  http.listen(port, () => console.error(`openapi-mcp listening on http://0.0.0.0:${port} (${toolSet.tools.length} tools, profile ${toolSet.profile})`))
+  http.listen(port, () => console.error(`openapi-mcp listening on http://0.0.0.0:${port} (${toolSet.tools.length} tools, profiles ${toolSet.profiles.join(',')})`))
 } else {
   const server = createMcpServer(toolSet, info)
   await server.connect(new StdioServerTransport())
-  console.error(`openapi-mcp ready on stdio (${toolSet.tools.length} tools, profile ${toolSet.profile})`)
+  console.error(`openapi-mcp ready on stdio (${toolSet.tools.length} tools, profiles ${toolSet.profiles.join(',')})`)
 }

@@ -51,6 +51,20 @@ describe('resolveOperations', () => {
     assert.deepEqual(names, ['pets_list_pets', 'pets_get_pet'])
     assert.deepEqual(resolveOperations(doc, 'edit').map(o => o.toolName), ['pets_create_pet'])
   })
+  it('selects a set of profiles, each operation once, honouring includes', () => {
+    const d = inlineRefs({
+      ...petstore,
+      'x-agent': { ...petstore['x-agent'], profiles: { explore: {}, edit: { includes: ['explore'] } } }
+    })
+    const both = resolveOperations(d, ['explore', 'edit']).map(o => o.toolName)
+    assert.deepEqual(both, ['pets_list_pets', 'pets_create_pet', 'pets_get_pet'])
+    const viaInclude = resolveOperations(d, ['edit']).map(o => o.toolName)
+    assert.deepEqual(viaInclude, ['pets_list_pets', 'pets_create_pet', 'pets_get_pet'])
+  })
+  it('lets the caller override the name prefix — a legacy route serving unprefixed names', () => {
+    assert.deepEqual(resolveOperations(doc, 'explore', { namePrefix: '' }).map(o => o.toolName), ['list_pets', 'get_pet'])
+    assert.deepEqual(resolveOperations(doc, 'explore', { namePrefix: 'legacy_' }).map(o => o.toolName), ['legacy_list_pets', 'legacy_get_pet'])
+  })
   it('never includes an operation without x-agent, even with profile true', () => {
     assert.ok(!resolveOperations(doc, 'explore').some(o => o.operationId === 'deletePet'))
   })

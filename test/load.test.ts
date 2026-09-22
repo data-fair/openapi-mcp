@@ -20,7 +20,7 @@ const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { sta
 describe('load', () => {
   it('builds the tool set for the default profile with instructions', async () => {
     const ts = await load(petstore, { fetch: stub(() => json({})).fetchFn })
-    assert.equal(ts.profile, 'explore')
+    assert.deepEqual(ts.profiles, ['explore'])
     assert.deepEqual(ts.tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet'])
     assert.equal(ts.instructions, '## workflow\n\nStart with list_pets, then get_pet.\n\n## Pets\n\nPets have an id and a name.')
     const list = ts.tools[0]
@@ -34,6 +34,19 @@ describe('load', () => {
     assert.deepEqual(ts.tools.map(t => t.name), ['pets_create_pet'])
     assert.equal(ts.instructions, '## workflow\n\nCommencez par list_pets.\n\n## editing\n\nUse create_pet only when asked.\n\n## Pets\n\nPets have an id and a name.')
     assert.equal(ts.tools[0].annotations.readOnlyHint, false)
+  })
+  it('loads a set of profiles and records it', async () => {
+    const ts = await load(petstore, { profiles: ['explore', 'edit'], fetch: stub(() => json({})).fetchFn })
+    assert.deepEqual(ts.profiles, ['explore', 'edit'])
+    assert.deepEqual(ts.tools.map(t => t.name), ['pets_list_pets', 'pets_create_pet', 'pets_get_pet'])
+    assert.match(ts.instructions, /## editing/)
+  })
+  it('rejects a set naming an undeclared profile', async () => {
+    await assert.rejects(load(petstore, { profiles: ['explore', 'nope'] }), /unknown profile "nope" \(declared: explore, edit\)/)
+  })
+  it('applies a name prefix override', async () => {
+    const ts = await load(petstore, { namePrefix: '', fetch: stub(() => json({})).fetchFn })
+    assert.deepEqual(ts.tools.map(t => t.name), ['list_pets', 'get_pet'])
   })
   it('executes: validates, fetches with defaults applied, renders', async () => {
     const { fetchFn, calls } = stub(() => json({ total: 1, results: [{ id: 'p1', name: 'Rex', internalCode: 'X' }], meta: { hints: ['h'] } }))

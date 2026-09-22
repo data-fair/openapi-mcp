@@ -1,5 +1,5 @@
 import { validateVocabulary } from './vocabulary/validate.ts'
-import { expandProfiles } from './profiles.ts'
+import { expandProfiles, selectProfiles, matchesProfiles } from './profiles.ts'
 import type { JsonSchema, AgentOperation, AgentParamOverride, AgentRoot, AgentTag, ResolvedOperation, ResolvedParam } from './types.ts'
 
 const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']
@@ -68,10 +68,6 @@ export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetc
   return inlineRefs(doc)
 }
 
-function profilesInclude (profiles: string[] | true | undefined, profile: string): boolean {
-  return profiles === true || (Array.isArray(profiles) && profiles.includes(profile))
-}
-
 /** Operation-level override wins over parameter-level x-agent. */
 function mergeParam (raw: JsonSchema, override: AgentParamOverride | undefined): ResolvedParam {
   return {
@@ -116,9 +112,13 @@ function resolveOne (path: string, item: any, method: string, op: any, agent: Ag
   }
 }
 
-export function resolveOperations (doc: JsonSchema, profile: string): ResolvedOperation[] {
+export function resolveOperations (doc: JsonSchema, profiles: string | string[], overrides: { namePrefix?: string } = {}): ResolvedOperation[] {
   const root: AgentRoot = doc['x-agent'] ?? {}
-  const prefix = root.namePrefix ?? ''
+  // A caller may replace the document's prefix: a route kept for compatibility serves the
+  // same operations under the names its clients already have in their allow-lists.
+  const prefix = overrides.namePrefix ?? root.namePrefix ?? ''
+  const requested = Array.isArray(profiles) ? profiles : [profiles]
+  const selected = selectProfiles(requested, expandProfiles(root.profiles))
   const tagAgents = new Map<string, AgentTag>()
   for (const t of doc.tags ?? []) if (t?.['x-agent']) tagAgents.set(t.name, t['x-agent'])
 
@@ -130,11 +130,11 @@ export function resolveOperations (doc: JsonSchema, profile: string): ResolvedOp
       const agent: AgentOperation = op['x-agent']
       const tags: string[] = op.tags ?? []
       const tagProfiles = tags.map(t => tagAgents.get(t)?.profiles).find(p => p !== undefined)
-      const profiles = agent.profiles ?? tagProfiles ?? true
-      if (!profilesInclude(profiles, profile)) continue
+      const opProfiles = agent.profiles ?? tagProfiles ?? true
+      if (!matchesProfiles(opProfiles, selected)) continue
       if (!op.operationId) throw new Error(`operation ${method.toUpperCase()} ${path} has x-agent but no operationId`)
 
-      out.push(resolveOne(path, item, method, op, agent, profiles, prefix))
+      out.push(resolveOne(path, item, method, op, agent, opProfiles, prefix))
     }
   }
   const dupes = out.map(o => o.toolName).filter((n, i, a) => a.indexOf(n) !== i)
