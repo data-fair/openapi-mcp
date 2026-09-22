@@ -99,7 +99,7 @@ integration between the stdio server and `nhi-proxy`.
 | Where composition runs | Library (`compose()`), consumed by the bin here and by `data-fair/mcp` v2 | Both stay thin; the logic is tested once |
 | Failure policy | Partial sets: a failing service is excluded and reported, the rest is served; only a bad index throws | One service's outage must not take every tool away from every agent |
 | Identity | Per call, through `CallContext`; the library never holds a credential | Three identity sources exist (session, NHI, API key) and a shared HTTP server serves several at once; a server holding one identity is a confused deputy |
-| Session independence | Every listed document must be the same bytes for every caller on the same side of the proxy | A shared ETag cache is only correct if the document does not depend on who fetched it; permission is enforced at call time |
+| Session independence | Every listed document's annotated surface is the same for every caller on the same side of the proxy | A shared cache is only correct if the tools do not depend on who fetched the document; permission is enforced at call time |
 | Freshness | Conditional GETs in `refresh()`; the caller schedules it; `ttlMs` on `tools/list` tells clients | No timers in the library, in the same spirit as no credentials |
 | Skills | `x-agent.skills` and index skills served through the skills extension; instructions unchanged | The standard exists and matches the vocabulary's text-only skills exactly; instructions remain the path every client understands today |
 | MCP SDK | Migrate the adapter and bin to SDK v2 / protocol `2026-07-28`, serving 2025 clients too | The two new pieces — the server in `data-fair/mcp`, the client in agents — are greenfield; stateless HTTP, `ttlMs` and the skills extension all belong to the new revision |
@@ -161,11 +161,13 @@ served it.
   with one index URL reaches everything on the same side of the proxy.
 - **Caching.** The index and every document are ordinary HTTP resources with `ETag` or
   `Last-Modified`. Nothing in the contract is push-based.
-- **Session independence** is a requirement on every listed document: the same bytes for
-  every caller reaching it from the same side of the proxy. Annotation is curation, not
+- **Session independence** is a requirement on every listed document's *annotated
+  surface*: the `x-agent` operations, and what they generate, are the same for every
+  caller reaching it from the same side of the proxy. Annotation is curation, not
   permission; a call the caller may not make fails at call time with a tool error the
-  agent can read. This is the one behavioural change data-fair owes today — its root
-  document is shaped by the session (`apiDocs(reqPublicBaseUrl(req), authenticatedSession)`).
+  agent can read. data-fair's root document shapes its unannotated admin routes by the
+  session (`adminMode`, which an NHI can never hold); that stays, and a test in data-fair
+  pins that the annotated surface does not vary with it.
 
 ## 3. Composer
 
@@ -419,7 +421,7 @@ Ordered by dependency. Only step 1 is planned in detail from this document.
 1. **This repository (0.2.0).** `CallContext` and the adapter hook → SDK v2 adapter with
    the skills extension → `compose()` with the live adapter → bin, vocabulary changes,
    `toolSetSnapshot` → eval arm C.
-2. **data-fair.** The index endpoint; a session-independent root document; emit `x-agent`
+2. **data-fair.** The index endpoint; a session-independent annotated surface; emit `x-agent`
    (phase 4 of the phase-1 spec, still not done — until it lands the composed set over
    the real stack is empty); lint and golden in CI.
 3. **`data-fair/mcp` v2.** `createComposer()` over the index; stdio and one HTTP endpoint
