@@ -1,0 +1,33 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Vets", "version": "1" },
+  "servers": [{ "url": "https://vets.example/api" }],
+  "x-agent": {
+    "namePrefix": "vets_",
+    "profiles": {
+      "explore": { "title": "Explore" },
+      "edit_appointments": { "title": "Edit appointments" },
+      "edit": { "title": "Edit", "includes": ["edit_appointments"] }
+    },
+    "skills": [
+      { "name": "booking", "description": "Book with create_appointment after list_vets.", "profiles": ["edit"] }
+    ]
+  },
+  "paths": {
+    "/vets": {
+      "get": {
+        "operationId": "listVets",
+        "x-agent": { "profiles": ["explore"], "name": "list_vets", "description": "List vets." },
+        "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": { "type": "object", "properties": { "results": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" } } } } } } } } } }
+      }
+    },
+    "/appointments": {
+      "post": {
+        "operationId": "createAppointment",
+        "x-agent": { "profiles": ["edit_appointments"], "name": "create_appointment", "description": "Book an appointment." },
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "vetId": { "type": "string" }, "at": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "created", "content": { "application/json": { "schema": { "type": "object" } } } } }
+      }
+    }
+  }
+}
