@@ -267,8 +267,8 @@ git commit -m "feat: profile includes and the Agent Skills name rule"
 - Consumes: `expandProfiles`, `selectProfiles`, `matchesProfiles` (Task 1).
 - Produces:
   ```ts
-  export function resolveOperations (doc: JsonSchema, profiles: string | string[]): ResolvedOperation[]
-  export interface LoadOptions { profile?: string; profiles?: string[]; /* …unchanged… */ }
+  export function resolveOperations (doc: JsonSchema, profiles: string | string[], overrides?: { namePrefix?: string }): ResolvedOperation[]
+  export interface LoadOptions { profile?: string; profiles?: string[]; namePrefix?: string; /* …unchanged… */ }
   export interface ToolSet { profiles: string[]; instructions: string; tools: Tool[] }   // `skills` is added in Task 4
   export function buildInstructions (doc: JsonSchema, profiles: string[], ops: ResolvedOperation[], locale: string): string
   ```
@@ -288,6 +288,10 @@ In `test/spec.test.ts`, inside the existing `describe` for `resolveOperations`, 
     const viaInclude = resolveOperations(d, ['edit']).map(o => o.toolName)
     assert.deepEqual(viaInclude, ['pets_list_pets', 'pets_create_pet', 'pets_get_pet'])
   })
+  it('lets the caller override the name prefix — a legacy route serving unprefixed names', () => {
+    assert.deepEqual(resolveOperations(inlineRefs(petstore), 'explore', { namePrefix: '' }).map(o => o.toolName), ['list_pets', 'get_pet'])
+    assert.deepEqual(resolveOperations(inlineRefs(petstore), 'explore', { namePrefix: 'legacy_' }).map(o => o.toolName), ['legacy_list_pets', 'legacy_get_pet'])
+  })
 ```
 
 (`petstore` and `inlineRefs` are already imported at the top of that file; `listPets` and `getPet` carry the `Pets` tag whose profiles are `['explore']`, `createPet` carries `['edit']`.)
@@ -306,6 +310,10 @@ In `test/load.test.ts`:
   it('rejects a set naming an undeclared profile', async () => {
     await assert.rejects(load(petstore, { profiles: ['explore', 'nope'] }), /unknown profile "nope" \(declared: explore, edit\)/)
   })
+  it('applies a name prefix override', async () => {
+    const ts = await load(petstore, { namePrefix: '', fetch: stub(() => json({})).fetchFn })
+    assert.deepEqual(ts.tools.map(t => t.name), ['list_pets', 'get_pet'])
+  })
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -321,9 +329,11 @@ Expected: the new cases fail (`resolveOperations` ignores an array; `ts.profiles
 import { expandProfiles, selectProfiles, matchesProfiles } from './profiles.ts'
 // delete the profilesInclude helper
 
-export function resolveOperations (doc: JsonSchema, profiles: string | string[]): ResolvedOperation[] {
+export function resolveOperations (doc: JsonSchema, profiles: string | string[], overrides: { namePrefix?: string } = {}): ResolvedOperation[] {
   const root: AgentRoot = doc['x-agent'] ?? {}
-  const prefix = root.namePrefix ?? ''
+  // A caller may replace the document's prefix: a route kept for compatibility serves the
+  // same operations under the names its clients already have in their allow-lists.
+  const prefix = overrides.namePrefix ?? root.namePrefix ?? ''
   const requested = Array.isArray(profiles) ? profiles : [profiles]
   const selected = selectProfiles(requested, expandProfiles(root.profiles))
   const tagAgents = new Map<string, AgentTag>()
@@ -370,6 +380,8 @@ export interface LoadOptions {
   profile?: string
   /** a set of profiles; an operation in any of them (after `includes` expansion) is selected once */
   profiles?: string[]
+  /** replaces the document's `x-agent.namePrefix` (`''` strips it) */
+  namePrefix?: string
   // … the other options unchanged
 }
 
@@ -395,7 +407,7 @@ and in `load()`:
     if (declared.length && !declared.includes(p)) throw new Error(`unknown profile "${p}" (declared: ${declared.join(', ')})`)
   }
   // … replace every later use of `profile` with `profiles`:
-  const ops = resolveOperations(doc, profiles)
+  const ops = resolveOperations(doc, profiles, { namePrefix: options.namePrefix })
   // …
   const instructions = [buildInstructions(doc, profiles, ops, o.locale), ...editorSections].filter(Boolean).join('\n\n')
   return { profiles, instructions, tools }
@@ -412,7 +424,7 @@ Expected: green.
 
 ```bash
 git add src/spec.ts src/load.ts src/types.ts src/bin/server.ts test/spec.test.ts test/load.test.ts
-git commit -m "feat: select operations by a set of profiles"
+git commit -m "feat: select operations by a set of profiles; name prefix override"
 ```
 
 ---
