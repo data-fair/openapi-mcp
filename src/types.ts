@@ -142,9 +142,23 @@ export interface Tool {
   execute (params: Record<string, unknown>, ctx?: CallContext): Promise<ToolResult>
 }
 
+/** A text-only skill, ready to be served as a `skill://` resource or rendered into instructions. */
+export interface Skill {
+  /** `<skill-name>` for a single document, `<service-id>/<skill-name>` once composed */
+  id: string
+  name: string
+  /** the first paragraph, at most 1024 characters — the SKILL.md frontmatter description */
+  description: string
+  /** the whole localized text, plus a `Tools:` line when the annotation lists tools */
+  body: string
+  tools?: string[]
+  profiles?: string[]
+}
+
 export interface ToolSet {
   /** the profiles requested, in request order */
   profiles: string[]
   instructions: string
   tools: Tool[]
+  skills: Skill[]
 }

@@ -9,6 +9,7 @@ import { buildRequest } from './request.ts'
 import { render } from './render.ts'
 import { localize } from './localize.ts'
 import { callFetch, contextualFetch } from './context.ts'
+import { buildSkills } from './skills.ts'
 import { lintToolInput, formatFindings, type LintFinding } from './vocabulary/lint.ts'
 import type { JsonSchema, ResolvedOperation, Tool, ToolResult, ToolSet, AgentRoot, AgentTag } from './types.ts'
 
@@ -132,7 +133,8 @@ function makeTool (op: ResolvedOperation, o: Required<Omit<LoadOptions, 'profile
 export async function load (spec: string | JsonSchema, options: LoadOptions = {}): Promise<ToolSet> {
   const fetchFn = options.fetch ?? globalThis.fetch
   const doc = await loadSpec(spec, fetchFn)
-  const declared = Object.keys((doc['x-agent'] as AgentRoot | undefined)?.profiles ?? {})
+  const root: AgentRoot = doc['x-agent'] ?? {}
+  const declared = Object.keys(root.profiles ?? {})
   const profiles = options.profiles ?? (options.profile ? [options.profile] : [defaultProfile(doc)])
   if (!profiles.length) throw new Error('profiles must name at least one profile')
   for (const p of profiles) {
@@ -175,5 +177,6 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
     editorSections.push(`## ${op.toolName}\n\nTools: ${group.map(t => t.name).join(', ')}`)
   }
   const instructions = [buildInstructions(doc, profiles, ops, o.locale), ...editorSections].filter(Boolean).join('\n\n')
-  return { profiles, instructions, tools }
+  const skills = buildSkills(root.skills, selectProfiles(profiles, expandProfiles(root.profiles)), o.locale)
+  return { profiles, instructions, tools, skills }
 }

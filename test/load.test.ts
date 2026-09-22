@@ -28,12 +28,14 @@ describe('load', () => {
     assert.deepEqual(list.annotations, { readOnlyHint: true, destructiveHint: false })
     assert.deepEqual(list.examples, [{ query: 'rex', size: 5 }])
     assert.equal(list.outputSchema, undefined)
+    assert.deepEqual(ts.skills.map(s => [s.id, s.description]), [['workflow', 'Start with list_pets, then get_pet.']])
   })
   it('localizes and switches profile', async () => {
     const ts = await load(petstore, { profile: 'edit', locale: 'fr', fetch: stub(() => json({})).fetchFn })
     assert.deepEqual(ts.tools.map(t => t.name), ['pets_create_pet'])
     assert.equal(ts.instructions, '## workflow\n\nCommencez par list_pets.\n\n## editing\n\nUse create_pet only when asked.\n\n## Pets\n\nPets have an id and a name.')
     assert.equal(ts.tools[0].annotations.readOnlyHint, false)
+    assert.deepEqual(ts.skills.map(s => s.id), ['workflow', 'editing'])
   })
   it('loads a set of profiles and records it', async () => {
     const ts = await load(petstore, { profiles: ['explore', 'edit'], fetch: stub(() => json({})).fetchFn })
