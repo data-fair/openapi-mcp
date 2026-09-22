@@ -37,8 +37,10 @@ export async function buildEditorTools (op: ResolvedOperation, ctx: EditorContex
   const descriptors: FormTool[] = bootstrap.getTools()
   bootstrap.close()
 
-  return descriptors.map(descriptor => bridgeTool(descriptor, pathParams, async (pathValues) => {
-    const key = `${op.toolName}:${pathParams.map(p => String(pathValues[p.name])).join(':')}`
+  return descriptors.map(descriptor => bridgeTool(descriptor, pathParams, async (pathValues, callCtx) => {
+    // One session per caller and record: two users editing the same record must not share
+    // one. Without an identity the process is one caller (stdio) and sessions are global.
+    const key = `${callCtx?.identity ?? ''}:${op.toolName}:${pathParams.map(p => String(pathValues[p.name])).join(':')}`
     const session = await store.getOrCreate(key, async () => {
       const created = createFormSession(buildSessionSpec(ops, pathValues, ctx, registry) as any)
       await created.open()

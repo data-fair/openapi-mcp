@@ -8,6 +8,7 @@ import { buildInput } from './input.ts'
 import { buildRequest } from './request.ts'
 import { render } from './render.ts'
 import { localize } from './localize.ts'
+import { callFetch, contextualFetch } from './context.ts'
 import { lintToolInput, formatFindings, type LintFinding } from './vocabulary/lint.ts'
 import type { JsonSchema, ResolvedOperation, Tool, ToolResult, ToolSet, AgentRoot, AgentTag } from './types.ts'
 
@@ -83,7 +84,7 @@ function makeTool (op: ResolvedOperation, o: Required<Omit<LoadOptions, 'profile
     outputSchema: o.structuredContent ? op.responseSchema : undefined,
     annotations: { readOnlyHint: op.method === 'GET' || op.method === 'HEAD', destructiveHint: op.method === 'DELETE', ...(op.agent.annotations ?? {}) },
     examples: op.agent.examples,
-    async execute (rawParams): Promise<ToolResult> {
+    async execute (rawParams, ctx): Promise<ToolResult> {
       const params = structuredClone(rawParams ?? {})
       if (!validate(params)) return { isError: true, text: `Invalid parameters: ${errorsText(validate)}` }
       if (validateBody && !validateBody(params.body)) {
@@ -93,7 +94,7 @@ function makeTool (op: ResolvedOperation, o: Required<Omit<LoadOptions, 'profile
       try {
         const req = buildRequest(op, bindings, params, o.baseUrl)
         debug('%s %s', req.method, req.url)
-        res = await o.fetch(req)
+        res = await callFetch(req, ctx, o.fetch)
       } catch (err: any) {
         return { isError: true, text: `Request failed: ${err?.message ?? err}` }
       }
@@ -169,7 +170,7 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
   // repeating the descriptions an agent already reads on each one.
   const editorSections: string[] = []
   for (const op of editorOps) {
-    const group = await buildEditorTools(op, { doc, baseUrl, fetch: fetchFn, locale: o.locale })
+    const group = await buildEditorTools(op, { doc, baseUrl, fetch: contextualFetch(fetchFn), locale: o.locale })
     tools.push(...group)
     editorSections.push(`## ${op.toolName}\n\nTools: ${group.map(t => t.name).join(', ')}`)
   }

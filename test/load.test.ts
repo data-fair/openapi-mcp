@@ -44,6 +44,12 @@ describe('load', () => {
   it('rejects a set naming an undeclared profile', async () => {
     await assert.rejects(load(petstore, { profiles: ['explore', 'nope'] }), /unknown profile "nope" \(declared: explore, edit\)/)
   })
+  it('applies the call context to the upstream request', async () => {
+    const { fetchFn, calls } = stub(() => json({ total: 0, results: [] }))
+    const ts = await load(petstore, { fetch: fetchFn })
+    await ts.tools[0].execute({}, { headers: { cookie: 'id_token=abc' } })
+    assert.equal(calls[0].headers.get('cookie'), 'id_token=abc')
+  })
   it('applies a name prefix override', async () => {
     const ts = await load(petstore, { namePrefix: '', fetch: stub(() => json({})).fetchFn })
     assert.deepEqual(ts.tools.map(t => t.name), ['list_pets', 'get_pet'])

@@ -116,6 +116,21 @@ export interface ToolResult {
   isError?: boolean
 }
 
+/**
+ * What a single call carries. The library never produces one: a server derives it from
+ * the request it is serving (cookies, an API key, a caller key); on stdio there is none and
+ * identity is the environment.
+ */
+export interface CallContext {
+  /** wins over the load-time fetch for this call */
+  fetch?: typeof fetch
+  /** merged into the upstream request; overrides a header already present */
+  headers?: Record<string, string>
+  signal?: AbortSignal
+  /** opaque caller key partitioning stateful tool groups (editor sessions) */
+  identity?: string
+}
+
 export interface Tool {
   name: string
   title?: string
@@ -124,7 +139,7 @@ export interface Tool {
   outputSchema?: JsonSchema
   annotations: ToolAnnotations
   examples?: Record<string, unknown>[]
-  execute (params: Record<string, unknown>): Promise<ToolResult>
+  execute (params: Record<string, unknown>, ctx?: CallContext): Promise<ToolResult>
 }
 
 export interface ToolSet {

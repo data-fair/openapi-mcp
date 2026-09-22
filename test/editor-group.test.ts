@@ -34,9 +34,9 @@ const doc = {
 
 const LINE_SCHEMA = { type: 'object', required: [], properties: { nom: { type: 'string', title: 'Nom' } } }
 
-const calls: { method: string, url: string, body?: string }[] = []
+const calls: { method: string, url: string, body?: string, cookie?: string | null }[] = []
 const fetchFn = (async (input: Request) => {
-  calls.push({ method: input.method, url: input.url, body: input.body ? await input.clone().text() : undefined })
+  calls.push({ method: input.method, url: input.url, body: input.body ? await input.clone().text() : undefined, cookie: input.headers.get('cookie') })
   if (input.url.includes('/schema')) return new Response(JSON.stringify(LINE_SCHEMA), { headers: { 'content-type': 'application/json' } })
   if (input.method === 'GET') return new Response(JSON.stringify({ nom: 'Rennes' }), { headers: { 'content-type': 'application/json' } })
   return new Response(JSON.stringify({ ok: true }), { headers: { 'content-type': 'application/json' } })
@@ -94,5 +94,20 @@ describe('editor tool group', () => {
       assert.match(tool.description, /Edit a record/, `${tool.name} should carry the operation title`)
       assert.doesNotMatch(tool.description, /"form"/, `${tool.name} should not carry the bootstrap title`)
     }
+  })
+
+  it('partitions sessions by identity and sends each call with its own headers', async () => {
+    const { tools } = await load(doc, { profile: 'write', fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    const set = tools.find(t => t.name === 'dataset_line_setFieldValue')!
+    const get = tools.find(t => t.name === 'dataset_line_getData')!
+    calls.length = 0
+    await set.execute({ id: 'ds', lineId: 'l1', path: '/nom', value: 'Brest' }, { identity: 'alice', headers: { cookie: 'who=alice' } })
+    const bob = await get.execute({ id: 'ds', lineId: 'l1' }, { identity: 'bob', headers: { cookie: 'who=bob' } })
+    assert.match(bob.text, /Rennes/, "bob's session loads the record, not alice's edit")
+    assert.doesNotMatch(bob.text, /Brest/)
+    const cookies = calls.map(c => c.cookie)
+    assert.ok(cookies.includes('who=alice') && cookies.includes('who=bob'), `each session fetched with its caller's headers: ${cookies}`)
+    const alice = await get.execute({ id: 'ds', lineId: 'l1' }, { identity: 'alice' })
+    assert.match(alice.text, /Brest/, "alice's session keeps her edit")
   })
 })

@@ -1,4 +1,5 @@
-import type { JsonSchema, ResolvedParam, Tool, ToolResult } from '../types.ts'
+import { currentCall } from '../context.ts'
+import type { CallContext, JsonSchema, ResolvedParam, Tool, ToolResult } from '../types.ts'
 
 /** The shape @json-layout/agents hands us; typed here so this module need not import the optional peer. */
 export interface FormTool {
@@ -20,7 +21,7 @@ export function toToolResult (result: { content?: { type: string, text?: string 
  * edited, so the path parameters are added here and stripped back off before delegating.
  * `resolve` opens or resumes the session for those parameters.
  */
-export function bridgeTool (descriptor: FormTool, pathParams: ResolvedParam[], resolve: (pathValues: Record<string, unknown>) => Promise<FormTool>): Tool {
+export function bridgeTool (descriptor: FormTool, pathParams: ResolvedParam[], resolve: (pathValues: Record<string, unknown>, ctx: CallContext | undefined) => Promise<FormTool>): Tool {
   const properties: Record<string, unknown> = {}
   for (const p of pathParams) properties[p.name] = p.schema
   for (const [k, v] of Object.entries(descriptor.inputSchema?.properties ?? {})) properties[k] = v
@@ -34,7 +35,7 @@ export function bridgeTool (descriptor: FormTool, pathParams: ResolvedParam[], r
       required: [...pathParams.map(p => p.name), ...(descriptor.inputSchema?.required ?? [])]
     },
     annotations: { readOnlyHint: false },
-    async execute (params: Record<string, unknown>): Promise<ToolResult> {
+    async execute (params: Record<string, unknown>, ctx?: CallContext): Promise<ToolResult> {
       const pathValues: Record<string, unknown> = {}
       for (const p of pathParams) {
         const value = params?.[p.name]
@@ -44,8 +45,13 @@ export function bridgeTool (descriptor: FormTool, pathParams: ResolvedParam[], r
       const rest = { ...params }
       for (const p of pathParams) delete rest[p.name]
       try {
-        const tool = await resolve(pathValues)
-        return toToolResult(await tool.execute(rest))
+        // The session's own requests (schema, load, save) happen inside this call and must
+        // carry this call's headers — an NHI cookie rotates every two minutes, so nothing
+        // captured when the session was opened may be reused.
+        return await currentCall.run(ctx, async () => {
+          const tool = await resolve(pathValues, ctx)
+          return toToolResult(await tool.execute(rest))
+        })
       } catch (err) {
         // A failed open — schema fetch, document load, a compile error — is a datum the
         // agent can act on, not a crash. Same contract as every other tool here.
