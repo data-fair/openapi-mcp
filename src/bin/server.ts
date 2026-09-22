@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { createServer } from 'node:http'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { serveStdio } from '@modelcontextprotocol/server/stdio'
+import { toNodeHandler } from '@modelcontextprotocol/node'
 import { load } from '../load.ts'
-import { createMcpServer } from '../adapters/mcp.ts'
+import { createMcpHttpHandler, mcpServerFactory } from '../adapters/mcp.ts'
 
 const env = process.env
 const openapiUrl = env.OPENAPI_URL
@@ -27,35 +27,13 @@ const toolSet = await load(openapiUrl, {
   structuredContent: env.STRUCTURED_CONTENT === 'true',
   fetch: fetchFn
 })
-const info = { name: 'openapi-mcp', version: '0.1.0' }
+const info = { name: 'openapi-mcp', version: '0.2.0' }
 
 if ((env.TRANSPORT ?? 'stdio') === 'http') {
   const port = Number(env.PORT ?? 8080)
-  const http = createServer(async (req, res) => {
-    // stateless: one server + transport per request, no session ids
-    const server = createMcpServer(toolSet, info)
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
-    res.on('close', () => {
-      transport.close().catch((err: unknown) => console.error('error closing transport:', err))
-      server.close().catch((err: unknown) => console.error('error closing server:', err))
-    })
-    try {
-      await server.connect(transport)
-      await transport.handleRequest(req, res)
-    } catch (err) {
-      console.error('error handling MCP request:', err)
-      if (!res.headersSent) {
-        res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({
-          jsonrpc: '2.0',
-          error: { code: -32603, message: 'Internal server error' },
-          id: null
-        }))
-      }
-    }
-  })
-  http.listen(port, () => console.error(`openapi-mcp listening on http://0.0.0.0:${port} (${toolSet.tools.length} tools, profiles ${toolSet.profiles.join(',')})`))
+  const handler = createMcpHttpHandler(toolSet, info)
+  createServer(toNodeHandler(handler)).listen(port, () => console.error(`openapi-mcp listening on http://0.0.0.0:${port} (${toolSet.tools.length} tools, profiles ${toolSet.profiles.join(',')})`))
 } else {
-  const server = createMcpServer(toolSet, info)
-  await server.connect(new StdioServerTransport())
+  serveStdio(mcpServerFactory(toolSet, info))
   console.error(`openapi-mcp ready on stdio (${toolSet.tools.length} tools, profiles ${toolSet.profiles.join(',')})`)
 }
