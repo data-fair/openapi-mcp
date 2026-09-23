@@ -166,5 +166,8 @@ describe('createComposer', () => {
     assert.equal(await composer.compose(['explore'], { services: ['pets'], namePrefix: '' }), c, 'memoized with its options')
     assert.notEqual(await composer.compose(['explore']), c)
     assert.deepEqual((await composer.compose(['explore'])).toolSet.tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet', 'vets_list_vets'])
+
+    const legacy = await createComposer(INDEX, { fetch: s.fetchFn, namePrefix: 'legacy_' })
+    assert.deepEqual((await legacy.compose(['explore'])).toolSet.tools.map(t => t.name), ['legacy_list_pets', 'legacy_get_pet', 'legacy_list_vets'], 'a compose() call with no override keeps the composer-level namePrefix')
   })
 })

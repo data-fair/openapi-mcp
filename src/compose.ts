@@ -208,7 +208,7 @@ export async function createComposer (index: string | Index, options: ComposerOp
       if (declared.length && !subset.length) { status.status = 'skipped'; status.reason = `declares none of [${requested.join(', ')}]`; continue }
       let ts: ToolSet
       try {
-        ts = await load(d.value, { ...options, profiles: subset.length ? subset : requested, namePrefix: composeOptions?.namePrefix })
+        ts = await load(d.value, { ...options, profiles: subset.length ? subset : requested, namePrefix: composeOptions?.namePrefix ?? options.namePrefix })
       } catch (err: any) {
         status.status = 'error'; status.reason = err?.message ?? String(err); continue
       }
