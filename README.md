@@ -113,6 +113,13 @@ A failing service is excluded and reported; only a bad index throws. Tool names 
 unique across services (`namePrefix` is how); on a collision the later service is excluded.
 A request naming a profile no service declares is an error, not an empty set.
 
+A compatibility route composes a subset of services under an overridden prefix, e.g.
+`composer.compose(['explore'], { services: ['data-fair'], namePrefix: '' })` to serve the
+names a caller already has. `createMcpHttpHandler` also takes a source chosen per request —
+`createMcpHttpHandler((request) => …, info)` — for one handler serving several such routes;
+publish change notifications yourself with `handler.notify.toolsChanged()`, since there is no
+single live source to subscribe to.
+
 ## Identity per call
 
 `Tool.execute(params, ctx)` takes a `CallContext` — `fetch`, `headers`, `signal`,

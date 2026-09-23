@@ -17,4 +17,11 @@ describe('toolSetSnapshot', () => {
     assert.equal(typeof JSON.stringify(a), 'string')
     assert.equal((a.tools[0] as any).execute, undefined)
   })
+
+  it('never carries undefined, so a golden file round-trips', async () => {
+    const doc = structuredClone(petstore)
+    doc.paths['/pets'].get.parameters.push({ in: 'query', name: 'flag', schema: { type: 'string', enum: undefined } })
+    const snapshot = toolSetSnapshot(await load(doc))
+    assert.deepEqual(snapshot, JSON.parse(JSON.stringify(snapshot)))
+  })
 })

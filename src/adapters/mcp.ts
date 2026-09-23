@@ -7,6 +7,8 @@ import type { Composer, Composition } from '../compose.ts'
 import type { CallContext, ToolSet } from '../types.ts'
 
 export type ToolSource = ToolSet | Composition | Composer
+/** Chooses the source per request; stdio and the version-negotiation probe pass `undefined`. */
+export type ToolSourceFn = (request: Request | undefined) => ToolSource | Promise<ToolSource>
 
 export interface McpAdapterOptions {
   /** derive the per-call context from the HTTP request; absent on stdio, where identity is the environment */
@@ -22,6 +24,7 @@ const DEFAULT_REFRESH_MS = 300_000
 
 const isComposer = (s: ToolSource): s is Composer => typeof (s as Composer).compose === 'function'
 const isComposition = (s: ToolSource): s is Composition => !isComposer(s) && typeof (s as Composition).onChange === 'function'
+const isSourceFn = (s: ToolSource | ToolSourceFn): s is ToolSourceFn => typeof s === 'function'
 
 /** The `profiles` query parameter as a set, or undefined when absent. */
 export function requestProfiles (request: Request | undefined): string[] | undefined {
@@ -102,8 +105,9 @@ export function toMcpServer (toolSet: ToolSet, server: Server, options: { ctx?: 
 }
 
 /** One server for one caller: the request's profile set and context, or the options' defaults. */
-export async function createMcpServer (source: ToolSource, info: { name: string, version: string }, options: McpAdapterOptions & { request?: Request } = {}): Promise<Server> {
-  const toolSet = await resolveToolSet(source, requestProfiles(options.request) ?? options.profiles)
+export async function createMcpServer (source: ToolSource | ToolSourceFn, info: { name: string, version: string }, options: McpAdapterOptions & { request?: Request } = {}): Promise<Server> {
+  const resolved = isSourceFn(source) ? await source(options.request) : source
+  const toolSet = await resolveToolSet(resolved, requestProfiles(options.request) ?? options.profiles)
   const refreshMs = options.refreshMs ?? DEFAULT_REFRESH_MS
   const server = new Server(info, serverOptions(toolSet, refreshMs))
   toMcpServer(toolSet, server, { ctx: options.context?.(options.request), refreshMs })
@@ -111,15 +115,16 @@ export async function createMcpServer (source: ToolSource, info: { name: string,
 }
 
 /** The per-request factory both SDK entries (`createMcpHandler`, `serveStdio`) take. */
-export function mcpServerFactory (source: ToolSource, info: { name: string, version: string }, options: McpAdapterOptions = {}): McpServerFactory {
+export function mcpServerFactory (source: ToolSource | ToolSourceFn, info: { name: string, version: string }, options: McpAdapterOptions = {}): McpServerFactory {
   return (ctx) => createMcpServer(source, info, { ...options, request: ctx.requestInfo })
 }
 
 /** An HTTP handler serving both protocol eras, publishing change notifications from a live source. */
-export function createMcpHttpHandler (source: ToolSource, info: { name: string, version: string }, options: McpAdapterOptions & CreateMcpHandlerOptions = {}): McpHttpHandler {
+export function createMcpHttpHandler (source: ToolSource | ToolSourceFn, info: { name: string, version: string }, options: McpAdapterOptions & CreateMcpHandlerOptions = {}): McpHttpHandler {
   const { context, profiles, refreshMs, ...handlerOptions } = options
   const handler = createMcpHandler(mcpServerFactory(source, info, { context, profiles, refreshMs }), handlerOptions)
-  if (isComposer(source) || isComposition(source)) {
+  // A function source decides per request; whoever owns it publishes changes through handler.notify.
+  if (!isSourceFn(source) && (isComposer(source) || isComposition(source))) {
     source.onChange(() => { handler.notify.toolsChanged(); handler.notify.resourcesChanged() })
   }
   return handler

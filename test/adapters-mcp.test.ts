@@ -153,3 +153,25 @@ describe('mcp adapter over a composer (HTTP, both eras)', () => {
     await client.close()
   })
 })
+
+describe('mcp adapter with a request-dependent source', () => {
+  it('picks the source per request and leaves change notifications to the caller', async () => {
+    const explore = await load(petstore, { fetch: fetchFn, profiles: ['explore'] })
+    const edit = await load(petstore, { fetch: fetchFn, profiles: ['edit'] })
+    const handler = createMcpHttpHandler((request) => new URL(request!.url).pathname.endsWith('/edit') ? edit : explore, INFO)
+    const http = createServer(toNodeHandler(handler))
+    await new Promise<void>(resolve => http.listen(0, '127.0.0.1', resolve))
+    const port = (http.address() as any).port
+    try {
+      for (const [path, names] of [['/mcp', ['pets_list_pets', 'pets_get_pet']], ['/edit', ['pets_create_pet']]] as const) {
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } })
+        await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}${path}`)))
+        assert.deepEqual((await client.listTools()).tools.map(t => t.name), names)
+        await client.close()
+      }
+      assert.equal(typeof handler.notify.toolsChanged, 'function')
+    } finally {
+      http.close()
+    }
+  })
+})
