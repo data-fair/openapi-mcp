@@ -156,4 +156,15 @@ describe('createComposer', () => {
     const c = await compose(INDEX, { fetch: s.fetchFn, profiles: ['edit'] })
     assert.deepEqual(c.toolSet.tools.map(t => t.name), ['pets_create_pet', 'vets_create_appointment'])
   })
+
+  it('restricts a composition to some services and overrides the prefix — a compatibility route', async () => {
+    const s = base()
+    const composer = await createComposer(INDEX, { fetch: s.fetchFn })
+    const c = await composer.compose(['explore'], { services: ['pets'], namePrefix: '' })
+    assert.deepEqual(c.toolSet.tools.map(t => t.name), ['list_pets', 'get_pet'])
+    assert.deepEqual(c.services.map(x => x.id), ['pets'], 'only the listed services are composed')
+    assert.equal(await composer.compose(['explore'], { services: ['pets'], namePrefix: '' }), c, 'memoized with its options')
+    assert.notEqual(await composer.compose(['explore']), c)
+    assert.deepEqual((await composer.compose(['explore'])).toolSet.tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet', 'vets_list_vets'])
+  })
 })

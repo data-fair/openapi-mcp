@@ -41,12 +41,20 @@ export interface Composer {
   readonly services: ServiceStatus[]
   /** every declared profile across the documents, expanded, index wording winning */
   profiles (): ProfileInfo[]
-  /** memoized per distinct set; an empty or absent set means the default profile */
-  compose (profiles?: string[]): Promise<Composition>
+  /** memoized per distinct set and options; an empty or absent profile set means the default profile */
+  compose (profiles?: string[], options?: ComposeOptions): Promise<Composition>
   /** conditional GETs for the index and every document; rebuilds what changed; true if any live set changed */
   refresh (): Promise<boolean>
   /** called after a refresh that changed at least one live composition */
   onChange (cb: () => void): () => void
+}
+
+/** What a compatibility route needs: a subset of the services, and the names its clients already have. */
+export interface ComposeOptions {
+  /** service ids to compose, in index order; absent means all */
+  services?: string[]
+  /** replaces every document's `x-agent.namePrefix` (`''` strips it) */
+  namePrefix?: string
 }
 
 export type ComposerOptions = Omit<LoadOptions, 'profile' | 'profiles'>
@@ -96,7 +104,8 @@ async function fetchConditional<T> (entry: Cached<T>, fetchFn: typeof fetch, par
   return true
 }
 
-const setKey = (profiles: string[]): string => [...new Set(profiles)].sort().join(',')
+const setKey = (profiles: string[], options?: ComposeOptions): string =>
+  `${[...new Set(profiles)].sort().join(',')}|${(options?.services ?? []).join(',')}|${options?.namePrefix ?? '\u0000'}`
 
 export async function createComposer (index: string | Index, options: ComposerOptions = {}): Promise<Composer> {
   const fetchFn = options.fetch ?? globalThis.fetch
@@ -176,7 +185,7 @@ export async function createComposer (index: string | Index, options: ComposerOp
     return [...out.values()]
   }
 
-  const build = async (requested: string[]): Promise<{ toolSet: ToolSet, services: ServiceStatus[] }> => {
+  const build = async (requested: string[], composeOptions?: ComposeOptions): Promise<{ toolSet: ToolSet, services: ServiceStatus[] }> => {
     const tools: Tool[] = []
     const names = new Map<string, string>()
     const sections: string[] = []
@@ -186,7 +195,7 @@ export async function createComposer (index: string | Index, options: ComposerOp
     skills.push(...buildSkills(current.skills, indexSelected, locale))
     for (const s of skills) sections.push(`## ${s.name}\n\n${s.body}`)
 
-    for (const d of orderedDocs()) {
+    for (const d of orderedDocs().filter(d => !composeOptions?.services || composeOptions.services.includes(d.id))) {
       const status: ServiceStatus = { id: d.id, openapi: d.url, status: 'ok', tools: 0 }
       statuses.push(status)
       if (!d.value) { status.status = 'error'; status.reason = d.error ?? 'not loaded'; continue }
@@ -199,7 +208,7 @@ export async function createComposer (index: string | Index, options: ComposerOp
       if (declared.length && !subset.length) { status.status = 'skipped'; status.reason = `declares none of [${requested.join(', ')}]`; continue }
       let ts: ToolSet
       try {
-        ts = await load(d.value, { ...options, profiles: subset.length ? subset : requested })
+        ts = await load(d.value, { ...options, profiles: subset.length ? subset : requested, namePrefix: composeOptions?.namePrefix })
       } catch (err: any) {
         status.status = 'error'; status.reason = err?.message ?? String(err); continue
       }
@@ -214,17 +223,17 @@ export async function createComposer (index: string | Index, options: ComposerOp
     return { toolSet: { profiles: requested, instructions: sections.join('\n\n'), tools, skills }, services: statuses }
   }
 
-  const makeComposition = async (requested: string[]): Promise<LiveComposition> => {
+  const makeComposition = async (requested: string[], composeOptions?: ComposeOptions): Promise<LiveComposition> => {
     const changeListeners = new Set<(toolSet: ToolSet) => void>()
-    let built = await build(requested)
+    let built = await build(requested, composeOptions)
     let snapshot = JSON.stringify(toolSetSnapshot(built.toolSet))
     return {
-      key: setKey(requested),
+      key: setKey(requested, composeOptions),
       get toolSet () { return built.toolSet },
       get services () { return built.services },
       onChange (cb) { changeListeners.add(cb); return () => changeListeners.delete(cb) },
       async rebuild () {
-        const next = await build(requested)
+        const next = await build(requested, composeOptions)
         const nextSnapshot = JSON.stringify(toolSetSnapshot(next.toolSet))
         built = next
         if (nextSnapshot === snapshot) return false
@@ -235,12 +244,12 @@ export async function createComposer (index: string | Index, options: ComposerOp
     }
   }
 
-  const compose = (requested?: string[]): Promise<Composition> => {
+  const compose = (requested?: string[], composeOptions?: ComposeOptions): Promise<Composition> => {
     const profilesRequested = requested?.length ? requested : defaultProfiles()
-    const key = setKey(profilesRequested)
+    const key = setKey(profilesRequested, composeOptions)
     let p = pending.get(key)
     if (!p) {
-      p = makeComposition(profilesRequested).then(c => { compositions.set(key, c); return c })
+      p = makeComposition(profilesRequested, composeOptions).then(c => { compositions.set(key, c); return c })
       pending.set(key, p)
     }
     return p
@@ -272,8 +281,8 @@ export async function createComposer (index: string | Index, options: ComposerOp
 }
 
 /** One profile set over an index, in one call. */
-export async function compose (index: string | Index, options: ComposerOptions & { profiles?: string[] } = {}): Promise<Composition> {
-  const { profiles, ...rest } = options
+export async function compose (index: string | Index, options: ComposerOptions & { profiles?: string[] } & ComposeOptions = {}): Promise<Composition> {
+  const { profiles, services, namePrefix, ...rest } = options
   const composer = await createComposer(index, rest)
-  return composer.compose(profiles)
+  return composer.compose(profiles, { services, namePrefix })
 }
