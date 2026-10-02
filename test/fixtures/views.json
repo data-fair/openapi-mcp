@@ -1,0 +1,38 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Things", "version": "1" },
+  "servers": [{ "url": "https://things.test/api" }],
+  "x-agent": {
+    "namePrefix": "t_",
+    "profiles": { "write": { "title": "Write" }, "manage": { "title": "Manage", "includes": ["write"] } }
+  },
+  "paths": {
+    "/things/{id}": {
+      "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }],
+      "patch": {
+        "operationId": "patchThing",
+        "x-agent": [
+          { "name": "update_thing", "profiles": ["write"], "description": "Edit the title and description of a thing.", "bodyFields": ["title", "description"] },
+          { "name": "publish_thing", "profiles": ["manage"], "description": "Choose the sites a thing is published on.", "bodyFields": ["publicationSites"], "annotations": { "idempotentHint": true } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title"],
+                "properties": {
+                  "title": { "type": "string" },
+                  "description": { "type": "string" },
+                  "publicationSites": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "string" } } } } } } }
+      }
+    }
+  }
+}

@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { loadSpec, inlineRefs, resolveOperations, resolveOperationById, snakeCase, defaultProfile } from '../src/spec.ts'
 
 const petstore = JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8'))
+const views = JSON.parse(await readFile(new URL('./fixtures/views.json', import.meta.url), 'utf8'))
 
 describe('snakeCase', () => {
   it('converts camelCase operation ids', () => {
@@ -120,5 +121,22 @@ describe('resolveOperationById', () => {
 
   it('returns undefined for an unknown id', () => {
     assert.equal(resolveOperationById(doc, 'nope'), undefined)
+  })
+})
+
+describe('operation views', () => {
+  const doc = inlineRefs(structuredClone(views))
+  it('resolves one operation per selected view, in view order', () => {
+    assert.deepEqual(resolveOperations(doc, 'write').map(o => o.toolName), ['t_update_thing'])
+    const both = resolveOperations(doc, 'manage')
+    assert.deepEqual(both.map(o => o.toolName), ['t_update_thing', 't_publish_thing'])
+    assert.deepEqual(both.map(o => o.operationId), ['patchThing', 'patchThing'])
+    assert.deepEqual(both.map(o => o.agent.bodyFields), [['title', 'description'], ['publicationSites']])
+    assert.deepEqual(both[1].agent.annotations, { idempotentHint: true })
+  })
+  it('resolves the raw operation for an editor reference, ignoring the views', () => {
+    const op = resolveOperationById(doc, 'patchThing')!
+    assert.equal(op.toolName, 't_patch_thing')
+    assert.deepEqual(op.agent, { profiles: true })
   })
 })

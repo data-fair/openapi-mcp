@@ -1,6 +1,6 @@
 import { validateVocabulary } from './vocabulary/validate.ts'
 import { expandProfiles, selectProfiles, matchesProfiles } from './profiles.ts'
-import type { JsonSchema, AgentOperation, AgentParamOverride, AgentRoot, AgentTag, ResolvedOperation, ResolvedParam } from './types.ts'
+import type { JsonSchema, AgentOperation, AgentOperationAnnotation, AgentParamOverride, AgentRoot, AgentTag, ResolvedOperation, ResolvedParam } from './types.ts'
 
 const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']
 
@@ -127,14 +127,16 @@ export function resolveOperations (doc: JsonSchema, profiles: string | string[],
     for (const method of METHODS) {
       const op = item?.[method]
       if (!op || op['x-agent'] === undefined) continue
-      const agent: AgentOperation = op['x-agent']
+      const annotation: AgentOperationAnnotation = op['x-agent']
       const tags: string[] = op.tags ?? []
       const tagProfiles = tags.map(t => tagAgents.get(t)?.profiles).find(p => p !== undefined)
-      const opProfiles = agent.profiles ?? tagProfiles ?? true
-      if (!matchesProfiles(opProfiles, selected)) continue
-      if (!op.operationId) throw new Error(`operation ${method.toUpperCase()} ${path} has x-agent but no operationId`)
-
-      out.push(resolveOne(path, item, method, op, agent, opProfiles, prefix))
+      // Each view of an operation is a tool of its own, selected by its own profiles.
+      for (const agent of Array.isArray(annotation) ? annotation : [annotation]) {
+        const opProfiles = agent.profiles ?? tagProfiles ?? true
+        if (!matchesProfiles(opProfiles, selected)) continue
+        if (!op.operationId) throw new Error(`operation ${method.toUpperCase()} ${path} has x-agent but no operationId`)
+        out.push(resolveOne(path, item, method, op, agent, opProfiles, prefix))
+      }
     }
   }
   const dupes = out.map(o => o.toolName).filter((n, i, a) => a.indexOf(n) !== i)
@@ -153,7 +155,9 @@ export function resolveOperationById (doc: JsonSchema, operationId: string): Res
     for (const method of METHODS) {
       const op = item?.[method]
       if (op?.operationId !== operationId) continue
-      const agent: AgentOperation = op['x-agent'] ?? {}
+      // An editor reads or compiles the raw operation; views are tools, not data sources.
+      const annotation: AgentOperationAnnotation | undefined = op['x-agent']
+      const agent: AgentOperation = annotation && !Array.isArray(annotation) ? annotation : {}
       return resolveOne(path, item, method, op, agent, agent.profiles ?? true, prefix)
     }
   }

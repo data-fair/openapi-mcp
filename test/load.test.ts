@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { load } from '../src/load.ts'
 
 const petstore = JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8'))
+const views = JSON.parse(await readFile(new URL('./fixtures/views.json', import.meta.url), 'utf8'))
 
 /** fetch stub recording requests and answering from a handler */
 function stub (handler: (req: Request) => Response | Promise<Response>) {
@@ -110,5 +111,18 @@ describe('load', () => {
     const res = await ts.tools[1].execute({ id: 'p1' })
     assert.equal(res.isError, true)
     assert.match(res.text, /Invalid JSON response/)
+  })
+})
+
+describe('load — operation views', () => {
+  it('builds one tool per view, each with its own description and annotations', async () => {
+    const ts = await load(views, { profiles: ['manage'], fetch: stub(() => json({ id: '1' })).fetchFn })
+    assert.deepEqual(ts.tools.map(t => t.name), ['t_update_thing', 't_publish_thing'])
+    assert.equal(ts.tools[1].description, 'Choose the sites a thing is published on.')
+    assert.deepEqual(ts.tools[1].annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true })
+  })
+  it('offers only the views of the requested profiles', async () => {
+    const ts = await load(views, { profiles: ['write'], fetch: stub(() => json({ id: '1' })).fetchFn })
+    assert.deepEqual(ts.tools.map(t => t.name), ['t_update_thing'])
   })
 })
