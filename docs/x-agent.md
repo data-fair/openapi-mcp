@@ -176,10 +176,12 @@ instead of a round trip.
 
 `bodyFields` restricts the body to an allow-list of its properties. The schema is pruned before
 the `flat`/`compact` choice, so the merged properties, the compact listing and the local
-validation all agree, and any other property is refused before a request is sent. It needs an
-object body with declared properties, and every listed name must be one of them; both are
-checked at load. An allow-list rather than a deny-list: a property added to the API later is
-offered by no tool until an annotation places it.
+validation all agree, and any other property is refused before a request is sent. It needs a
+JSON request body that is an object with declared properties, and every listed name must be
+one of them; both are checked when the document loads, on every view whatever profiles are
+requested. It does not combine with `editor`: a form group edits the whole document, so the
+two together are refused. An allow-list rather than a deny-list: a property added to the API
+later is offered by no tool until an annotation places it.
 
 ### Responses
 

@@ -78,7 +78,7 @@ function pickBody (op: ResolvedOperation): ResolvedOperation['requestBody'] {
   if (!op.requestBody || !fields) return op.requestBody
   const schema = op.requestBody.schema
   if (schema.type !== 'object' || !schema.properties) throw new Error(`${op.toolName}: bodyFields needs an object request body with properties`)
-  const missing = fields.filter(f => !(f in schema.properties))
+  const missing = fields.filter(f => !Object.hasOwn(schema.properties, f))
   if (missing.length) throw new Error(`${op.toolName}: bodyFields names properties the request body does not declare: ${missing.join(', ')}`)
   const picked: JsonSchema = {
     type: 'object',

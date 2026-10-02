@@ -140,3 +140,21 @@ describe('operation views', () => {
     assert.deepEqual(op.agent, { profiles: true })
   })
 })
+
+describe('loadSpec — bodyFields checked on every view', () => {
+  it('refuses a misspelled field on a view no profile set has selected yet', async () => {
+    const doc = structuredClone(views)
+    doc.paths['/things/{id}'].patch['x-agent'][1].bodyFields = ['publicationSite']
+    await assert.rejects(loadSpec(doc, fetch), /patch\/1: bodyFields names properties the request body does not declare: publicationSite/)
+  })
+  it('refuses an inherited object property name', async () => {
+    const doc = structuredClone(views)
+    doc.paths['/things/{id}'].patch['x-agent'][0].bodyFields = ['title', 'constructor']
+    await assert.rejects(loadSpec(doc, fetch), /patch\/0: bodyFields names properties the request body does not declare: constructor/)
+  })
+  it('refuses bodyFields on an operation without a JSON request body', async () => {
+    const doc = structuredClone(views)
+    doc.paths['/things/{id}'].get = { operationId: 'getThing', 'x-agent': { name: 'get_thing', bodyFields: ['title'] }, responses: { 200: { description: 'ok' } } }
+    await assert.rejects(loadSpec(doc, fetch), /get: bodyFields needs a JSON request body that is an object with properties/)
+  })
+})

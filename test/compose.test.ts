@@ -196,3 +196,14 @@ describe('createComposer', () => {
     assert.deepEqual((await legacy.compose(['explore'])).toolSet.tools.map(t => t.name), ['legacy_list_pets', 'legacy_get_pet', 'legacy_list_vets'], 'a compose() call with no override keeps the composer-level namePrefix')
   })
 })
+
+describe('vocabulary warnings at the document level', () => {
+  it('carries the warnings on the composer-level statuses, whatever the profile set', async () => {
+    const s = base()
+    const composer = await createComposer(INDEX, { fetch: s.fetchFn })
+    assert.deepEqual(composer.services.map(x => [x.id, x.status, x.warnings]), [
+      ['pets', 'ok', ['declares profiles absent from the index: edit']],
+      ['vets', 'ok', ['declares profiles absent from the index: edit_appointments, edit']]
+    ])
+  })
+})

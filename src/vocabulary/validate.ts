@@ -49,17 +49,27 @@ function checkParams (params: any[] | undefined, path: string) {
 }
 
 /**
+ * An editor group edits the whole document its schema describes; it does not honour a body
+ * allow-list, so accepting both would offer the fields the list exists to keep out.
+ */
+function checkView (view: unknown, path: string) {
+  check('operation', view, path)
+  const { editor, bodyFields } = view as AgentOperation
+  if (editor !== undefined && bodyFields) throw new Error(`x-agent invalid at ${path}: bodyFields does not apply to an editor group`)
+}
+
+/**
  * An operation annotation is one view or an array of views. Every view of an array is a tool
  * of its own, so each needs a name, unique within the array: the views of one PATCH are
  * selected together whenever a profile includes another, and a clash found only for some
  * profile sets would surface far from the annotation that caused it.
  */
 function checkOperation (value: unknown, path: string) {
-  if (!Array.isArray(value)) return check('operation', value, path)
+  if (!Array.isArray(value)) return checkView(value, path)
   if (!value.length) throw new Error(`x-agent invalid at ${path}: an array of views needs at least one view`)
   const names = new Set<string>()
   value.forEach((view, i) => {
-    check('operation', view, `${path}/${i}`)
+    checkView(view, `${path}/${i}`)
     const name = (view as AgentOperation).name
     if (!name) throw new Error(`x-agent invalid at ${path}/${i}: every view of an operation needs a name`)
     if (names.has(name)) throw new Error(`x-agent invalid at ${path}/${i}: duplicate view name "${name}"`)

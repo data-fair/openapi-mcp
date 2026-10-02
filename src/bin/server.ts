@@ -42,7 +42,10 @@ let source: ToolSource
 let composer: Composer | undefined
 if (indexUrl) {
   composer = await createComposer(indexUrl, options)
-  for (const s of composer.services) if (s.status !== 'ok') console.error(`service ${s.id}: ${s.status}${s.reason ? ` — ${s.reason}` : ''}`)
+  for (const s of composer.services) {
+    if (s.status !== 'ok') console.error(`service ${s.id}: ${s.status}${s.reason ? ` — ${s.reason}` : ''}`)
+    for (const w of s.warnings ?? []) console.error(`service ${s.id}: warning — ${w}`)
+  }
   source = composer
 } else {
   source = await load(openapiUrl!, { ...options, profiles })

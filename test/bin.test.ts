@@ -16,6 +16,9 @@ const api = createServer((req, res) => {
   res.writeHead(200, { 'content-type': 'application/json' })
   if (req.url === '/openapi.json') return res.end(JSON.stringify({ ...petstore, servers: [{ url: `http://127.0.0.1:${port}/api` }] }))
   if (req.url === '/vets.json') return res.end(JSON.stringify({ ...vetstore, servers: [{ url: `http://127.0.0.1:${port}/api` }] }))
+  if (req.url === '/index-vocabulary.json') {
+    return res.end(JSON.stringify({ version: 1, services: [{ id: 'pets', openapi: `http://127.0.0.1:${port}/openapi.json` }], profiles: { explore: {} } }))
+  }
   if (req.url === '/index.json') {
     return res.end(JSON.stringify({ version: 1, services: [{ id: 'pets', openapi: `http://127.0.0.1:${port}/openapi.json` }, { id: 'vets', openapi: `http://127.0.0.1:${port}/vets.json` }] }))
   }
@@ -44,6 +47,25 @@ describe('standalone server', () => {
     const res: any = await client.callTool({ name: 'pets_list_pets', arguments: { response_format: 'detailed' } })
     assert.match(res.content[0].text, /apiKey\*\*: secret/)
     await client.close()
+  })
+
+  it('reports at startup a service declaring profiles the index does not declare', async () => {
+    const child = spawn(process.execPath, [bin], {
+      env: { ...process.env, INDEX_URL: `http://127.0.0.1:${port}/index-vocabulary.json`, TRANSPORT: 'http', PORT: String(await freePort()) },
+      stdio: ['ignore', 'ignore', 'pipe']
+    })
+    let stderr = ''
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`no vocabulary warning on stderr: ${stderr}`)), 10000)
+        child.stderr!.on('data', (chunk) => {
+          stderr += chunk
+          if (stderr.includes('service pets: warning — declares profiles absent from the index: edit')) { clearTimeout(timer); resolve() }
+        })
+      })
+    } finally {
+      child.kill()
+    }
   })
 
   it('composes an index over stdio with a profile set', async () => {

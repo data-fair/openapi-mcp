@@ -111,3 +111,12 @@ describe('operation views', () => {
     assert.throws(() => validateVocabulary(viewsDoc({ name: 'a', bodyFields: [] })), /x-agent invalid/)
   })
 })
+
+describe('bodyFields and editor groups', () => {
+  it('refuses bodyFields on an editor view, which would not honour it', () => {
+    assert.throws(() => validateVocabulary(viewsDoc([{ name: 'a', editor: true, bodyFields: ['title'] }, { name: 'b' }])), /patch\/0: bodyFields does not apply to an editor group/)
+  })
+  it('refuses bodyFields on a single editor annotation too', () => {
+    assert.throws(() => validateVocabulary(viewsDoc({ name: 'a', editor: true, bodyFields: ['title'] })), /patch: bodyFields does not apply to an editor group/)
+  })
+})

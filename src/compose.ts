@@ -161,6 +161,16 @@ export async function createComposer (index: string | Index, options: ComposerOp
   const orderedDocs = () => current.services.map(s => docs.get(s.id)).filter((d): d is CachedDoc => d !== undefined)
   const rootOf = (doc: JsonSchema): AgentRoot => doc['x-agent'] ?? {}
 
+  // The index is the deployment's profile vocabulary, the names agent configurations are
+  // written with: a document name outside it is a typo or a profile no consumer can offer.
+  // Reported rather than refused, so a service keeps serving what it does declare correctly.
+  const vocabularyWarnings = (doc: JsonSchema): string[] | undefined => {
+    const vocabulary = Object.keys(current.profiles ?? {})
+    if (!vocabulary.length) return undefined
+    const outside = Object.keys(rootOf(doc).profiles ?? {}).filter(p => !vocabulary.includes(p))
+    return outside.length ? [`declares profiles absent from the index: ${outside.join(', ')}`] : undefined
+  }
+
   const defaultProfiles = (): string[] => {
     const first = Object.keys(current.profiles ?? {})[0]
     if (first) return [first]
@@ -203,14 +213,10 @@ export async function createComposer (index: string | Index, options: ComposerOp
       if (!d.value) { status.status = 'error'; status.reason = d.error ?? 'not loaded'; continue }
       const root = rootOf(d.value)
       const declared = Object.keys(root.profiles ?? {})
-      // The index is the deployment's profile vocabulary, the names agent configurations are
-      // written with: a document name outside it is a typo or a profile no consumer can offer.
-      // Reported rather than refused, so a service keeps serving what it does declare correctly.
-      const vocabulary = Object.keys(current.profiles ?? {})
-      const outside = vocabulary.length ? declared.filter(p => !vocabulary.includes(p)) : []
-      if (outside.length) {
-        status.warnings = [`declares profiles absent from the index: ${outside.join(', ')}`]
-        debug('%s %s', d.id, status.warnings[0])
+      const warnings = vocabularyWarnings(d.value)
+      if (warnings) {
+        status.warnings = warnings
+        debug('%s %s', d.id, warnings[0])
       }
       // Which of this document's profiles the request reaches, through the index's includes
       // and the document's own: `full` in the index reaching `edit` here reaching `edit_datasets`.
@@ -282,7 +288,12 @@ export async function createComposer (index: string | Index, options: ComposerOp
   return {
     get index () { return current },
     get services () {
-      return orderedDocs().map(d => ({ id: d.id, openapi: d.url, status: d.value ? 'ok' as const : 'error' as const, tools: 0, reason: d.error }))
+      return orderedDocs().map(d => {
+        const status: ServiceStatus = { id: d.id, openapi: d.url, status: d.value ? 'ok' : 'error', tools: 0, reason: d.error }
+        const warnings = d.value ? vocabularyWarnings(d.value) : undefined
+        if (warnings) status.warnings = warnings
+        return status
+      })
     },
     profiles,
     compose,

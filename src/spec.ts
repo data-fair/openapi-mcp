@@ -65,7 +65,35 @@ export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetc
   if (typeof doc?.openapi !== 'string' || !doc.openapi.startsWith('3.')) throw new Error('only OpenAPI 3.x documents are supported')
   validateVocabulary(doc)
   expandProfiles((doc['x-agent'] as AgentRoot | undefined)?.profiles)
-  return inlineRefs(doc)
+  const inlined = inlineRefs(doc)
+  checkBodyFields(inlined)
+  return inlined
+}
+
+const esc = (s: string) => s.replace(/~/g, '~0').replace(/\//g, '~1')
+
+/**
+ * bodyFields is checked on every view, whatever profiles are requested later: a misspelled
+ * field on a view only some profile sets select would otherwise fail far from its annotation,
+ * and take the whole service out of those sets in a composition. Needs the inlined document,
+ * since a request body is usually a $ref.
+ */
+function checkBodyFields (doc: JsonSchema) {
+  for (const [path, item] of Object.entries<any>(doc.paths ?? {})) {
+    for (const method of METHODS) {
+      const annotation: AgentOperationAnnotation | undefined = item?.[method]?.['x-agent']
+      if (annotation === undefined) continue
+      const views = Array.isArray(annotation) ? annotation : [annotation]
+      views.forEach((view, i) => {
+        if (!view.bodyFields) return
+        const at = `/paths/${esc(path)}/${method}${Array.isArray(annotation) ? `/${i}` : ''}`
+        const schema = item[method].requestBody?.content?.['application/json']?.schema
+        if (schema?.type !== 'object' || !schema.properties) throw new Error(`x-agent invalid at ${at}: bodyFields needs a JSON request body that is an object with properties`)
+        const missing = view.bodyFields.filter(f => !Object.hasOwn(schema.properties, f))
+        if (missing.length) throw new Error(`x-agent invalid at ${at}: bodyFields names properties the request body does not declare: ${missing.join(', ')}`)
+      })
+    }
+  }
 }
 
 /** Operation-level override wins over parameter-level x-agent. */
