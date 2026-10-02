@@ -9,6 +9,8 @@ const ops = resolveOperations(petstore, 'explore')
 const listPets = ops.find(o => o.operationId === 'listPets')!
 const getPet = ops.find(o => o.operationId === 'getPet')!
 const createPet = resolveOperations(petstore, 'edit')[0]
+const views = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/views.json', import.meta.url), 'utf8')))
+const [updateThing, publishThing] = resolveOperations(views, 'manage')
 
 describe('buildInput', () => {
   it('renames, excludes, applies overrides and drops fixed params', () => {
@@ -121,5 +123,33 @@ describe('responseFields', () => {
     assert.deepEqual(responseFields(listPets.responseSchema, '/results'), ['id', 'name', 'tags', 'owner'])
     assert.deepEqual(responseFields(listPets.responseSchema), ['total', 'results', 'next', 'meta'])
     assert.deepEqual(responseFields(undefined), [])
+  })
+})
+
+describe('buildInput — bodyFields', () => {
+  it('exposes only the allowed body properties in flat mode, keeping their required flags', () => {
+    const update = buildInput(updateThing, 'en')
+    assert.deepEqual(Object.keys(update.inputSchema.properties), ['id', 'title', 'description'])
+    assert.deepEqual(update.inputSchema.required, ['id', 'title'])
+    const publish = buildInput(publishThing, 'en')
+    assert.deepEqual(Object.keys(publish.inputSchema.properties), ['id', 'publicationSites'])
+    assert.deepEqual(publish.inputSchema.required, ['id'])
+  })
+  it('prunes the compact listing and the validation schema alike, refusing other properties', () => {
+    const op = { ...publishThing, agent: { ...publishThing.agent, body: 'compact' as const } }
+    const { inputSchema, bodySchema } = buildInput(op, 'en')
+    assert.deepEqual(Object.keys(bodySchema!.properties), ['publicationSites'])
+    assert.equal(bodySchema!.additionalProperties, false)
+    assert.equal(bodySchema!.required, undefined)
+    assert.match(inputSchema.properties.body.description, /publicationSites/)
+    assert.doesNotMatch(inputSchema.properties.body.description, /title/)
+  })
+  it('fails on a property the body does not declare', () => {
+    const op = { ...publishThing, agent: { ...publishThing.agent, bodyFields: ['publicationSites', 'nope'] } }
+    assert.throws(() => buildInput(op, 'en'), /t_publish_thing: bodyFields names properties the request body does not declare: nope/)
+  })
+  it('fails on a body that is not an object with properties', () => {
+    const op = { ...publishThing, requestBody: { schema: { type: 'array', items: { type: 'string' } }, required: true } }
+    assert.throws(() => buildInput(op, 'en'), /t_publish_thing: bodyFields needs an object request body with properties/)
   })
 })

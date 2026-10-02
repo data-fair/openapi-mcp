@@ -66,6 +66,31 @@ function paramSchema (p: ResolvedParam, locale: string): JsonSchema {
   return schema
 }
 
+/**
+ * A view's body allow-list: the request body schema reduced to the named properties. Applied
+ * before the flat/compact choice so the flat properties, the compact listing and the local
+ * validation agree; `additionalProperties: false` keeps a compact body from carrying a field
+ * the view does not offer. Composition keywords of the original schema are dropped on purpose:
+ * an allow-list that a `oneOf` could widen again would not be one.
+ */
+function pickBody (op: ResolvedOperation): ResolvedOperation['requestBody'] {
+  const fields = op.agent.bodyFields
+  if (!op.requestBody || !fields) return op.requestBody
+  const schema = op.requestBody.schema
+  if (schema.type !== 'object' || !schema.properties) throw new Error(`${op.toolName}: bodyFields needs an object request body with properties`)
+  const missing = fields.filter(f => !(f in schema.properties))
+  if (missing.length) throw new Error(`${op.toolName}: bodyFields names properties the request body does not declare: ${missing.join(', ')}`)
+  const picked: JsonSchema = {
+    type: 'object',
+    properties: Object.fromEntries(fields.map(f => [f, schema.properties[f]])),
+    additionalProperties: false
+  }
+  if (schema.description) picked.description = schema.description
+  const required = (schema.required ?? []).filter((r: string) => fields.includes(r))
+  if (required.length) picked.required = required
+  return { ...op.requestBody, schema: picked }
+}
+
 export function buildInput (op: ResolvedOperation, locale: string): { inputSchema: JsonSchema, bindings: Binding[], authoredDescriptions: Set<string>, bodySchema?: JsonSchema } {
   const properties: JsonSchema = {}
   const required: string[] = []
@@ -86,21 +111,22 @@ export function buildInput (op: ResolvedOperation, locale: string): { inputSchem
     bindings.push({ toolName, kind: p.in, apiName: p.name, style: p.style, explode: p.explode })
   }
 
+  const requestBody = pickBody(op)
   // In compact mode the body is one property described by a listing, and the real schema
   // is returned for the caller to validate against — a tool definition carrying data-fair's
   // 28 KB dataset body costs more than the entire six-tool explore set.
   let bodySchema: JsonSchema | undefined
-  if (op.requestBody && op.agent.body === 'compact') {
+  if (requestBody && op.agent.body === 'compact') {
     properties.body = {
       type: 'object',
-      description: `The request body. Properties (\`?\` marks optional):\n\n${summariseSchema(op.requestBody.schema)}`
+      description: `The request body. Properties (\`?\` marks optional):\n\n${summariseSchema(requestBody.schema)}`
     }
-    if (op.requestBody.required) required.push('body')
+    if (requestBody.required) required.push('body')
     bindings.push({ toolName: 'body', kind: 'body', apiName: 'body', style: undefined, explode: undefined })
     authoredDescriptions.add('body')
-    bodySchema = op.requestBody.schema
-  } else if (op.requestBody) {
-    const body = op.requestBody.schema
+    bodySchema = requestBody.schema
+  } else if (requestBody) {
+    const body = requestBody.schema
     if (body.type === 'object' && body.properties) {
       for (const [name, schema] of Object.entries<any>(body.properties)) {
         const toolName = name in properties ? `${name}__body` : name
@@ -110,7 +136,7 @@ export function buildInput (op: ResolvedOperation, locale: string): { inputSchem
       }
     } else {
       properties.body = body
-      if (op.requestBody.required) required.push('body')
+      if (requestBody.required) required.push('body')
       bindings.push({ toolName: 'body', kind: 'body', apiName: 'body', style: undefined, explode: undefined })
     }
   }

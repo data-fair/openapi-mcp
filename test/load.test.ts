@@ -125,4 +125,29 @@ describe('load — operation views', () => {
     const ts = await load(views, { profiles: ['write'], fetch: stub(() => json({ id: '1' })).fetchFn })
     assert.deepEqual(ts.tools.map(t => t.name), ['t_update_thing'])
   })
+  it('sends only the allowed fields, and refuses others before any request', async () => {
+    const s = stub(() => json({ id: '1' }))
+    const ts = await load(views, { profiles: ['manage'], fetch: s.fetchFn })
+    const publish = ts.tools.find(t => t.name === 't_publish_thing')!
+    const refused = await publish.execute({ id: '1', publicationSites: ['portal-a'], title: 'x' })
+    assert.equal(refused.isError, true)
+    assert.match(refused.text, /^Invalid parameters/)
+    assert.equal(s.calls.length, 0)
+    const ok = await publish.execute({ id: '1', publicationSites: ['portal-a'] })
+    assert.ok(!ok.isError, ok.text)
+    assert.equal(s.calls[0].method, 'PATCH')
+    assert.equal(s.calls[0].url, 'https://things.test/api/things/1')
+    assert.deepEqual(await s.calls[0].json(), { publicationSites: ['portal-a'] })
+  })
+  it('refuses a compact body carrying a field outside the view, before any request', async () => {
+    const doc = structuredClone(views)
+    doc.paths['/things/{id}'].patch['x-agent'][1].body = 'compact'
+    const s = stub(() => json({ id: '1' }))
+    const ts = await load(doc, { profiles: ['manage'], fetch: s.fetchFn })
+    const publish = ts.tools.find(t => t.name === 't_publish_thing')!
+    const refused = await publish.execute({ id: '1', body: { publicationSites: ['portal-a'], title: 'x' } })
+    assert.equal(refused.isError, true)
+    assert.match(refused.text, /^Invalid body/)
+    assert.equal(s.calls.length, 0)
+  })
 })
