@@ -16,6 +16,8 @@ export interface ServiceStatus {
   status: 'ok' | 'skipped' | 'error'
   tools: number
   reason?: string
+  /** problems that do not stop the service from serving, e.g. profiles the index does not declare */
+  warnings?: string[]
 }
 
 export interface ProfileInfo {
@@ -201,6 +203,15 @@ export async function createComposer (index: string | Index, options: ComposerOp
       if (!d.value) { status.status = 'error'; status.reason = d.error ?? 'not loaded'; continue }
       const root = rootOf(d.value)
       const declared = Object.keys(root.profiles ?? {})
+      // The index is the deployment's profile vocabulary, the names agent configurations are
+      // written with: a document name outside it is a typo or a profile no consumer can offer.
+      // Reported rather than refused, so a service keeps serving what it does declare correctly.
+      const vocabulary = Object.keys(current.profiles ?? {})
+      const outside = vocabulary.length ? declared.filter(p => !vocabulary.includes(p)) : []
+      if (outside.length) {
+        status.warnings = [`declares profiles absent from the index: ${outside.join(', ')}`]
+        debug('%s %s', d.id, status.warnings[0])
+      }
       // Which of this document's profiles the request reaches, through the index's includes
       // and the document's own: `full` in the index reaching `edit` here reaching `edit_datasets`.
       const selected = selectProfiles([...indexSelected], expandProfiles(root.profiles, current.profiles))

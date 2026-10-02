@@ -104,7 +104,14 @@ describe('createComposer', () => {
     const composer = await createComposer(INDEX, { fetch: s.fetchFn })
     const c = await composer.compose(['explore'])
     assert.deepEqual(c.toolSet.tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet'])
-    assert.deepEqual(c.services[1], { id: 'vets', openapi: VETS, status: 'error', tools: 0, reason: 'tool name collision with pets: pets_list_pets' })
+    assert.deepEqual(c.services[1], {
+      id: 'vets',
+      openapi: VETS,
+      status: 'error',
+      tools: 0,
+      reason: 'tool name collision with pets: pets_list_pets',
+      warnings: ['declares profiles absent from the index: edit_appointments, edit']
+    })
   })
 
   it('refreshes with conditional requests, rebuilding only what changed, and notifies once', async () => {
@@ -155,6 +162,24 @@ describe('createComposer', () => {
     const s = base()
     const c = await compose(INDEX, { fetch: s.fetchFn, profiles: ['edit'] })
     assert.deepEqual(c.toolSet.tools.map(t => t.name), ['pets_create_pet', 'vets_create_appointment'])
+  })
+
+  it('warns about a service declaring profiles the index does not declare, and still serves it', async () => {
+    const s = base()
+    const composer = await createComposer(INDEX, { fetch: s.fetchFn })
+    const c = await composer.compose(['explore'])
+    assert.deepEqual(c.services.map(x => [x.id, x.status, x.warnings]), [
+      ['pets', 'ok', ['declares profiles absent from the index: edit']],
+      ['vets', 'ok', ['declares profiles absent from the index: edit_appointments, edit']]
+    ])
+  })
+
+  it('does not warn when the index declares no profile vocabulary', async () => {
+    const s = base()
+    s.set(INDEX, { version: 1, services: [{ id: 'pets', openapi: PETS }, { id: 'vets', openapi: VETS }] })
+    const composer = await createComposer(INDEX, { fetch: s.fetchFn })
+    const c = await composer.compose(['explore'])
+    assert.deepEqual(c.services.map(x => x.warnings), [undefined, undefined])
   })
 
   it('restricts a composition to some services and overrides the prefix — a compatibility route', async () => {
