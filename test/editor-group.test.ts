@@ -111,3 +111,55 @@ describe('editor tool group', () => {
     assert.match(alice.text, /Brest/, "alice's session keeps her edit")
   })
 })
+
+// The group's form-filling guide was meant to be served as an MCP skill; while the json-layout
+// skill builder was not public, the instructions only said "Tools: …" (2026-09-21 live check).
+describe('editor group skill', () => {
+  const declaredDoc = {
+    openapi: '3.1.0',
+    info: { title: 't', version: '1' },
+    'x-agent': { profiles: { write: { description: 'write' } } },
+    paths: {
+      '/portals/{id}': {
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        get: { operationId: 'readPortal', responses: { 200: { description: 'ok' } } },
+        put: {
+          operationId: 'updatePortal',
+          requestBody: {
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  'x-agent-guide': 'Social links take an identifier, not a URL.',
+                  properties: { linkedin: { type: 'string' } }
+                }
+              }
+            }
+          },
+          responses: { 200: { description: 'ok' } },
+          'x-agent': { profiles: ['write'], name: 'portal_config', title: { en: 'Edit a portal configuration' }, editor: { readOperation: 'readPortal' } }
+        }
+      }
+    }
+  }
+
+  it('publishes the fill-form skill of a declared schema, its agent guide included', async () => {
+    calls.length = 0
+    const { skills } = await load(declaredDoc, { profile: 'write', fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    const skill = skills.find(s => s.id === 'portal-config')
+    assert.ok(skill, `an editor group skill is published (have ${skills.map(s => s.id).join(', ')})`)
+    assert.match(skill.body, /Social links take an identifier, not a URL\./)
+    assert.match(skill.body, /portal_config_describeState/)
+    assert.match(skill.body, /portal_config_saveForm/)
+    assert.ok(skill.description.length > 0 && skill.description.length <= 1024)
+    assert.equal(calls.length, 0, 'the skill of a declared schema needs no request')
+  })
+
+  it('publishes a generic skill when the schema is only known per record', async () => {
+    const { skills } = await load(doc, { profile: 'write', fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    const skill = skills.find(s => s.id === 'dataset-line')
+    assert.ok(skill)
+    assert.match(skill.body, /dataset_line_describeState/)
+    assert.doesNotMatch(skill.body, /## About this/)
+  })
+})

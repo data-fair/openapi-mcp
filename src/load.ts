@@ -9,9 +9,9 @@ import { buildRequest } from './request.ts'
 import { render } from './render.ts'
 import { localize } from './localize.ts'
 import { callFetch, contextualFetch } from './context.ts'
-import { buildSkills } from './skills.ts'
+import { buildSkills, editorSkill } from './skills.ts'
 import { lintToolInput, formatFindings, type LintFinding } from './vocabulary/lint.ts'
-import type { JsonSchema, ResolvedOperation, Tool, ToolResult, ToolSet, AgentRoot, AgentTag } from './types.ts'
+import type { JsonSchema, ResolvedOperation, Skill, Tool, ToolResult, ToolSet, AgentRoot, AgentTag } from './types.ts'
 
 const debug = Debug('openapi-mcp')
 // ajv-formats is a CJS package whose module.exports is reassigned to a callable value; under
@@ -169,14 +169,19 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
   // authoredDescriptions is scaffolding for the lint, not part of the public Tool.
   const tools: Tool[] = built.map(({ authoredDescriptions, ...tool }) => tool)
   // The group's text comes from the package, so the guide names the tools rather than
-  // repeating the descriptions an agent already reads on each one.
+  // repeating the descriptions an agent already reads on each one. Each group also publishes
+  // its json-layout fill-form skill as a real MCP skill: how to drive the tools, and the
+  // schema's x-agent-guide when the schema is declared.
   const editorSections: string[] = []
+  const editorSkills: Skill[] = []
   for (const op of editorOps) {
     const group = await buildEditorTools(op, { doc, baseUrl, fetch: contextualFetch(fetchFn), locale: o.locale })
-    tools.push(...group)
-    editorSections.push(`## ${op.toolName}\n\nTools: ${group.map(t => t.name).join(', ')}`)
+    tools.push(...group.tools)
+    const names = group.tools.map(t => t.name)
+    editorSections.push(`## ${op.toolName}\n\nTools: ${names.join(', ')}`)
+    editorSkills.push(editorSkill(op, group.skill, names, o.locale))
   }
   const instructions = [buildInstructions(doc, profiles, ops, o.locale), ...editorSections].filter(Boolean).join('\n\n')
-  const skills = buildSkills(root.skills, selectProfiles(profiles, expandProfiles(root.profiles)), o.locale)
+  const skills = [...buildSkills(root.skills, selectProfiles(profiles, expandProfiles(root.profiles)), o.locale), ...editorSkills]
   return { profiles, instructions, tools, skills }
 }

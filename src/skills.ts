@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { localize } from './localize.ts'
-import type { AgentSkill, Skill } from './types.ts'
+import type { AgentSkill, ResolvedOperation, Skill } from './types.ts'
 
 const MAX_DESCRIPTION = 1024
 
@@ -15,6 +15,19 @@ export function buildSkills (skills: AgentSkill[] | undefined, selected: Set<str
     out.push({ id: skill.name, name: skill.name, description, body, tools: skill.tools, profiles: skill.profiles })
   }
   return out
+}
+
+/**
+ * The skill of an editor group: the json-layout fill-form skill its session generated. Its
+ * name is the group's tool prefix in kebab case; its description, the operation's title.
+ */
+export function editorSkill (op: ResolvedOperation, body: string, tools: string[], locale: string): Skill {
+  const name = op.toolName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64)
+  const title = (localize(op.agent.title, locale) ?? op.summary ?? '').trim()
+  const description = (title ? `${title}: how to use the ${op.toolName}_* form tools.` : `How to use the ${op.toolName}_* form tools.`)
+    .slice(0, MAX_DESCRIPTION)
+  const profiles = Array.isArray(op.agent.profiles) ? op.agent.profiles : undefined
+  return { id: name, name, description, body: body.trim(), tools, ...(profiles ? { profiles } : {}) }
 }
 
 export interface SkillFile {
