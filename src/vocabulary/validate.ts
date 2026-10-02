@@ -1,7 +1,7 @@
 import { Ajv2020 } from 'ajv/dist/2020.js'
 import type { ErrorObject } from 'ajv/dist/2020.js'
 import { rootSchema, tagSchema, operationSchema, paramOverrideSchema, propertySchema } from './schema.ts'
-import type { JsonSchema } from '../types.ts'
+import type { AgentOperation, JsonSchema } from '../types.ts'
 
 const ajv = new Ajv2020({ allErrors: true, strict: true })
 const validators = {
@@ -48,6 +48,25 @@ function checkParams (params: any[] | undefined, path: string) {
   })
 }
 
+/**
+ * An operation annotation is one view or an array of views. Every view of an array is a tool
+ * of its own, so each needs a name, unique within the array: the views of one PATCH are
+ * selected together whenever a profile includes another, and a clash found only for some
+ * profile sets would surface far from the annotation that caused it.
+ */
+function checkOperation (value: unknown, path: string) {
+  if (!Array.isArray(value)) return check('operation', value, path)
+  if (!value.length) throw new Error(`x-agent invalid at ${path}: an array of views needs at least one view`)
+  const names = new Set<string>()
+  value.forEach((view, i) => {
+    check('operation', view, `${path}/${i}`)
+    const name = (view as AgentOperation).name
+    if (!name) throw new Error(`x-agent invalid at ${path}/${i}: every view of an operation needs a name`)
+    if (names.has(name)) throw new Error(`x-agent invalid at ${path}/${i}: duplicate view name "${name}"`)
+    names.add(name)
+  })
+}
+
 /** Throws on the first invalid x-agent object found anywhere in the OpenAPI document. */
 export function validateVocabulary (doc: JsonSchema): void {
   if (doc['x-agent'] !== undefined) check('root', doc['x-agent'], '/')
@@ -59,7 +78,7 @@ export function validateVocabulary (doc: JsonSchema): void {
       const op = item?.[m]
       if (!op) continue
       const opPath = `${itemPath}/${m}`
-      if (op['x-agent'] !== undefined) check('operation', op['x-agent'], opPath)
+      if (op['x-agent'] !== undefined) checkOperation(op['x-agent'], opPath)
       checkParams(op.parameters, `${opPath}/parameters`)
       for (const [mt, media] of Object.entries<any>(op.requestBody?.content ?? {})) checkSchema(media?.schema, `${opPath}/requestBody/content/${esc(mt)}/schema`)
       for (const [code, resp] of Object.entries<any>(op.responses ?? {})) {

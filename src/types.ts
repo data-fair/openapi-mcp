@@ -42,9 +42,21 @@ export interface AgentOperation {
    * is too large to put in a tool definition.
    */
   body?: 'flat' | 'compact'
+  /**
+   * Allow-list of request body properties this tool offers. The body schema is pruned to them
+   * before `body` mode applies, and extra properties are refused: a field added to the API
+   * later is exposed nowhere until an annotation places it.
+   */
+  bodyFields?: string[]
   response?: AgentResponse
   editor?: true | AgentEditor
 }
+
+/**
+ * An operation's `x-agent`: one tool, or several views of the operation, each its own tool —
+ * a PATCH whose fields belong to different profile tiers is offered as one tool per tier.
+ */
+export type AgentOperationAnnotation = AgentOperation | AgentOperation[]
 
 /** Names the operations a json-layout editor group reads its schema and document from. */
 export interface AgentEditor {

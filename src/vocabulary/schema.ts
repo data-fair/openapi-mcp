@@ -79,6 +79,7 @@ export const operationSchema: JsonSchema = {
     params: { type: 'object', additionalProperties: paramOverrideSchema },
     fixed: { type: 'object' },
     body: { enum: ['flat', 'compact'] },
+    bodyFields: { type: 'array', items: { type: 'string' }, minItems: 1, uniqueItems: true },
     response: {
       type: 'object',
       additionalProperties: false,

@@ -81,3 +81,33 @@ describe('editor annotation', () => {
     assert.throws(() => validateVocabulary(editorDoc({ schemaOperation: 'readSchema', schemaOperaton: 'typo' })), /editor/)
   })
 })
+
+const viewsDoc = (views: unknown) => ({
+  openapi: '3.1.0',
+  info: { title: 't', version: '1' },
+  paths: { '/things/{id}': { patch: { operationId: 'patchThing', 'x-agent': views } } }
+})
+
+describe('operation views', () => {
+  it('accepts an array of named views with body allow-lists', () => {
+    assert.doesNotThrow(() => validateVocabulary(viewsDoc([
+      { name: 'update_thing', profiles: ['write'], bodyFields: ['title'] },
+      { name: 'publish_thing', profiles: ['manage'], bodyFields: ['publicationSites'] }
+    ])))
+  })
+  it('requires a name on every view, naming the view', () => {
+    assert.throws(() => validateVocabulary(viewsDoc([{ name: 'update_thing' }, { profiles: ['manage'] }])), /patch\/1: every view of an operation needs a name/)
+  })
+  it('refuses two views with the same name', () => {
+    assert.throws(() => validateVocabulary(viewsDoc([{ name: 'thing' }, { name: 'thing' }])), /patch\/1: duplicate view name "thing"/)
+  })
+  it('refuses an empty array', () => {
+    assert.throws(() => validateVocabulary(viewsDoc([])), /an array of views needs at least one view/)
+  })
+  it('validates each view against the operation vocabulary, naming its index', () => {
+    assert.throws(() => validateVocabulary(viewsDoc([{ name: 'a' }, { name: 'b', bogus: 1 }])), /patch\/1: .*bogus/)
+  })
+  it('refuses an empty bodyFields', () => {
+    assert.throws(() => validateVocabulary(viewsDoc({ name: 'a', bodyFields: [] })), /x-agent invalid/)
+  })
+})
