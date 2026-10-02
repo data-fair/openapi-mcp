@@ -43,7 +43,7 @@ a missing feature.
 | --- | --- |
 | Document root | `namePrefix`, `profiles`, `skills` (global instructions) |
 | `tags[]` entry | default `profiles`, `skill` for the tag's operations |
-| Operation (`paths.<p>.<method>`) | opt-in, `name`, `title`, `description`, `examples`, `annotations`, `params`, `fixed`, `body`, `response`, `editor` |
+| Operation (`paths.<p>.<method>`) | opt-in, `name`, `title`, `description`, `examples`, `annotations`, `params`, `fixed`, `body`, `bodyFields`, `response`, `editor` — or an array of such views |
 | Parameter definition | the same override object as `params.<name>`, usable from a shared `$ref` |
 | Response schema property | `hint`, `exclude` |
 
@@ -154,6 +154,24 @@ fails by default on:
 Fix the description, not the lint configuration; `lint: 'warn'` and `lint: 'off'` exist for
 upstream documents you cannot edit, not for annotations you are writing. Inherited
 descriptions (from the OpenAPI document itself) are never linted.
+
+## One endpoint, several tools: views
+
+When the same operation does things of different criticality depending on its payload — a PATCH
+that edits a description but also changes where a resource is published — annotate it with an
+array of views instead of one object. Each view is a tool with its own `name` (required,
+unique in the array), `profiles`, `annotations` and `bodyFields` allow-list:
+
+```yaml
+x-agent:
+  - { name: update_dataset, profiles: [write_datasets], bodyFields: [title, description] }
+  - { name: publish_dataset, profiles: [manage_datasets], bodyFields: [publicationSites] }
+```
+
+Prefer `bodyFields` (an allow-list) over trusting an agent to leave fields alone: a property
+outside the list is refused before the request leaves, and a property added to the API later
+is offered by no tool until someone places it. The API still enforces its own permissions —
+views decide what an agent is offered, not what it is allowed.
 
 ## Editor tool groups: eight tools instead of one body
 

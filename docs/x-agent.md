@@ -107,8 +107,33 @@ operation is not exposed at all.
 | `params` | map | Per-parameter overrides, keyed by the API parameter name. |
 | `fixed` | object | Values sent on every call and never exposed in the input schema. |
 | `body` | `flat` \| `compact` | How a JSON request body reaches the input schema. |
+| `bodyFields` | string[] | Allow-list of request body properties this tool offers. See [Request bodies](#request-bodies). |
 | `response` | object | Projection and rendering of the response. |
 | `editor` | `true` or object | Expose json-layout form tools instead of a one-shot tool. See [editor tool groups](./editor-tool-groups.md). |
+
+### Views: several tools from one operation
+
+`x-agent` on an operation may be an array. Each element is a **view** — a complete operation
+annotation producing a tool of its own, with its own profiles, description, annotations,
+parameters and body fields. Use it when one endpoint does things of different criticality
+depending on its payload, typically a PATCH editing content and governance fields:
+
+```yaml
+patch:
+  operationId: patchDataset
+  x-agent:
+    - name: update_dataset
+      profiles: [write_datasets]
+      bodyFields: [title, description, keywords]
+    - name: publish_dataset
+      profiles: [manage_datasets]
+      bodyFields: [publicationSites]
+```
+
+Every view needs a `name`, unique within the array — views of one operation are often
+selected together (a profile including another), so a missing or repeated name is refused at
+load with the view's JSON path. `editor.readOperation` and `editor.schemaOperation` name the
+raw operation and ignore its views.
 
 ### Parameter overrides
 
@@ -148,6 +173,13 @@ body is 28 KB. The property's description is a compact listing (name, required, 
 allowed values, short description) and the real schema validates the value before any
 request is sent, so a caller that misreads the listing gets a local JSON path and keyword
 instead of a round trip.
+
+`bodyFields` restricts the body to an allow-list of its properties. The schema is pruned before
+the `flat`/`compact` choice, so the merged properties, the compact listing and the local
+validation all agree, and any other property is refused before a request is sent. It needs an
+object body with declared properties, and every listed name must be one of them; both are
+checked at load. An allow-list rather than a deny-list: a property added to the API later is
+offered by no tool until an annotation places it.
 
 ### Responses
 

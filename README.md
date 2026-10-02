@@ -113,6 +113,11 @@ A failing service is excluded and reported; only a bad index throws. Tool names 
 unique across services (`namePrefix` is how); on a collision the later service is excluded.
 A request naming a profile no service declares is an error, not an empty set.
 
+The index's `profiles` are the deployment's vocabulary. A service declaring a profile the index
+does not declare keeps serving, and its status carries a warning
+(`warnings: ['declares profiles absent from the index: …']`) — a typo in a profile name would
+otherwise create a profile no consumer can present.
+
 A compatibility route composes a subset of services under an overridden prefix, e.g.
 `composer.compose(['explore'], { services: ['data-fair'], namePrefix: '' })` to serve the
 names a caller already has. `createMcpHttpHandler` also takes a source chosen per request —
