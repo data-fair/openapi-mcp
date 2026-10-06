@@ -43,7 +43,8 @@ x-agent:
     write: { title: Edit, description: Editing tools, includes: [write_datasets] }
   skills:
     - name: workflow
-      description: Start with describe_dataset, then search_data.
+      description: How to explore datasets. Use it before searching or aggregating data.
+      href: agents/skills/workflow.md
       profiles: [explore]
       tools: [describe_dataset, search_data]
 ```
@@ -53,14 +54,15 @@ x-agent:
   `load` is called without `profiles`. Requesting a profile the root does not declare is an
   error. `includes` names other declared profiles: requesting this one also selects their
   operations. Expanded transitively; a cycle or an undeclared name refuses the document.
-- **`skills`** — text blocks rendered into the MCP `instructions`, in order, and served as
-  `skill://` resources through the MCP skills extension. Each has a `name` in the Agent
-  Skills format (`^[a-z0-9]+(-[a-z0-9]+)*$`, at most 64 characters — it becomes the last
-  segment of `skill://…/<name>/SKILL.md`), a localized `description` (markdown), an
-  optional `profiles` filter and an optional `tools` list appended as a `Tools: …` line.
-  The first paragraph of `description` becomes the SKILL.md description (capped at 1024
-  characters); the whole text is the body. Skills are text: nothing executable is read
-  from them.
+- **`skills`** — skills in the Agent Skills sense. `description` (localized, at most 1024
+  characters) says what the skill is for and when to use it: it is always shown, in the MCP
+  `instructions`. The body is read on demand as the `skill://…/SKILL.md` resource: inline in
+  `body`, or in a markdown file linked by `href` (localized; relative to the URL the document was
+  fetched from, or to `servers[0].url` for a document passed as an object). `href` and `body` are
+  exclusive; with neither, the description is the body. A linked file's frontmatter is ignored.
+  `profiles` filters, `tools` adds a `Tools: …` line. The name follows the Agent Skills format
+  (`^[a-z0-9]+(-[a-z0-9]+)*$`, at most 64 characters) and becomes the last segment of
+  `skill://…/<name>/SKILL.md`.
 
 ## Recommended profile names
 

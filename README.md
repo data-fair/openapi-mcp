@@ -118,6 +118,8 @@ does not declare keeps serving, and its status carries a warning
 (`warnings: ['declares profiles absent from the index: …']`) — a typo in a profile name would
 otherwise create a profile no consumer can present.
 
+A skill body that cannot be read is reported the same way: `warnings: ['skill <name>: HTTP 404 (<url>)']`.
+
 A compatibility route composes a subset of services under an overridden prefix, e.g.
 `composer.compose(['explore'], { services: ['data-fair'], namePrefix: '' })` to serve the
 names a caller already has. `createMcpHttpHandler` also takes a source chosen per request —
@@ -134,11 +136,22 @@ environment. `identity` partitions json-layout editor sessions per caller.
 
 ## Skills
 
-`x-agent.skills` (and an index's `skills`) are served as resources through the official
-skills extension (`io.modelcontextprotocol/skills`): `skills/list`, `skills/get`, and
-`resources/read` of `skill://<service-id>/<name>/SKILL.md`, with a SHA-256 manifest. Skill
-names follow the Agent Skills format (`^[a-z0-9]+(-[a-z0-9]+)*$`). The same text still
-renders into `instructions`, so clients without the extension lose nothing.
+Skills follow the Agent Skills disclosure levels. The MCP `instructions` list each selected skill
+by name and description, with the resource to read; bodies never go there. A body is served as
+`skill://<service-id>/<name>/SKILL.md` through `resources/read`, and through the skills extension
+(`io.modelcontextprotocol/skills`: `skills/list`, `skills/get`, with a SHA-256 manifest).
+
+A body is inline (`body`) or linked (`href`, a markdown file next to the document). `load()` reads
+linked bodies with its `fetch`; a composer caches them with conditional requests and revalidates
+them on `refresh()`. A body that cannot be read keeps the skill listed: its resource answers the
+error, the service status carries a warning, and the skills manifest leaves it out.
+
+### Upgrading to 0.4.0
+
+A skill's `description` is now at most 1024 characters and is never split into paragraphs. Move a
+long text to `body` (or to a file served next to the document, referenced by `href`) and write a
+one- or two-sentence `description`. The instructions now list skills instead of embedding them,
+and golden snapshots gain each skill's `digest`.
 
 ## Per-service golden
 

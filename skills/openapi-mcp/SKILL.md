@@ -41,7 +41,7 @@ a missing feature.
 
 | Where | What it controls |
 | --- | --- |
-| Document root | `namePrefix`, `profiles`, `skills` (global instructions) |
+| Document root | `namePrefix`, `profiles`, `skills` (`name`, short `description`, body in `body` or linked by `href`) |
 | `tags[]` entry | default `profiles`, `skill` for the tag's operations |
 | Operation (`paths.<p>.<method>`) | opt-in, `name`, `title`, `description`, `examples`, `annotations`, `params`, `fixed`, `body`, `bodyFields`, `response`, `editor` — or an array of such views |
 | Parameter definition | the same override object as `params.<name>`, usable from a shared `$ref` |
