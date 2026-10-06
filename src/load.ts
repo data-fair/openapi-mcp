@@ -9,9 +9,9 @@ import { buildRequest } from './request.ts'
 import { render } from './render.ts'
 import { localize } from './localize.ts'
 import { callFetch, contextualFetch } from './context.ts'
-import { buildSkills, editorSkill } from './skills.ts'
+import { resolveSkills, defaultSkillFetcher, editorSkill, skillEntries } from './skills.ts'
 import { lintToolInput, formatFindings, type LintFinding } from './vocabulary/lint.ts'
-import type { JsonSchema, ResolvedOperation, Skill, Tool, ToolResult, ToolSet, AgentRoot, AgentTag } from './types.ts'
+import type { JsonSchema, ResolvedOperation, Skill, SkillBodyFetcher, Tool, ToolResult, ToolSet, AgentRoot, AgentTag } from './types.ts'
 
 const debug = Debug('openapi-mcp')
 // ajv-formats is a CJS package whose module.exports is reassigned to a callable value; under
@@ -29,6 +29,10 @@ export interface LoadOptions {
   fetch?: typeof fetch
   locale?: string
   baseUrl?: string
+  /** the URL the document was fetched from, for relative skill links; set automatically when `spec` is a URL */
+  documentUrl?: string
+  /** how linked skill bodies are read; the composer passes its cache, the default fetches with `fetch` */
+  skillBodies?: SkillBodyFetcher
   structuredContent?: boolean
   maxStringLength?: number
   maxErrorLength?: number
@@ -44,16 +48,9 @@ export interface LoadOptions {
 const ajv = new Ajv2020({ strict: false, allErrors: true, useDefaults: true, coerceTypes: false })
 addFormats(ajv)
 
+/** The document's own guide: the skill text of the tags its selected operations carry. Skills are listed separately, by skillEntries. */
 export function buildInstructions (doc: JsonSchema, profiles: string[], ops: ResolvedOperation[], locale: string): string {
-  const root: AgentRoot = doc['x-agent'] ?? {}
-  const selected = selectProfiles(profiles, expandProfiles(root.profiles))
   const sections: string[] = []
-  for (const skill of root.skills ?? []) {
-    if (skill.profiles && !skill.profiles.some(p => selected.has(p))) continue
-    let text = `## ${skill.name}\n\n${localize(skill.description, locale)}`
-    if (skill.tools?.length) text += `\n\nTools: ${skill.tools.join(', ')}`
-    sections.push(text)
-  }
   const usedTags = new Set(ops.flatMap(o => o.tags))
   for (const tag of doc.tags ?? []) {
     const agent: AgentTag | undefined = tag?.['x-agent']
@@ -67,7 +64,7 @@ function errorsText (validate: ValidateFunction): string {
   return (validate.errors ?? []).map(e => `${e.instancePath || 'params'} ${e.message}`).join('; ')
 }
 
-function makeTool (op: ResolvedOperation, o: Required<Omit<LoadOptions, 'profile' | 'profiles' | 'namePrefix'>>): Tool & { authoredDescriptions: Set<string> } {
+function makeTool (op: ResolvedOperation, o: Required<Omit<LoadOptions, 'profile' | 'profiles' | 'namePrefix' | 'documentUrl' | 'skillBodies'>>): Tool & { authoredDescriptions: Set<string> } {
   const { inputSchema, bindings, authoredDescriptions, bodySchema } = buildInput(op, o.locale)
   const validate = ajv.compile(inputSchema)
   // In compact mode the tool's own schema describes the body only as `object`, so the real
@@ -172,16 +169,18 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
   // repeating the descriptions an agent already reads on each one. Each group also publishes
   // its json-layout fill-form skill as a real MCP skill: how to drive the tools, and the
   // schema's x-agent-guide when the schema is declared.
-  const editorSections: string[] = []
   const editorSkills: Skill[] = []
   for (const op of editorOps) {
     const group = await buildEditorTools(op, { doc, baseUrl, fetch: contextualFetch(fetchFn), locale: o.locale })
     tools.push(...group.tools)
-    const names = group.tools.map(t => t.name)
-    editorSections.push(`## ${op.toolName}\n\nTools: ${names.join(', ')}`)
-    editorSkills.push(editorSkill(op, group.skill, names, o.locale))
+    editorSkills.push(editorSkill(op, group.skill, group.tools.map(t => t.name), o.locale))
   }
-  const instructions = [buildInstructions(doc, profiles, ops, o.locale), ...editorSections].filter(Boolean).join('\n\n')
-  const skills = [...buildSkills(root.skills, selectProfiles(profiles, expandProfiles(root.profiles)), o.locale), ...editorSkills]
-  return { profiles, instructions, tools, skills }
+  // Relative skill links resolve against the document's URL, else its server URL taken as a
+  // directory: `…/api/v1` + `agents/skills/x.md` is `…/api/v1/agents/skills/x.md`.
+  const skillBase = options.documentUrl ?? (typeof spec === 'string' ? spec : undefined) ?? baseUrl.replace(/\/?$/, '/')
+  const selected = selectProfiles(profiles, expandProfiles(root.profiles))
+  const skills = [...await resolveSkills(root.skills, selected, o.locale, skillBase, options.skillBodies ?? defaultSkillFetcher(fetchFn)), ...editorSkills]
+  const guide = buildInstructions(doc, profiles, ops, o.locale)
+  const instructions = [skillEntries(skills), guide].filter(Boolean).join('\n\n')
+  return { profiles, instructions, guide, tools, skills }
 }

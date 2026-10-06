@@ -23,7 +23,7 @@ describe('load', () => {
     const ts = await load(petstore, { fetch: stub(() => json({})).fetchFn })
     assert.deepEqual(ts.profiles, ['explore'])
     assert.deepEqual(ts.tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet'])
-    assert.equal(ts.instructions, '## workflow\n\nStart with list_pets, then get_pet.\n\n## Pets\n\nPets have an id and a name.')
+    assert.equal(ts.instructions, '## workflow\n\nStart with list_pets, then get_pet.\n\nRead it as the MCP resource skill://workflow/SKILL.md.\n\n## Pets\n\nPets have an id and a name.')
     const list = ts.tools[0]
     assert.equal(list.description, 'List pets. Use q for text search.')
     assert.deepEqual(list.annotations, { readOnlyHint: true, destructiveHint: false })
@@ -34,7 +34,7 @@ describe('load', () => {
   it('localizes and switches profile', async () => {
     const ts = await load(petstore, { profile: 'edit', locale: 'fr', fetch: stub(() => json({})).fetchFn })
     assert.deepEqual(ts.tools.map(t => t.name), ['pets_create_pet'])
-    assert.equal(ts.instructions, '## workflow\n\nCommencez par list_pets.\n\n## editing\n\nUse create_pet only when asked.\n\n## Pets\n\nPets have an id and a name.')
+    assert.equal(ts.instructions, '## workflow\n\nCommencez par list_pets.\n\nRead it as the MCP resource skill://workflow/SKILL.md.\n\n## editing\n\nUse create_pet only when asked.\n\nRead it as the MCP resource skill://editing/SKILL.md.\n\n## Pets\n\nPets have an id and a name.')
     assert.equal(ts.tools[0].annotations.readOnlyHint, false)
     assert.deepEqual(ts.skills.map(s => s.id), ['workflow', 'editing'])
   })
@@ -149,5 +149,44 @@ describe('load — operation views', () => {
     assert.equal(refused.isError, true)
     assert.match(refused.text, /^Invalid body/)
     assert.equal(s.calls.length, 0)
+  })
+})
+
+describe('load — linked skills', () => {
+  const skilled = (skills: unknown[], servers = [{ url: 'https://api.test/v1' }]) => ({
+    ...structuredClone(petstore),
+    servers,
+    'x-agent': { ...petstore['x-agent'], skills }
+  })
+  const bodies = (files: Record<string, string>) => stub(req => req.url in files
+    ? new Response(files[req.url], { headers: { 'content-type': 'text/markdown' } })
+    : new Response('no', { status: 404 }))
+
+  it('resolves a relative link under servers[0].url for a document passed as an object', async () => {
+    const s = bodies({ 'https://api.test/v1/agents/skills/w.md': '---\nname: w\n---\nThe body.' })
+    const ts = await load(skilled([{ name: 'w', description: 'When w.', href: 'agents/skills/w.md' }]), { fetch: s.fetchFn })
+    assert.deepEqual(ts.skills.map(x => [x.id, x.body, x.error]), [['w', 'The body.', undefined]])
+  })
+
+  it('resolves against the document URL when loaded from a URL, or the documentUrl option', async () => {
+    const doc = skilled([{ name: 'w', description: 'When w.', href: 'skills/w.md' }], [{ url: 'https://elsewhere.test/api' }])
+    const s = stub(req => req.url === 'https://docs.test/v2/openapi.json' ? json(doc) : req.url === 'https://docs.test/v2/skills/w.md' ? new Response('From the doc URL.') : new Response('no', { status: 404 }))
+    assert.equal((await load('https://docs.test/v2/openapi.json', { fetch: s.fetchFn })).skills[0].body, 'From the doc URL.')
+    assert.equal((await load(doc, { fetch: s.fetchFn, documentUrl: 'https://docs.test/v2/openapi.json' })).skills[0].body, 'From the doc URL.')
+  })
+
+  it('lists skills in the instructions without bodies, pointing to their resources', async () => {
+    const s = bodies({ 'https://api.test/v1/w.md': 'SECRET BODY' })
+    const ts = await load(skilled([{ name: 'w', description: 'When w.', href: 'w.md', tools: ['pets_list_pets'] }]), { fetch: s.fetchFn })
+    assert.equal(ts.instructions, '## w\n\nWhen w.\n\nTools: pets_list_pets\nRead it as the MCP resource skill://w/SKILL.md.\n\n## Pets\n\nPets have an id and a name.')
+    assert.equal(ts.guide, '## Pets\n\nPets have an id and a name.')
+    assert.deepEqual(ts.tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet'])
+    assert.equal(ts.skills[0].body, 'SECRET BODY\n\nTools: pets_list_pets')
+  })
+
+  it('keeps serving when a body is unreachable', async () => {
+    const ts = await load(skilled([{ name: 'w', description: 'When w.', href: 'gone.md' }]), { fetch: bodies({}).fetchFn })
+    assert.deepEqual(ts.tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet'])
+    assert.match(ts.skills[0].error!, /HTTP 404 \(https:\/\/api\.test\/v1\/gone\.md\)/)
   })
 })
