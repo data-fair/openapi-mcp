@@ -2,11 +2,11 @@ import Debug from 'debug'
 import { load, type LoadOptions } from './load.ts'
 import { loadSpec, defaultProfile } from './spec.ts'
 import { expandProfiles, selectProfiles } from './profiles.ts'
-import { buildSkills } from './skills.ts'
+import { resolveSkills, skillEntries } from './skills.ts'
 import { toolSetSnapshot } from './snapshot.ts'
 import { localize } from './localize.ts'
 import { validateIndex, type Index, type IndexService } from './index-contract.ts'
-import type { AgentRoot, JsonSchema, Skill, Tool, ToolSet } from './types.ts'
+import type { AgentRoot, JsonSchema, Skill, Tool, ToolSet, AgentSkill, SkillBodyFetcher } from './types.ts'
 
 const debug = Debug('openapi-mcp:compose')
 
@@ -70,12 +70,12 @@ interface Cached<T> {
   error?: string
 }
 
-interface CachedDoc extends Cached<JsonSchema> { id: string }
+interface CachedDoc extends Cached<JsonSchema> { id: string, skillWarnings?: string[] }
 
 interface LiveComposition extends Composition { key: string, rebuild (): Promise<boolean> }
 
 /** Revalidate one resource. Returns whether its value changed (a 304 never does; a new failure does). */
-async function fetchConditional<T> (entry: Cached<T>, fetchFn: typeof fetch, parse: (json: unknown) => T): Promise<boolean> {
+async function fetchConditional<T> (entry: Cached<T>, fetchFn: typeof fetch, parse: (body: unknown) => T, read: (res: Response) => Promise<unknown> = res => res.json()): Promise<boolean> {
   const headers: Record<string, string> = { accept: 'application/json' }
   if (entry.etag) headers['if-none-match'] = entry.etag
   if (entry.lastModified) headers['if-modified-since'] = entry.lastModified
@@ -97,7 +97,7 @@ async function fetchConditional<T> (entry: Cached<T>, fetchFn: typeof fetch, par
   entry.etag = res.headers.get('etag') ?? undefined
   entry.lastModified = res.headers.get('last-modified') ?? undefined
   try {
-    entry.value = parse(await res.json())
+    entry.value = parse(await read(res))
     entry.error = undefined
   } catch (err: any) {
     entry.error = err?.message ?? String(err)
@@ -123,6 +123,23 @@ export async function createComposer (index: string | Index, options: ComposerOp
   let current: Index = indexEntry.value
 
   const docs = new Map<string, CachedDoc>()
+  // Linked skill bodies, shared by every composition: fetched once, revalidated on refresh.
+  const skillCache = new Map<string, Cached<string>>()
+  const readText = (res: Response) => res.text()
+  const skillBodies: SkillBodyFetcher = async (url) => {
+    let entry = skillCache.get(url)
+    if (!entry) {
+      entry = { url }
+      skillCache.set(url, entry)
+      await fetchConditional(entry, fetchFn, body => body as string, readText)
+    }
+    return entry.value !== undefined ? { text: entry.value } : { error: entry.error ?? 'not loaded' }
+  }
+  // Every skill of a document, whatever the request (every profile its skills name is selected):
+  // what a service's status reports.
+  const skillWarnings = async (skills: AgentSkill[] | undefined, base: string | undefined): Promise<string[]> =>
+    (await resolveSkills(skills, new Set((skills ?? []).flatMap(s => s.profiles ?? [])), locale, base, skillBodies))
+      .filter(s => s.error).map(s => `skill ${s.name}: ${s.error}`)
   const listeners = new Set<() => void>()
   const compositions = new Map<string, LiveComposition>()
   const pending = new Map<string, Promise<LiveComposition>>()
@@ -133,6 +150,8 @@ export async function createComposer (index: string | Index, options: ComposerOp
     if (changed && entry.value) {
       try {
         entry.value = await loadSpec(entry.value, fetchFn)
+        // fetched with the document, so a broken link shows in the service status at startup
+        entry.skillWarnings = await skillWarnings(entry.value['x-agent']?.skills, entry.url)
       } catch (err: any) {
         entry.error = err?.message ?? String(err)
         entry.value = undefined
@@ -204,8 +223,8 @@ export async function createComposer (index: string | Index, options: ComposerOp
     const skills: Skill[] = []
     const statuses: ServiceStatus[] = []
     const indexSelected = selectProfiles(requested, expandProfiles(undefined, current.profiles))
-    skills.push(...buildSkills(current.skills, indexSelected, locale))
-    for (const s of skills) sections.push(`## ${s.name}\n\n${s.body}`)
+    skills.push(...await resolveSkills(current.skills, indexSelected, locale, indexEntry.url || undefined, skillBodies))
+    if (skills.length) sections.push(skillEntries(skills))
 
     for (const d of orderedDocs().filter(d => !composeOptions?.services || composeOptions.services.includes(d.id))) {
       const status: ServiceStatus = { id: d.id, openapi: d.url, status: 'ok', tools: 0 }
@@ -225,7 +244,7 @@ export async function createComposer (index: string | Index, options: ComposerOp
       if (declared.length && !subset.length) { status.status = 'skipped'; status.reason = `declares none of [${requested.join(', ')}]`; continue }
       let ts: ToolSet
       try {
-        ts = await load(d.value, { ...options, profiles: subset.length ? subset : requested, namePrefix: composeOptions?.namePrefix ?? options.namePrefix })
+        ts = await load(d.value, { ...options, profiles: subset.length ? subset : requested, namePrefix: composeOptions?.namePrefix ?? options.namePrefix, documentUrl: d.url, skillBodies })
       } catch (err: any) {
         status.status = 'error'; status.reason = err?.message ?? String(err); continue
       }
@@ -234,8 +253,12 @@ export async function createComposer (index: string | Index, options: ComposerOp
       for (const t of ts.tools) names.set(t.name, d.id)
       tools.push(...ts.tools)
       status.tools = ts.tools.length
-      if (ts.instructions) sections.push(`# ${d.value.info?.title ?? d.id}\n\n${ts.instructions}`)
-      skills.push(...ts.skills.map(s => ({ ...s, id: `${d.id}/${s.id}` })))
+      const serviceSkills = ts.skills.map(s => ({ ...s, id: `${d.id}/${s.id}` }))
+      skills.push(...serviceSkills)
+      const serviceText = [skillEntries(serviceSkills), ts.guide].filter(Boolean).join('\n\n')
+      if (serviceText) sections.push(`# ${d.value.info?.title ?? d.id}\n\n${serviceText}`)
+      const failed = ts.skills.filter(s => s.error).map(s => `skill ${s.name}: ${s.error}`)
+      if (failed.length) status.warnings = [...(status.warnings ?? []), ...failed]
     }
     return { toolSet: { profiles: requested, instructions: sections.join('\n\n'), tools, skills }, services: statuses }
   }
@@ -278,6 +301,9 @@ export async function createComposer (index: string | Index, options: ComposerOp
       if (indexEntry.value) { current = indexEntry.value; changed = true } else debug('index refresh failed: %s', indexEntry.error)
     }
     if (await syncServices()) changed = true
+    for (const entry of skillCache.values()) {
+      if (await fetchConditional(entry, fetchFn, body => body as string, readText)) changed = true
+    }
     if (!changed) return false
     let any = false
     for (const c of compositions.values()) if (await c.rebuild()) any = true
@@ -292,6 +318,8 @@ export async function createComposer (index: string | Index, options: ComposerOp
         const status: ServiceStatus = { id: d.id, openapi: d.url, status: d.value ? 'ok' : 'error', tools: 0, reason: d.error }
         const warnings = d.value ? vocabularyWarnings(d.value) : undefined
         if (warnings) status.warnings = warnings
+        const failed = d.skillWarnings ?? []
+        if (failed.length) status.warnings = [...(status.warnings ?? []), ...failed]
         return status
       })
     },

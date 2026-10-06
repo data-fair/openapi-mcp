@@ -11,19 +11,22 @@ const vetstore = JSON.parse(await readFile(new URL('./fixtures/vetstore.json', i
  * ETag gets a 304. `set` replaces a document and bumps its ETag.
  */
 function stack () {
-  const docs = new Map<string, { body: unknown, etag: string }>()
+  const docs = new Map<string, { body: unknown, etag: string, text?: boolean }>()
   const hits: Record<string, number> = {}
   let counter = 0
   const set = (url: string, body: unknown) => docs.set(url, { body, etag: `"${++counter}"` })
+  const setText = (url: string, body: string) => docs.set(url, { body, etag: `"${++counter}"`, text: true })
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = input instanceof Request ? input : new Request(input, init)
     hits[req.url] = (hits[req.url] ?? 0) + 1
     const doc = docs.get(req.url)
     if (!doc) return new Response('not found', { status: 404 })
     if (req.headers.get('if-none-match') === doc.etag) return new Response(null, { status: 304, headers: { etag: doc.etag } })
-    return new Response(JSON.stringify(doc.body), { headers: { 'content-type': 'application/json', etag: doc.etag } })
+    return doc.text
+      ? new Response(doc.body as string, { headers: { 'content-type': 'text/markdown', etag: doc.etag } })
+      : new Response(JSON.stringify(doc.body), { headers: { 'content-type': 'application/json', etag: doc.etag } })
   }) as typeof fetch
-  return { set, fetchFn, hits }
+  return { set, setText, fetchFn, hits }
 }
 
 const INDEX = 'https://idx.test/index.json'
@@ -70,7 +73,7 @@ describe('createComposer', () => {
     const full = await composer.compose(['full'])
     assert.deepEqual(full.toolSet.tools.map(t => t.name), ['pets_list_pets', 'pets_create_pet', 'pets_get_pet', 'vets_list_vets', 'vets_create_appointment'])
     assert.deepEqual(full.toolSet.skills.map(x => x.id), ['cross-booking', 'pets/workflow', 'pets/editing', 'vets/booking'])
-    assert.match(full.toolSet.instructions, /^## cross-booking\n\nFind a pet, then book a vet\.\n\n# Pets/)
+    assert.match(full.toolSet.instructions, /^## cross-booking\n\nFind a pet, then book a vet\.\n\nRead it as the MCP resource skill:\/\/cross-booking\/SKILL\.md\.\n\n# Pets\n\n## workflow\n\n[^\n]+\n\nRead it as the MCP resource skill:\/\/pets\/workflow\/SKILL\.md\./)
     assert.equal(await composer.compose(['full']), full, 'memoized per distinct set')
     assert.equal(await composer.compose(['edit', 'explore']), await composer.compose(['explore', 'edit']))
   })
@@ -180,6 +183,36 @@ describe('createComposer', () => {
     const composer = await createComposer(INDEX, { fetch: s.fetchFn })
     const c = await composer.compose(['explore'])
     assert.deepEqual(c.services.map(x => x.warnings), [undefined, undefined])
+  })
+
+  it('reads linked skill bodies once, revalidates them on refresh, and notifies a change', async () => {
+    const s = base()
+    s.set(PETS, { ...petstore, 'x-agent': { ...petstore['x-agent'], skills: [{ name: 'workflow', description: 'When pets.', href: 'skills/workflow.md' }] } })
+    s.setText('https://pets.test/skills/workflow.md', 'Version 1.')
+    const composer = await createComposer(INDEX, { fetch: s.fetchFn })
+    const c = await composer.compose(['explore'])
+    const body = () => c.toolSet.skills.find(x => x.id === 'pets/workflow')!.body
+    assert.equal(body(), 'Version 1.')
+    await composer.compose(['full'])
+    assert.equal(s.hits['https://pets.test/skills/workflow.md'], 1, 'one fetch for every composition')
+    let notified = 0
+    c.onChange(() => notified++)
+    assert.equal(await composer.refresh(), false, 'an unchanged body is a 304')
+    s.setText('https://pets.test/skills/workflow.md', 'Version 2.')
+    assert.equal(await composer.refresh(), true)
+    assert.equal(notified, 1)
+    assert.equal(body(), 'Version 2.')
+  })
+
+  it('reports an unreachable body as a warning, at the composer and composition levels', async () => {
+    const s = base()
+    s.set(PETS, { ...petstore, 'x-agent': { ...petstore['x-agent'], skills: [{ name: 'workflow', description: 'When pets.', href: 'skills/gone.md' }] } })
+    const composer = await createComposer(INDEX, { fetch: s.fetchFn })
+    const warning = 'skill workflow: HTTP 404 (https://pets.test/skills/gone.md)'
+    assert.ok(composer.services[0].warnings?.includes(warning), JSON.stringify(composer.services[0]))
+    const c = await composer.compose(['explore'])
+    assert.equal(c.services[0].status, 'ok')
+    assert.ok(c.services[0].warnings?.includes(warning))
   })
 
   it('restricts a composition to some services and overrides the prefix — a compatibility route', async () => {
