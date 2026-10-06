@@ -19,3 +19,14 @@ describe('validateIndex', () => {
     assert.throws(() => validateIndex({ version: 1, services: [], indexes: [] }), /indexes/)
   })
 })
+
+describe('index skills: description, body and href', () => {
+  const index = (skills: unknown[]) => ({ version: 1, services: [{ id: 's', openapi: 'https://s.test/openapi.json' }], skills })
+  it('accepts href or body', () => {
+    assert.doesNotThrow(() => validateIndex(index([{ name: 'a', description: 'd', href: 'skills/a.md' }, { name: 'b', description: 'd', body: 'b' }])))
+  })
+  it('refuses a long description and href with body', () => {
+    assert.throws(() => validateIndex(index([{ name: 'a', description: 'x'.repeat(1025) }])))
+    assert.throws(() => validateIndex(index([{ name: 'a', description: 'd', href: 'a.md', body: 'b' }])))
+  })
+})

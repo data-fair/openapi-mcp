@@ -17,7 +17,8 @@ export const root: AgentRoot = {
   profiles: { explore: { title: { en: 'Explore open data', fr: 'Explorer les données ouvertes' } } },
   skills: [{
     name: 'workflow',
-    description: `You are querying French open data through Data Fair.
+    description: 'How to query French open data through Data Fair: find datasets, read their schema, then search, aggregate or compute metrics.',
+    body: `You are querying French open data through Data Fair.
 1. **list_datasets** — find datasets with French keywords (simple terms, not sentences). If 0 results try synonyms or broader terms.
 2. **describe_dataset** — schema and metadata of a dataset. Then call **search_data** with size=3 to see sample rows before filtering.
 3. Choose the tool: rows → search_data (never for statistics); breakdown per category → aggregate_data; single total/avg/min/max → calculate_metric; values of a column → get_field_values.

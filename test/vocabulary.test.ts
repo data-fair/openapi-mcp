@@ -120,3 +120,22 @@ describe('bodyFields and editor groups', () => {
     assert.throws(() => validateVocabulary(viewsDoc({ name: 'a', editor: true, bodyFields: ['title'] })), /patch: bodyFields does not apply to an editor group/)
   })
 })
+
+describe('skills: description, body and href', () => {
+  const withSkills = (skills: unknown[]) => doc({ 'x-agent': { skills } })
+  it('accepts a linked body, an inline body, or neither', () => {
+    assert.doesNotThrow(() => validateVocabulary(withSkills([
+      { name: 'a', description: 'When to use a.', href: 'agents/skills/a.md' },
+      { name: 'b', description: { en: 'When to use b.', fr: 'Quand utiliser b.' }, body: { en: 'Do this.', fr: 'Faites ceci.' } },
+      { name: 'c', description: 'Short enough to be its own body.' },
+      { name: 'd', description: 'Localized link.', href: { en: 'skills/d.en.md', fr: 'skills/d.fr.md' } }
+    ])))
+  })
+  it('refuses a description over 1024 characters, in any locale', () => {
+    assert.throws(() => validateVocabulary(withSkills([{ name: 'a', description: 'x'.repeat(1025) }])), /x-agent invalid at \//)
+    assert.throws(() => validateVocabulary(withSkills([{ name: 'a', description: { en: 'ok', fr: 'x'.repeat(1025) } }])), /x-agent invalid at \//)
+  })
+  it('refuses href and body together', () => {
+    assert.throws(() => validateVocabulary(withSkills([{ name: 'a', description: 'd', href: 'a.md', body: 'b' }])), /x-agent invalid at \//)
+  })
+})

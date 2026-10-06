@@ -68,9 +68,16 @@ export interface AgentEditor {
   readOperation?: string
 }
 
+/**
+ * A skill in the Agent Skills sense: `description` is what an agent reads to decide whether the
+ * skill applies (always shown, at most 1024 characters); the body is read on demand, inline in
+ * `body` or linked by `href` (relative to the document's URL). Neither: the description is the body.
+ */
 export interface AgentSkill {
   name: string
   description: Localized
+  href?: Localized
+  body?: Localized
   profiles?: string[]
   tools?: string[]
 }

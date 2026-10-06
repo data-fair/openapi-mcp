@@ -17,6 +17,8 @@ export interface Index {
 }
 
 const localized = { oneOf: [{ type: 'string' }, { type: 'object', additionalProperties: { type: 'string' }, minProperties: 1 }] }
+/** The Agent Skills description limit, per locale. */
+const shortLocalized = { oneOf: [{ type: 'string', maxLength: 1024 }, { type: 'object', additionalProperties: { type: 'string', maxLength: 1024 }, minProperties: 1 }] }
 
 export const indexSchema = {
   type: 'object',
@@ -47,9 +49,13 @@ export const indexSchema = {
         type: 'object',
         additionalProperties: false,
         required: ['name', 'description'],
+        // a body is inline or linked, never both
+        not: { properties: { href: true, body: true }, required: ['href', 'body'] },
         properties: {
           name: { type: 'string', pattern: '^[a-z0-9]+(-[a-z0-9]+)*$', maxLength: 64 },
-          description: localized,
+          description: shortLocalized,
+          href: localized,
+          body: localized,
           profiles: { type: 'array', items: { type: 'string' } },
           tools: { type: 'array', items: { type: 'string' } }
         }

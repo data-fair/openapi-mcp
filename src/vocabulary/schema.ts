@@ -6,6 +6,13 @@ const localized: JsonSchema = {
     { type: 'object', additionalProperties: { type: 'string' }, minProperties: 1 }
   ]
 }
+/** The Agent Skills description limit, per locale. */
+const shortLocalized: JsonSchema = {
+  oneOf: [
+    { type: 'string', maxLength: 1024 },
+    { type: 'object', additionalProperties: { type: 'string', maxLength: 1024 }, minProperties: 1 }
+  ]
+}
 const profiles: JsonSchema = { oneOf: [{ const: true }, { type: 'array', items: { type: 'string' }, minItems: 1 }] }
 const annotations: JsonSchema = {
   type: 'object',
@@ -47,11 +54,15 @@ export const rootSchema: JsonSchema = {
         type: 'object',
         additionalProperties: false,
         required: ['name', 'description'],
+        // a body is inline or linked, never both
+        not: { properties: { href: true, body: true }, required: ['href', 'body'] },
         properties: {
           // The MCP skills extension requires `name` to equal the last URI segment and
           // delegates its format to the Agent Skills specification.
           name: { type: 'string', pattern: '^[a-z0-9]+(-[a-z0-9]+)*$', maxLength: 64 },
-          description: localized,
+          description: shortLocalized,
+          href: localized,
+          body: localized,
           profiles: { type: 'array', items: { type: 'string' } },
           tools: { type: 'array', items: { type: 'string' } }
         }
