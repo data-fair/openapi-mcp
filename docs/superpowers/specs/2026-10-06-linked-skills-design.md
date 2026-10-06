@@ -29,7 +29,13 @@ disclosed in three levels:
 3. **On demand** — files the body points to.
 
 This design implements levels 1 and 2. Level 3 is out of scope; nothing here prevents adding it
-(for example a relative link in a body, resolved by `read_skill` with an optional path).
+(for example a relative link in a body, served as another resource of the skill).
+
+Level 2 goes through MCP resources (`skill://…/SKILL.md`) and the skills extension; no tool is
+generated. The targets read resources themselves: the agents service implements the skills
+extension (MCP registry skills), opencode gives its model `list_mcp_resources` and
+`read_mcp_resource` tools, and Claude Code exposes MCP resources to its model. A client that only
+supports tools is a secondary consideration; a reading tool can be added later as an opt-in.
 
 ## 1. Vocabulary
 
@@ -80,9 +86,9 @@ next to the operations they explain.
 - A body file may start with a YAML frontmatter block; it is stripped, since the served
   `SKILL.md` frontmatter is always rebuilt from the entry's `name` and `description`.
 - A body that cannot be fetched (network error, non-2xx status) does not fail the service: the
-  skill stays in the instructions and in `read_skill`, which answers with the error (URL and
-  status); it is left out of the skills manifest and the resource list, which need a digest; the
-  composer adds `skill <name>: <reason>` to the service status `warnings`, which the bundled
+  skill stays in the instructions and in `resources/list`; reading its resource answers an MCP
+  error naming the URL and status; it is left out of `skills/list`, whose entries need a digest;
+  the composer adds `skill <name>: <reason>` to the service status `warnings`, which the bundled
   server prints at startup.
 
 ## 3. What the agent sees
@@ -96,35 +102,22 @@ rendered into the instructions:
 ## catalog-workflow
 How to explore a portal's datasets. Use it before searching or aggregating data.
 Tools: datafair_list_datasets, datafair_search_data
-Read it with read_skill("data-fair/catalog-workflow").
+Read it as the MCP resource skill://data-fair/catalog-workflow/SKILL.md.
 ```
 
 The editor groups' sections (`## <tool>` + `Tools:`) take the same form, their skill's
 description included.
 
-### The `read_skill` tool
-
-- Added by `load()` when the selected profiles yield at least one skill; a composition has exactly
-  one, for the merged set (per-service ones are not merged).
-- Fixed, unprefixed name `read_skill`. A service declaring an operation tool with that name falls
-  under the existing collision rule: the service is excluded with an error status.
-- Input `name`: one `const` per available skill id with its `description` —
-  `{ "oneOf": [{ "const": "data-fair/catalog-workflow", "description": "…" }, …] }` — so level 1
-  reaches the model through the tool definition in hosts that do not show server instructions.
-- Output: the body as markdown, followed by the `Tools:` line when the skill lists tools. An
-  unknown id or a body that could not be fetched returns `isError` with the reason.
-- Annotations: `readOnlyHint: true`, `idempotentHint: true`, `openWorldHint: false`.
-
 ### Resources and the skills extension
 
 Unchanged in shape: `skill://<id>/SKILL.md` resources, `skills/list`, `skills/get`. The served
-`SKILL.md` is the entry's frontmatter (`name`, `description`) and the body. Skills whose body
-failed are absent from both lists.
+`SKILL.md` is the entry's frontmatter (`name`, `description`) and the body. A skill whose body
+failed stays in `resources/list`, its `resources/read` answers an MCP error naming the URL and
+status, and it is absent from `skills/list` and `skills/get`.
 
 ### Snapshot
 
-`toolSetSnapshot` skill entries gain `digest` (`sha256:` over the body). `read_skill` appears among
-the tools. A reworded skill file is a one-line digest diff in the owning service's golden; the body
+`toolSetSnapshot` skill entries gain `digest` (`sha256:` over the body). A reworded skill file is a one-line digest diff in the owning service's golden; the body
 itself is not copied into goldens, since the markdown file is in the same pull request.
 
 ## 4. Types
@@ -144,12 +137,10 @@ Against a stubbed `fetch`:
   `href`; frontmatter stripped;
 - composer refresh: an ETag change in a body changes the digest and notifies listeners; an
   unchanged body is a 304 and notifies nothing;
-- failure: warning on the service status, skill absent from `skills/list` and `resources/list`,
-  `read_skill` answers `isError` naming the URL;
-- instructions never contain a body; every entry names `read_skill`;
-- `read_skill`: the `oneOf` lists every selected skill with its description, a composition has
-  exactly one, a service tool named `read_skill` is a collision;
-- snapshot: digests present, `read_skill` listed.
+- failure: warning on the service status, skill absent from `skills/list`, its `resources/read`
+  answers an error naming the URL;
+- instructions never contain a body; every entry names its `skill://` resource;
+- snapshot: digests present.
 
 ## 6. Out of scope
 

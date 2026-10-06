@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let a skill's body live in a linked markdown file, keep only names and descriptions in the MCP instructions, and serve bodies through one generated `read_skill` tool and the existing skill resources.
+**Goal:** Let a skill's body live in a linked markdown file, keep only names and descriptions in the MCP instructions, and serve bodies through the existing `skill://` resources and skills extension.
 
-**Architecture:** `src/skills.ts` becomes the one place that resolves skill entries (inline or linked body, frontmatter stripped, digest), renders their instructions entries and builds the `read_skill` tool. `load()` resolves the document's skills against the document URL and appends the tool; the composer resolves through a conditional-request cache shared by every composition, revalidated on `refresh()`, and adds a single `read_skill` for the merged set. Validation enforces the Agent Skills split: a short `description`, the body in `body` or `href`.
+**Architecture:** `src/skills.ts` becomes the one place that resolves skill entries (inline or linked body, frontmatter stripped, digest) and renders their instructions entries. `load()` resolves the document's skills against the document URL; the composer resolves through a conditional-request cache shared by every composition and revalidated on `refresh()`. Validation enforces the Agent Skills split: a short `description`, the body in `body` or `href`. No tool is generated.
 
 **Tech Stack:** TypeScript on Node 24 (type stripping), `node:test`, Ajv 2020, MCP SDK v2 adapter.
 
@@ -17,9 +17,9 @@
 - "No text is derived from paragraphs any more: the first-paragraph heuristic is removed."
 - "A relative `href` resolves against the URL the document (or index) was fetched from. For a document passed as an object, it resolves against `servers[0].url` (or the `baseUrl` option)." — the server URL is treated as a directory (a trailing `/` is added), so `…/api/v1` + `agents/skills/x.md` gives `…/api/v1/agents/skills/x.md`.
 - "A body file may start with a YAML frontmatter block; it is stripped."
-- "A body that cannot be fetched … does not fail the service."
-- "No body is ever rendered into the instructions."
-- `read_skill`: "Fixed, unprefixed name", input `name` as `oneOf` of `{ const: <id>, description }`, annotations `readOnlyHint: true`, `idempotentHint: true`, `openWorldHint: false`; "a composition has exactly one".
+- "A body that cannot be fetched … does not fail the service": the skill stays in the instructions and in `resources/list`, its `resources/read` answers an MCP error naming the URL and status, it is absent from `skills/list` and `skills/get`, the composer adds `skill <name>: <reason>` to the service `warnings`.
+- "No body is ever rendered into the instructions." Entries point to the resource: `Read it as the MCP resource skill://<id>/SKILL.md.`
+- No `read_skill` tool: level 2 goes through resources and the skills extension.
 - Snapshot skill entries gain `digest` (`sha256:` over the body).
 - Tag-level `x-agent.skill` texts are unchanged.
 - Work on branch `feat/linked-skills` (from `feat/editor-skill`). Tests: `NODE_ENV=test node --test --test-force-exit test/*.test.ts test/evals/*.test.ts`; `test/evals/arms.test.ts` "arm A" fails before this work (it launches the `~/data-fair/mcp` checkout) and is not a regression. Gate: `npm run lint && npm run check-types` plus the tests.
@@ -28,9 +28,9 @@
 
 1. A linked body changes upstream while a composer runs → after `refresh()` the digest changes and listeners are notified; an unchanged body (304) notifies nothing. (Task 4)
 2. A relative `href` in a document passed as an object with `servers[0].url` ending in a path segment (`…/api/v1`) → resolved under that segment, not beside it. (Task 3)
-3. A skill body unreachable (404) → service still serves its tools; `read_skill` answers `isError` naming the URL; the skill is absent from `skills/list`; the composer-level status carries the warning. (Tasks 3, 4, 5)
-4. A service declaring an operation tool named `read_skill` → that service is excluded with an error status in a composition, and `load()` refuses when the document has skills. (Tasks 3, 4)
-5. A composition with skills from several services and the index → one `read_skill` whose `oneOf` lists every skill id with its service prefix. (Task 4)
+3. A skill body unreachable (404) → the service still serves its tools; the skill's resource read answers an error naming the URL; it is absent from `skills/list`; the composer-level status carries the warning. (Tasks 3, 4, 5)
+4. A document loaded from a URL whose servers point elsewhere → its relative skill links resolve against the document URL. (Task 3)
+5. A composition with skills from several services and the index → each instructions entry points to the composed resource URI (`skill://pets/workflow/SKILL.md`), the one `resources/read` serves. (Task 4)
 
 ---
 
@@ -40,11 +40,11 @@
 |---|---|---|
 | `src/types.ts` | vocabulary and result types | `AgentSkill.href/body`, `Skill.digest/error`, `ToolSet.guide`, `SkillBodyFetcher` |
 | `src/vocabulary/schema.ts`, `src/index-contract.ts` | validation | short `description`, `href`, `body`, exclusivity |
-| `src/skills.ts` | resolve, render, tool | `resolveSkills`, `defaultSkillFetcher`, `digestOf`, `skillEntries`, `skillTool`, `SKILL_TOOL` |
-| `src/load.ts` | single document | skill resolution, instructions, `guide`, `read_skill` |
-| `src/compose.ts` | deployment | skill body cache, refresh, single `read_skill`, warnings |
+| `src/skills.ts` | resolve and render | `resolveSkills`, `defaultSkillFetcher`, `digestOf`, `skillEntries` |
+| `src/load.ts` | single document | skill resolution, instructions, `guide` |
+| `src/compose.ts` | deployment | skill body cache, refresh, warnings |
 | `src/snapshot.ts` | golden view | `digest` |
-| `src/adapters/mcp.ts` | MCP serving | errored skills out of the manifest |
+| `src/adapters/mcp.ts` | MCP serving | errored skills: listed resource, read error, out of the manifest |
 | `src/index.ts` | exports | new skills exports |
 | `test/fixtures/data-fair-annotations.ts` | fixture | migrate the long description |
 | tests | | per task |
@@ -86,7 +86,7 @@ describe('skills: description, body and href', () => {
 })
 ```
 
-Append to `test/index-contract.test.ts` (it imports `validateIndex`; add the import if missing: `import { validateIndex } from '../src/index-contract.ts'`):
+Append to `test/index-contract.test.ts` (add `import { validateIndex } from '../src/index-contract.ts'` if it is not imported):
 
 ```ts
 describe('index skills: description, body and href', () => {
@@ -104,7 +104,7 @@ describe('index skills: description, body and href', () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `NODE_ENV=test node --test --test-name-pattern="description, body and href" test/vocabulary.test.ts test/index-contract.test.ts`
-Expected: FAIL — `href`/`body` are unknown properties (first test of each), the long description and the pair are accepted.
+Expected: FAIL — `href`/`body` are unknown properties, the long description and the pair are accepted.
 
 - [ ] **Step 3: Implement**
 
@@ -160,7 +160,7 @@ and replace the skill item schema in `rootSchema.properties.skills.items` with:
       }
 ```
 
-`src/index-contract.ts`: add the same `shortLocalized` constant after its `localized` constant, and replace its skill item schema with the same object (without the two comment lines about the extension, which are specific to documents).
+`src/index-contract.ts`: add the same `shortLocalized` constant after its `localized` constant, and replace its skill item schema with the same object, without the two comment lines about the extension.
 
 `test/fixtures/data-fair-annotations.ts`: in the `workflow` skill, rename the key `description:` (the long template string) to `body:`, and add before it:
 
@@ -171,7 +171,7 @@ and replace the skill item schema in `rootSchema.properties.skills.items` with:
 - [ ] **Step 4: Run the tests**
 
 Run: `NODE_ENV=test node --test --test-force-exit test/*.test.ts`
-Expected: PASS (the fixture now validates; the first-paragraph tests in `test/skills.test.ts` still pass, since resolution has not changed yet).
+Expected: PASS (resolution is unchanged until Task 2; the fixture now validates).
 
 - [ ] **Step 5: Commit**
 
@@ -182,7 +182,7 @@ git commit -m "feat(vocabulary)!: skills take a short description and an inline 
 
 ---
 
-### Task 2: Resolving skills, entries and the read_skill tool
+### Task 2: Resolving skills and rendering their entries
 
 **Files:**
 - Modify: `src/types.ts` (`Skill`, `ToolSet`, new `SkillBodyFetcher`), `src/skills.ts`, `src/index.ts`
@@ -190,15 +190,15 @@ git commit -m "feat(vocabulary)!: skills take a short description and an inline 
 
 **Interfaces:**
 - Consumes: `AgentSkill` (Task 1).
-- Produces (all exported from `src/skills.ts` and the package root):
+- Produces (exported from `src/skills.ts` and the package root):
   - `type SkillBodyFetcher = (url: string) => Promise<{ text: string } | { error: string }>` (in `types.ts`)
   - `Skill = { id, name, description, body, digest: string, error?: string, tools?, profiles? }`
   - `resolveSkills(skills: AgentSkill[] | undefined, selected: Set<string>, locale: string, base: string | undefined, fetchBody: SkillBodyFetcher): Promise<Skill[]>`
   - `defaultSkillFetcher(fetchFn: typeof fetch): SkillBodyFetcher`
   - `digestOf(text: string): string`
+  - `skillUri(skill: Skill): string` → `skill://<id>/SKILL.md`
   - `skillEntries(skills: Skill[]): string`
-  - `SKILL_TOOL = 'read_skill'`, `skillTool(skills: Skill[]): Tool | undefined`
-  - `editorSkill(...)` now also sets `digest`
+  - `editorSkill(...)` now also sets `digest`; `renderSkillFile` uses `skillUri`
   - `ToolSet.guide?: string` — the document's own sections (tag guides) without skill entries.
 
 - [ ] **Step 1: Rewrite the tests**
@@ -209,7 +209,7 @@ Replace the content of `test/skills.test.ts` with:
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { resolveSkills, renderSkillFile, skillEntries, skillTool, digestOf, defaultSkillFetcher } from '../src/skills.ts'
+import { resolveSkills, renderSkillFile, skillEntries, skillUri, digestOf, defaultSkillFetcher } from '../src/skills.ts'
 import type { SkillBodyFetcher } from '../src/types.ts'
 
 const files: Record<string, string> = {
@@ -271,34 +271,13 @@ describe('defaultSkillFetcher', () => {
 })
 
 describe('skillEntries', () => {
-  it('renders name, description, tools and the read pointer, never the body', async () => {
+  it('renders name, description, tools and the resource to read, never the body', async () => {
     const skills = await resolveSkills([{ name: 'w', description: 'When w.', body: 'SECRET BODY', tools: ['t1'] }], new Set(), 'en', base, fetchBody)
-    const text = skillEntries(skills.map(s => ({ ...s, id: 'svc/w' })))
-    assert.equal(text, '## w\n\nWhen w.\n\nTools: t1\nRead it with read_skill("svc/w").')
+    const composed = skills.map(s => ({ ...s, id: 'svc/w' }))
+    assert.equal(skillUri(composed[0]), 'skill://svc/w/SKILL.md')
+    const text = skillEntries(composed)
+    assert.equal(text, '## w\n\nWhen w.\n\nTools: t1\nRead it as the MCP resource skill://svc/w/SKILL.md.')
     assert.doesNotMatch(text, /SECRET/)
-  })
-})
-
-describe('skillTool', () => {
-  it('is absent without skills', () => {
-    assert.equal(skillTool([]), undefined)
-  })
-  it('lists every skill with its description, and returns the body or the error', async () => {
-    const skills = await resolveSkills([
-      { name: 'a', description: 'When a.', href: 'agents/skills/a.md' },
-      { name: 'gone', description: 'When gone.', href: 'nope.md' }
-    ], new Set(), 'en', base, fetchBody)
-    const tool = skillTool(skills)!
-    assert.equal(tool.name, 'read_skill')
-    assert.deepEqual(tool.inputSchema.properties.name.oneOf, [{ const: 'a', description: 'When a.' }, { const: 'gone', description: 'When gone.' }])
-    assert.deepEqual(tool.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false })
-    assert.deepEqual(await tool.execute({ name: 'a' }), { text: '# A\n\nDo this.' })
-    const failed = await tool.execute({ name: 'gone' })
-    assert.equal(failed.isError, true)
-    assert.match(failed.text, /HTTP 404 \(https:\/\/api\.test\/v1\/nope\.md\)/)
-    const unknown = await tool.execute({ name: 'nope' })
-    assert.equal(unknown.isError, true)
-    assert.match(unknown.text, /Available: a, gone/)
   })
 })
 
@@ -317,14 +296,14 @@ describe('renderSkillFile', () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `NODE_ENV=test node --test test/skills.test.ts`
-Expected: FAIL — `resolveSkills`, `skillEntries`, `skillTool`, `digestOf`, `defaultSkillFetcher` are not exported.
+Expected: FAIL — `resolveSkills`, `skillEntries`, `skillUri`, `digestOf`, `defaultSkillFetcher` are not exported.
 
 - [ ] **Step 3: Update the types**
 
 `src/types.ts`, replace `interface Skill` with:
 
 ```ts
-/** A resolved skill, ready to be served as a `skill://` resource, listed in instructions and read by `read_skill`. */
+/** A resolved skill, ready to be served as a `skill://` resource and listed in instructions. */
 export interface Skill {
   /** `<skill-name>` for a single document, `<service-id>/<skill-name>` once composed */
   id: string
@@ -335,7 +314,7 @@ export interface Skill {
   body: string
   /** `sha256:` over `body` */
   digest: string
-  /** why a linked body could not be read; the skill stays listed and `read_skill` reports it */
+  /** why a linked body could not be read; the skill stays listed and its resource read reports it */
   error?: string
   tools?: string[]
   profiles?: string[]
@@ -354,11 +333,22 @@ In `interface ToolSet`, add after `instructions`:
 
 - [ ] **Step 4: Implement `src/skills.ts`**
 
-Replace `buildSkills` (the whole function and its doc comment) with:
+Replace the import lines with:
+
+```ts
+import { createHash } from 'node:crypto'
+import { localize } from './localize.ts'
+import type { AgentSkill, ResolvedOperation, Skill, SkillBodyFetcher } from './types.ts'
+```
+
+Replace `buildSkills` (the function and its doc comment) with:
 
 ```ts
 /** `sha256:` + 64 lowercase hex over the UTF-8 bytes of `text`. */
 export const digestOf = (text: string): string => `sha256:${createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex')}`
+
+/** The resource a skill is served at: what instructions entries point to. */
+export const skillUri = (skill: Pick<Skill, 'id'>): string => `skill://${skill.id}/SKILL.md`
 
 const withTools = (text: string, tools?: string[]) => tools?.length ? `${text}\n\nTools: ${tools.join(', ')}` : text
 
@@ -417,48 +407,13 @@ export async function resolveSkills (skills: AgentSkill[] | undefined, selected:
   return out
 }
 
-/** Level 1 of the Agent Skills disclosure: what each skill is for, and how to read it. Never a body. */
+/** Level 1 of the Agent Skills disclosure: what each skill is for, and the resource to read. Never a body. */
 export function skillEntries (skills: Skill[]): string {
   return skills.map(s => {
     const tools = s.tools?.length ? `Tools: ${s.tools.join(', ')}\n` : ''
-    return `## ${s.name}\n\n${s.description}\n\n${tools}Read it with ${SKILL_TOOL}("${s.id}").`
+    return `## ${s.name}\n\n${s.description}\n\n${tools}Read it as the MCP resource ${skillUri(s)}.`
   }).join('\n\n')
 }
-
-export const SKILL_TOOL = 'read_skill'
-
-/**
- * Level 2: one tool returning a skill's body. Every host supports tools, where few read resources;
- * the `oneOf` carries each description, for hosts that never show server instructions.
- */
-export function skillTool (skills: Skill[]): Tool | undefined {
-  if (!skills.length) return undefined
-  return {
-    name: SKILL_TOOL,
-    description: 'Read the full instructions of a skill. Each skill says when it applies: read it before starting such a task.',
-    inputSchema: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['name'],
-      properties: { name: { oneOf: skills.map(s => ({ const: s.id, description: s.description })) } }
-    },
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    async execute (params) {
-      const skill = skills.find(s => s.id === params?.name)
-      if (!skill) return { isError: true, text: `Unknown skill: ${String(params?.name)}. Available: ${skills.map(s => s.id).join(', ')}` }
-      if (skill.error) return { isError: true, text: `The skill ${skill.id} could not be read: ${skill.error}` }
-      return { text: skill.body }
-    }
-  }
-}
-```
-
-Update the import lines at the top of `src/skills.ts` to:
-
-```ts
-import { createHash } from 'node:crypto'
-import { localize } from './localize.ts'
-import type { AgentSkill, ResolvedOperation, Skill, SkillBodyFetcher, Tool } from './types.ts'
 ```
 
 In `editorSkill`, replace its `return` line with:
@@ -468,24 +423,26 @@ In `editorSkill`, replace its `return` line with:
   return { id: name, name, description, body: text, digest: digestOf(text), tools, ...(profiles ? { profiles } : {}) }
 ```
 
+In `renderSkillFile`, replace `uri: \`skill://${skill.id}/SKILL.md\`,` with `uri: skillUri(skill),`.
+
 In `src/index.ts`, replace the line exporting from `./skills.ts` with:
 
 ```ts
-export { resolveSkills, defaultSkillFetcher, digestOf, skillEntries, skillTool, SKILL_TOOL, renderSkillFile, type SkillFile } from './skills.ts'
+export { resolveSkills, defaultSkillFetcher, digestOf, skillUri, skillEntries, renderSkillFile, type SkillFile } from './skills.ts'
 ```
 
-(`src/load.ts` and `src/compose.ts` still import `buildSkills`; Tasks 3 and 4 replace those calls. Until then `check-types` fails on them — expected inside this task.)
+(`src/load.ts` and `src/compose.ts` still import `buildSkills` until Tasks 3 and 4; `check-types` fails on them inside this task — expected.)
 
 - [ ] **Step 5: Run the tests**
 
 Run: `NODE_ENV=test node --test test/skills.test.ts`
-Expected: PASS (all describes).
+Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add src/types.ts src/skills.ts src/index.ts test/skills.test.ts
-git commit -m "feat(skills): resolve inline or linked bodies, render entries, build read_skill"
+git commit -m "feat(skills): resolve inline or linked bodies and render short entries"
 ```
 
 ---
@@ -494,11 +451,11 @@ git commit -m "feat(skills): resolve inline or linked bodies, render entries, bu
 
 **Files:**
 - Modify: `src/load.ts` (`LoadOptions`, `buildInstructions`, the end of `load`), `src/snapshot.ts`
-- Test: `test/load.test.ts`, `test/snapshot.test.ts`, and the expectation updates listed in Step 4
+- Test: `test/load.test.ts`, `test/snapshot.test.ts`
 
 **Interfaces:**
-- Consumes: `resolveSkills`, `defaultSkillFetcher`, `skillEntries`, `skillTool`, `SKILL_TOOL`, `editorSkill` (Task 2).
-- Produces: `LoadOptions.documentUrl?: string`, `LoadOptions.skillBodies?: SkillBodyFetcher`, `LoadOptions.skillTool?: boolean` (default `true`); `ToolSet.guide`; `buildInstructions(doc, profiles, ops, locale)` now returns only tag sections; snapshot skills `{ id, name, description, digest }`.
+- Consumes: `resolveSkills`, `defaultSkillFetcher`, `skillEntries`, `editorSkill` (Task 2).
+- Produces: `LoadOptions.documentUrl?: string`, `LoadOptions.skillBodies?: SkillBodyFetcher`; `ToolSet.guide`; `buildInstructions(doc, profiles, ops, locale)` now returns only tag sections; snapshot skills `{ id, name, description, digest }`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -513,7 +470,7 @@ describe('load — linked skills', () => {
   })
   const bodies = (files: Record<string, string>) => stub(req => req.url in files
     ? new Response(files[req.url], { headers: { 'content-type': 'text/markdown' } })
-    : json({ total: 0, results: [] }))
+    : new Response('no', { status: 404 }))
 
   it('resolves a relative link under servers[0].url for a document passed as an object', async () => {
     const s = bodies({ 'https://api.test/v1/agents/skills/w.md': '---\nname: w\n---\nThe body.' })
@@ -528,53 +485,47 @@ describe('load — linked skills', () => {
     assert.equal((await load(doc, { fetch: s.fetchFn, documentUrl: 'https://docs.test/v2/openapi.json' })).skills[0].body, 'From the doc URL.')
   })
 
-  it('lists skills in the instructions without bodies, and appends read_skill', async () => {
+  it('lists skills in the instructions without bodies, pointing to their resources', async () => {
     const s = bodies({ 'https://api.test/v1/w.md': 'SECRET BODY' })
     const ts = await load(skilled([{ name: 'w', description: 'When w.', href: 'w.md', tools: ['pets_list_pets'] }]), { fetch: s.fetchFn })
-    assert.equal(ts.instructions, '## w\n\nWhen w.\n\nTools: pets_list_pets\nRead it with read_skill("w").\n\n## Pets\n\nPets have an id and a name.')
+    assert.equal(ts.instructions, '## w\n\nWhen w.\n\nTools: pets_list_pets\nRead it as the MCP resource skill://w/SKILL.md.\n\n## Pets\n\nPets have an id and a name.')
     assert.equal(ts.guide, '## Pets\n\nPets have an id and a name.')
-    assert.deepEqual(ts.tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet', 'read_skill'])
-    assert.deepEqual(await ts.tools[2].execute({ name: 'w' }), { text: 'SECRET BODY\n\nTools: pets_list_pets' })
+    assert.deepEqual(ts.tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet'])
+    assert.equal(ts.skills[0].body, 'SECRET BODY\n\nTools: pets_list_pets')
   })
 
   it('keeps serving when a body is unreachable', async () => {
     const ts = await load(skilled([{ name: 'w', description: 'When w.', href: 'gone.md' }]), { fetch: bodies({}).fetchFn })
-    assert.deepEqual(ts.tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet', 'read_skill'])
+    assert.deepEqual(ts.tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet'])
     assert.match(ts.skills[0].error!, /HTTP 404 \(https:\/\/api\.test\/v1\/gone\.md\)/)
-  })
-
-  it('leaves read_skill out on request, and refuses an operation tool taking its name', async () => {
-    const plain = await load(skilled([{ name: 'w', description: 'When w.' }]), { fetch: bodies({}).fetchFn, skillTool: false })
-    assert.ok(!plain.tools.some(t => t.name === 'read_skill'))
-    const clashing = skilled([{ name: 'w', description: 'When w.' }])
-    clashing.paths['/pets'].get['x-agent'].name = 'read_skill'
-    clashing['x-agent'].namePrefix = ''
-    await assert.rejects(load(clashing, { fetch: bodies({}).fetchFn }), /read_skill is reserved/)
   })
 })
 ```
 
-In `test/snapshot.test.ts`, replace the line asserting `a.skills` with:
+In `test/load.test.ts`, update the two exact instructions expectations:
+
+- line 26 → `'## workflow\n\nStart with list_pets, then get_pet.\n\nRead it as the MCP resource skill://workflow/SKILL.md.\n\n## Pets\n\nPets have an id and a name.'`
+- line 37 → `'## workflow\n\nCommencez par list_pets.\n\nRead it as the MCP resource skill://workflow/SKILL.md.\n\n## editing\n\nUse create_pet only when asked.\n\nRead it as the MCP resource skill://editing/SKILL.md.\n\n## Pets\n\nPets have an id and a name.'`
+
+In `test/snapshot.test.ts`, add `import { digestOf } from '../src/skills.ts'` and replace the line asserting `a.skills` with:
 
 ```ts
     assert.deepEqual(a.skills, [{ id: 'workflow', name: 'workflow', description: 'Start with list_pets, then get_pet.', digest: digestOf('Start with list_pets, then get_pet.') }])
 ```
 
-and add `import { digestOf } from '../src/skills.ts'` to its imports.
-
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `NODE_ENV=test node --test --test-name-pattern="linked skills|stable, JSON" test/load.test.ts test/snapshot.test.ts`
-Expected: FAIL — links are not resolved, the instructions hold full texts, there is no `read_skill`, the snapshot has no `digest`.
+Run: `NODE_ENV=test node --test test/load.test.ts test/snapshot.test.ts`
+Expected: FAIL — `load` still imports the removed `buildSkills` (module error), so every test of both files fails.
 
 - [ ] **Step 3: Implement**
 
 In `src/load.ts`:
 
-1. Imports: replace `import { buildSkills, editorSkill } from './skills.ts'` with
+1. Replace `import { buildSkills, editorSkill } from './skills.ts'` with:
 
 ```ts
-import { resolveSkills, defaultSkillFetcher, editorSkill, skillEntries, skillTool, SKILL_TOOL } from './skills.ts'
+import { resolveSkills, defaultSkillFetcher, editorSkill, skillEntries } from './skills.ts'
 ```
 
 and add `SkillBodyFetcher` to the type import from `./types.ts`.
@@ -586,11 +537,9 @@ and add `SkillBodyFetcher` to the type import from `./types.ts`.
   documentUrl?: string
   /** how linked skill bodies are read; the composer passes its cache, the default fetches with `fetch` */
   skillBodies?: SkillBodyFetcher
-  /** add the `read_skill` tool when skills are selected (default true); a composer adds one for the merged set */
-  skillTool?: boolean
 ```
 
-3. In `buildInstructions`, delete the `for (const skill of root.skills ?? []) { … }` loop and the now unused `root` and `selected` constants (keep the tag loop). Update its doc comment, or add one: `/** The document's own guide: the skill text of the tags its selected operations carry. Skills are listed separately, by skillEntries. */`
+3. In `buildInstructions`, delete the `for (const skill of root.skills ?? []) { … }` loop and the `root` and `selected` constants it used, keeping the tag loop, and set its doc comment to: `/** The document's own guide: the skill text of the tags its selected operations carry. Skills are listed separately, by skillEntries. */`
 
 4. Replace the end of `load`, from `const editorSections: string[] = []` to the `return`, with:
 
@@ -606,44 +555,23 @@ and add `SkillBodyFetcher` to the type import from `./types.ts`.
   const skillBase = options.documentUrl ?? (typeof spec === 'string' ? spec : undefined) ?? baseUrl.replace(/\/?$/, '/')
   const selected = selectProfiles(profiles, expandProfiles(root.profiles))
   const skills = [...await resolveSkills(root.skills, selected, o.locale, skillBase, options.skillBodies ?? defaultSkillFetcher(fetchFn)), ...editorSkills]
-  if (skills.length && options.skillTool !== false) {
-    if (tools.some(t => t.name === SKILL_TOOL)) throw new Error(`tool name ${SKILL_TOOL} is reserved for skills`)
-    tools.push(skillTool(skills)!)
-  }
   const guide = buildInstructions(doc, profiles, ops, o.locale)
   const instructions = [skillEntries(skills), guide].filter(Boolean).join('\n\n')
   return { profiles, instructions, guide, tools, skills }
 ```
 
-In `src/snapshot.ts`: change the `skills` type to `{ id: string, name: string, description: string, digest: string }[]` and the mapping to `toolSet.skills.map(s => ({ id: s.id, name: s.name, description: s.description, digest: s.digest }))`.
+In `src/snapshot.ts`, change the `skills` type to `{ id: string, name: string, description: string, digest: string }[]` and the mapping to `toolSet.skills.map(s => ({ id: s.id, name: s.name, description: s.description, digest: s.digest }))`.
 
-- [ ] **Step 4: Update the expectations `read_skill` changes**
-
-Every set built from `test/fixtures/petstore.json` selects its `workflow` skill (no `profiles`), and editor groups and the data-fair fixture carry skills, so those sets now end with `read_skill`. Update exactly these assertions, then run each file and check that each remaining diff is only that extra name:
-
-- `test/load.test.ts:25` → `['pets_list_pets', 'pets_get_pet', 'read_skill']`
-- `test/load.test.ts:36` → `['pets_create_pet', 'read_skill']`
-- `test/load.test.ts:44` → `['pets_list_pets', 'pets_create_pet', 'pets_get_pet', 'read_skill']`
-- `test/load.test.ts:58` → `['list_pets', 'get_pet', 'read_skill']`
-- `test/load.test.ts:26` → `'## workflow\n\nStart with list_pets, then get_pet.\n\nRead it with read_skill("workflow").\n\n## Pets\n\nPets have an id and a name.'`
-- `test/load.test.ts:37` → `'## workflow\n\nCommencez par list_pets.\n\nRead it with read_skill("workflow").\n\n## editing\n\nUse create_pet only when asked.\n\nRead it with read_skill("editing").\n\n## Pets\n\nPets have an id and a name.'`
-- `test/data-fair.test.ts:25` → the same sorted list with `'read_skill'` inserted between `'list_datasets'` and `'search_data'`
-- `test/editor-group.test.ts:48` → add `'read_skill'` to the sorted list at its alphabetical place
-- `test/evals/arms.test.ts:51` and `:68` → add `'read_skill'` between `'list_datasets'` and `'search_data'`; `:53` and `:69` → `7`
-- `test/adapters-mcp.test.ts:40` → `['pets_list_pets', 'pets_get_pet', 'read_skill']`
-
-Unchanged on purpose: `test/load.test.ts:120` and `:126` (the views fixture has no skills), and the `vocabulary-lint` counts (their documents have no skills). If any other assertion fails, read its diff: if it is only `read_skill` appended to a set that has skills, update it the same way and add a ledger note; otherwise it is a defect to debug.
-
-- [ ] **Step 5: Run the tests**
+- [ ] **Step 4: Run the tests**
 
 Run: `NODE_ENV=test node --test --test-force-exit test/*.test.ts test/evals/*.test.ts`
-Expected: PASS except `compose.test.ts`, `bin.test.ts`, the composer tests of `adapters-mcp.test.ts` and the "arm C" test of `test/evals/arms.test.ts` (it composes an index), which Task 4 makes pass (the composer still calls `buildSkills`), and the known "arm A" failure.
+Expected: PASS except the files that go through the composer — `compose.test.ts`, `bin.test.ts`, the composer tests of `adapters-mcp.test.ts`, and the "arm C" test of `test/evals/arms.test.ts` — which still import `buildSkills` through `compose.ts` until Task 4, and the known "arm A" failure. `test/editor-group.test.ts` and `test/data-fair.test.ts` must pass (they assert `/dataset_line/` and `/^## workflow/` in the instructions, both still true).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/load.ts src/snapshot.ts test/load.test.ts test/snapshot.test.ts test/data-fair.test.ts test/editor-group.test.ts test/evals/arms.test.ts test/adapters-mcp.test.ts
-git commit -m "feat(load): linked skills, instructions without bodies, read_skill"
+git add src/load.ts src/snapshot.ts test/load.test.ts test/snapshot.test.ts
+git commit -m "feat(load): linked skills, instructions listing skills without their bodies"
 ```
 
 ---
@@ -652,15 +580,15 @@ git commit -m "feat(load): linked skills, instructions without bodies, read_skil
 
 **Files:**
 - Modify: `src/compose.ts` (`fetchConditional`, `createComposer`: cache, `loadDoc`, `build`, `refresh`, `services`)
-- Test: `test/compose.test.ts`, `test/bin.test.ts`, `test/adapters-mcp.test.ts`
+- Test: `test/compose.test.ts`
 
 **Interfaces:**
-- Consumes: `resolveSkills`, `skillEntries`, `skillTool`, `SKILL_TOOL` (Task 2); `LoadOptions.documentUrl/skillBodies/skillTool`, `ToolSet.guide` (Task 3).
-- Produces: composition tool sets ending with one `read_skill`; `ServiceStatus.warnings` entries `skill <name>: <error>` on both composer-level and composition statuses.
+- Consumes: `resolveSkills`, `skillEntries` (Task 2); `LoadOptions.documentUrl/skillBodies`, `ToolSet.guide` (Task 3).
+- Produces: composed instructions whose entries point to `skill://<service>/<name>/SKILL.md`; `ServiceStatus.warnings` entries `skill <name>: <error>` on both composer-level and composition statuses.
 
 - [ ] **Step 1: Let the test stack serve text**
 
-In `test/compose.test.ts`, in `stack()`, change the map's value type to `{ body: unknown, etag: string, text?: boolean }`, add after `const set = …`:
+In `test/compose.test.ts`, in `stack()`: change the map's value type to `{ body: unknown, etag: string, text?: boolean }`; add after `const set = …`:
 
 ```ts
   const setText = (url: string, body: string) => docs.set(url, { body, etag: `"${++counter}"`, text: true })
@@ -678,27 +606,23 @@ and return `{ set, setText, fetchFn, hits }`.
 
 - [ ] **Step 2: Write the failing tests**
 
-Append inside `describe('createComposer', …)`:
+Replace the assertion at `test/compose.test.ts:73` with:
 
 ```ts
-  it('adds one read_skill for the merged set, listing index and service skills with their ids', async () => {
-    const s = base()
-    const composer = await createComposer(INDEX, { fetch: s.fetchFn })
-    const full = await composer.compose(['full'])
-    const tools = full.toolSet.tools.filter(t => t.name === 'read_skill')
-    assert.equal(tools.length, 1)
-    assert.deepEqual(tools[0].inputSchema.properties.name.oneOf.map((o: any) => o.const), ['cross-booking', 'pets/workflow', 'pets/editing', 'vets/booking'])
-    assert.match(full.toolSet.instructions, /^## cross-booking\n\nFind a pet, then book a vet\.\n\nRead it with read_skill\("cross-booking"\)\.\n\n# Pets\n\n## workflow\n\n[^\n]+\n\nRead it with read_skill\("pets\/workflow"\)\./)
-  })
+    assert.match(full.toolSet.instructions, /^## cross-booking\n\nFind a pet, then book a vet\.\n\nRead it as the MCP resource skill:\/\/cross-booking\/SKILL\.md\.\n\n# Pets\n\n## workflow\n\n[^\n]+\n\nRead it as the MCP resource skill:\/\/pets\/workflow\/SKILL\.md\./)
+```
 
+and append inside `describe('createComposer', …)`:
+
+```ts
   it('reads linked skill bodies once, revalidates them on refresh, and notifies a change', async () => {
     const s = base()
     s.set(PETS, { ...petstore, 'x-agent': { ...petstore['x-agent'], skills: [{ name: 'workflow', description: 'When pets.', href: 'skills/workflow.md' }] } })
     s.setText('https://pets.test/skills/workflow.md', 'Version 1.')
     const composer = await createComposer(INDEX, { fetch: s.fetchFn })
     const c = await composer.compose(['explore'])
-    const read = () => c.toolSet.tools.find(t => t.name === 'read_skill')!.execute({ name: 'pets/workflow' })
-    assert.deepEqual(await read(), { text: 'Version 1.' })
+    const body = () => c.toolSet.skills.find(x => x.id === 'pets/workflow')!.body
+    assert.equal(body(), 'Version 1.')
     await composer.compose(['full'])
     assert.equal(s.hits['https://pets.test/skills/workflow.md'], 1, 'one fetch for every composition')
     let notified = 0
@@ -707,7 +631,7 @@ Append inside `describe('createComposer', …)`:
     s.setText('https://pets.test/skills/workflow.md', 'Version 2.')
     assert.equal(await composer.refresh(), true)
     assert.equal(notified, 1)
-    assert.deepEqual(await read(), { text: 'Version 2.' })
+    assert.equal(body(), 'Version 2.')
   })
 
   it('reports an unreachable body as a warning, at the composer and composition levels', async () => {
@@ -720,27 +644,18 @@ Append inside `describe('createComposer', …)`:
     assert.equal(c.services[0].status, 'ok')
     assert.ok(c.services[0].warnings?.includes(warning))
   })
-
-  it('excludes a service whose operation tool is named read_skill', async () => {
-    const s = base()
-    s.set(VETS, { ...vetstore, 'x-agent': { ...vetstore['x-agent'], namePrefix: '' }, paths: { '/vets': { get: { ...vetstore.paths['/vets'].get, 'x-agent': { profiles: ['explore'], name: 'read_skill' } } } } })
-    const composer = await createComposer(INDEX, { fetch: s.fetchFn })
-    const c = await composer.compose(['explore'])
-    assert.equal(c.services[1].status, 'error')
-    assert.match(c.services[1].reason!, /read_skill is reserved/)
-  })
 ```
 
 - [ ] **Step 3: Run the tests to verify they fail**
 
 Run: `NODE_ENV=test node --test --test-force-exit test/compose.test.ts`
-Expected: FAIL — the composer imports the removed `buildSkills` (module error) until Step 4.
+Expected: FAIL — `compose.ts` still imports the removed `buildSkills` (module error).
 
 - [ ] **Step 4: Implement**
 
 In `src/compose.ts`:
 
-1. Imports: replace `import { buildSkills } from './skills.ts'` with `import { resolveSkills, skillEntries, skillTool, SKILL_TOOL } from './skills.ts'`, and add `SkillBodyFetcher` and `AgentSkill` to the type import from `./types.ts`.
+1. Replace `import { buildSkills } from './skills.ts'` with `import { resolveSkills, skillEntries } from './skills.ts'`, and add `SkillBodyFetcher` and `AgentSkill` to the type import from `./types.ts`.
 
 2. Generalize `fetchConditional` with a body reader, keeping JSON as default:
 
@@ -765,21 +680,19 @@ and inside it replace `entry.value = parse(await res.json())` with `entry.value 
     }
     return entry.value !== undefined ? { text: entry.value } : { error: entry.error ?? 'not loaded' }
   }
-  /** Every skill of a document (all profiles), resolved through the cache: what a service's status reports. */
-  // every profile any of the skills names, so that every skill is resolved, whatever the request
+  // Every skill of a document, whatever the request (every profile its skills name is selected):
+  // what a service's status reports.
   const skillWarnings = async (skills: AgentSkill[] | undefined, base: string | undefined): Promise<string[]> =>
     (await resolveSkills(skills, new Set((skills ?? []).flatMap(s => s.profiles ?? [])), locale, base, skillBodies))
       .filter(s => s.error).map(s => `skill ${s.name}: ${s.error}`)
 ```
 
-4. In `loadDoc`, after the successful `entry.value = await loadSpec(entry.value, fetchFn)`, add:
+4. Extend `interface CachedDoc` with `skillWarnings?: string[]`, and in `loadDoc`, after the successful `entry.value = await loadSpec(entry.value, fetchFn)`, add:
 
 ```ts
         // fetched with the document, so a broken link shows in the service status at startup
         entry.skillWarnings = await skillWarnings(entry.value['x-agent']?.skills, entry.url)
 ```
-
-and extend `interface CachedDoc` with `skillWarnings?: string[]`.
 
 5. In `build`:
    - replace `skills.push(...buildSkills(current.skills, indexSelected, locale))` and the following `for (const s of skills) sections.push(…)` line with:
@@ -789,13 +702,7 @@ and extend `interface CachedDoc` with `skillWarnings?: string[]`.
     if (skills.length) sections.push(skillEntries(skills))
 ```
 
-   - in the `load(d.value, { … })` call, add `documentUrl: d.url, skillBodies, skillTool: false` to the options object;
-   - right after the existing tool-name collision check, add:
-
-```ts
-      if (ts.tools.some(t => t.name === SKILL_TOOL)) { status.status = 'error'; status.reason = `tool name ${SKILL_TOOL} is reserved for skills`; continue }
-```
-
+   - in the `load(d.value, { … })` call, add `documentUrl: d.url, skillBodies` to the options object;
    - replace `if (ts.instructions) sections.push(`# ${d.value.info?.title ?? d.id}\n\n${ts.instructions}`)` and the `skills.push(...ts.skills.map(…))` line with:
 
 ```ts
@@ -807,8 +714,6 @@ and extend `interface CachedDoc` with `skillWarnings?: string[]`.
       if (failed.length) status.warnings = [...(status.warnings ?? []), ...failed]
 ```
 
-   - before `return { toolSet: … }`, add `const readSkill = skillTool(skills); if (readSkill) tools.push(readSkill)`.
-
 6. In `refresh`, after the documents are revalidated and before `if (!changed) return false`, add:
 
 ```ts
@@ -817,58 +722,42 @@ and extend `interface CachedDoc` with `skillWarnings?: string[]`.
     }
 ```
 
-7. In the `services` getter, after the vocabulary warnings are attached, add the document's skill warnings:
+7. In the `services` getter, after the vocabulary warnings are attached, add:
 
 ```ts
         const failed = d.skillWarnings ?? []
         if (failed.length) status.warnings = [...(status.warnings ?? []), ...failed]
 ```
 
-- [ ] **Step 5: Update the composer expectations**
-
-Sets that select at least one skill now end with `read_skill`. Update:
-
-- `test/compose.test.ts:51` → `['pets_list_pets', 'pets_get_pet', 'vets_list_vets', 'read_skill']`
-- `:71` → `['pets_list_pets', 'pets_create_pet', 'pets_get_pet', 'vets_list_vets', 'vets_create_appointment', 'read_skill']`
-- `:93`, `:106`, `:144` → `['pets_list_pets', 'pets_get_pet', 'read_skill']`
-- `:132` → `['pets_list_pets', 'pets_get_pet', 'vets_list_all_vets', 'read_skill']`
-- `:164` → `['pets_create_pet', 'vets_create_appointment', 'read_skill']`
-- `:189` → `['list_pets', 'get_pet', 'read_skill']`; `:193` → `['pets_list_pets', 'pets_get_pet', 'vets_list_vets', 'read_skill']`; `:196` → `['legacy_list_pets', 'legacy_get_pet', 'legacy_list_vets', 'read_skill']`
-- `:73` → `assert.match(full.toolSet.instructions, /^## cross-booking\n\nFind a pet, then book a vet\.\n\nRead it with read_skill\("cross-booking"\)\.\n\n# Pets/)`
-- `test/bin.test.ts:46` → `['pets_list_pets', 'pets_get_pet', 'read_skill']`; `:80` → `['pets_list_pets', 'pets_create_pet', 'pets_get_pet', 'vets_list_vets', 'vets_create_appointment', 'read_skill']`; `:98` → `['pets_create_pet', 'vets_create_appointment', 'read_skill']`
-- `test/adapters-mcp.test.ts:113` → `['pets_list_pets', 'pets_get_pet', 'read_skill']`; `:128` → `['pets_create_pet', 'read_skill']`
-
-`test/compose.test.ts:82` stays (`edit_appointments` selects no skill). As in Task 3: any other failure that is only `read_skill` appended to a set with skills is updated with a ledger note; anything else is a defect.
-
-- [ ] **Step 6: Run the tests**
+- [ ] **Step 5: Run the tests**
 
 Run: `NODE_ENV=test node --test --test-force-exit test/*.test.ts test/evals/*.test.ts && npm run check-types && npm run lint`
-Expected: PASS except the known "arm A".
+Expected: PASS except the known "arm A". Tool lists are unchanged everywhere (no tool is generated); the adapter test comparing `client.getInstructions()` with the composition's instructions still holds.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/compose.ts test/compose.test.ts test/bin.test.ts test/adapters-mcp.test.ts
-git commit -m "feat(compose): cached linked skills, one read_skill per composition, skill warnings"
+git add src/compose.ts test/compose.test.ts
+git commit -m "feat(compose): cached linked skills, revalidated on refresh, with warnings"
 ```
 
 ---
 
-### Task 5: Serving — errored skills out of the manifest
+### Task 5: Serving a skill whose body failed
 
 **Files:**
 - Modify: `src/adapters/mcp.ts` (`toMcpServer`)
 - Test: `test/adapters-mcp.test.ts`
 
 **Interfaces:**
-- Consumes: `Skill.error` (Task 2).
+- Consumes: `Skill.error` (Task 2), `skillUri` (Task 2).
 
 - [ ] **Step 1: Write the failing test**
 
-Append inside `describe('mcp adapter over a tool set (in-memory, 2025 era)', …)` (reuse the file's in-memory helper; if it only builds from the petstore fixture, build this server directly as below, adapting the helper's client/server wiring):
+Append inside `describe('mcp adapter over a tool set (in-memory, 2025 era)', …)`. The file's `inMemory()` helper builds its server from a tool set; if it takes no argument, change its signature to `inMemory (toolSet?: ToolSet)` and default to the tool set it builds today.
 
 ```ts
-  it('leaves a skill whose body failed out of the resources and skills/list, keeping read_skill', async () => {
+  it('lists a skill whose body failed as a resource that answers an error, and leaves it out of skills/list', async () => {
     const toolSet = await load({
       ...structuredClone(petstore),
       servers: [{ url: 'https://api.test/v1' }],
@@ -876,40 +765,63 @@ Append inside `describe('mcp adapter over a tool set (in-memory, 2025 era)', …
     }, { fetch: (async () => new Response('no', { status: 404 })) as unknown as typeof fetch })
     const { client } = await inMemory(toolSet)
     const { resources } = await client.listResources()
-    assert.deepEqual(resources.map(r => r.uri), ['skill://ok/SKILL.md'])
+    assert.deepEqual(resources.map(r => r.uri), ['skill://ok/SKILL.md', 'skill://gone/SKILL.md'])
     const listed = await client.request({ method: 'skills/list', params: {} }, SkillsList)
     assert.deepEqual(listed.skills.map((s: any) => s.frontmatter.name), ['ok'])
-    const res: any = await client.callTool({ name: 'read_skill', arguments: { name: 'gone' } })
-    assert.equal(res.isError, true)
+    await assert.rejects(client.readResource({ uri: 'skill://gone/SKILL.md' }), (err: any) => /HTTP 404 \(https:\/\/api\.test\/v1\/gone\.md\)/.test(err.message))
+    await assert.rejects(client.request({ method: 'skills/get', params: { uri: 'skill://gone/SKILL.md' } }, z.any()), (err: any) => err.code === -32602)
   })
 ```
-
-If `inMemory` takes no argument, change its signature to `inMemory (toolSet?: ToolSet)` and default to the tool set it builds today.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `NODE_ENV=test node --test --test-force-exit --test-name-pattern="body failed" test/adapters-mcp.test.ts`
-Expected: FAIL — `skill://gone/SKILL.md` is listed with an empty body.
+Expected: FAIL — `skill://gone/SKILL.md` is listed in `skills/list` and its read returns an empty body.
 
 - [ ] **Step 3: Implement**
 
-In `src/adapters/mcp.ts`, `toMcpServer`, replace `const skills = toolSet.skills.map(renderSkillFile)` with:
+In `src/adapters/mcp.ts`, `toMcpServer`:
+
+1. Add `skillUri` to the import from `../skills.ts`.
+
+2. Replace `const skills = toolSet.skills.map(renderSkillFile)` and `const byUri = …` with:
 
 ```ts
-  // A skill whose body could not be read has no digest to publish; read_skill reports its error.
+  // A skill whose body could not be read has no digest to publish in the manifest; its resource
+  // stays listed and answers the error, so an agent following an instructions entry learns why.
   const skills = toolSet.skills.filter(s => !s.error).map(renderSkillFile)
+  const byUri = new Map(skills.map(s => [s.uri, s]))
+  const failed = new Map(toolSet.skills.filter(s => s.error).map(s => [skillUri(s), s]))
 ```
+
+3. In `resources/list`, append the failed skills after the served ones:
+
+```ts
+    resources: [
+      ...skills.map(s => ({ uri: s.uri, name: s.frontmatter.name, description: s.frontmatter.description, mimeType: 'text/markdown' })),
+      ...[...failed.entries()].map(([uri, s]) => ({ uri, name: s.name, description: s.description, mimeType: 'text/markdown' }))
+    ]
+```
+
+4. In `resources/read`, before the `if (!s) throw …` line, add:
+
+```ts
+    const broken = failed.get(req.params.uri)
+    if (broken) throw new ProtocolError(INTERNAL_ERROR, `The skill ${broken.id} could not be read: ${broken.error}`)
+```
+
+and add `INTERNAL_ERROR` to the import that provides `INVALID_PARAMS` (both come from the SDK's error codes).
 
 - [ ] **Step 4: Run the tests**
 
-Run: `NODE_ENV=test node --test --test-force-exit test/*.test.ts test/evals/*.test.ts`
+Run: `NODE_ENV=test node --test --test-force-exit test/*.test.ts test/evals/*.test.ts && npm run check-types`
 Expected: PASS except the known "arm A".
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/adapters/mcp.ts test/adapters-mcp.test.ts
-git commit -m "feat(mcp): publish only the skills whose body was read"
+git commit -m "feat(mcp): a skill whose body failed answers its error instead of an empty body"
 ```
 
 ---
@@ -917,7 +829,7 @@ git commit -m "feat(mcp): publish only the skills whose body was read"
 ### Task 6: Documentation
 
 **Files:**
-- Modify: `docs/x-agent.md` (section "Root", the `skills` bullet), `README.md` (section "Skills", section "Composing a deployment"), `skills/openapi-mcp/SKILL.md` (the root row of "The annotation at a glance")
+- Modify: `docs/x-agent.md` (section "Root"), `README.md` (sections "Skills" and "Composing a deployment"), `skills/openapi-mcp/SKILL.md` ("The annotation at a glance")
 
 - [ ] **Step 1: `docs/x-agent.md`**
 
@@ -937,38 +849,36 @@ and replace the `skills` bullet below it with:
 ```markdown
 - **`skills`** — skills in the Agent Skills sense. `description` (localized, at most 1024
   characters) says what the skill is for and when to use it: it is always shown, in the MCP
-  `instructions` and in the `read_skill` tool. The body is read on demand: inline in `body`, or in
-  a markdown file linked by `href` (localized; relative to the URL the document was fetched from,
-  or to `servers[0].url` for a document passed as an object). `href` and `body` are exclusive;
-  with neither, the description is the body. A linked file's frontmatter is ignored. `profiles`
-  filters, `tools` adds a `Tools: …` line. The name follows the Agent Skills format
+  `instructions`. The body is read on demand as the `skill://…/SKILL.md` resource: inline in
+  `body`, or in a markdown file linked by `href` (localized; relative to the URL the document was
+  fetched from, or to `servers[0].url` for a document passed as an object). `href` and `body` are
+  exclusive; with neither, the description is the body. A linked file's frontmatter is ignored.
+  `profiles` filters, `tools` adds a `Tools: …` line. The name follows the Agent Skills format
   (`^[a-z0-9]+(-[a-z0-9]+)*$`, at most 64 characters) and becomes the last segment of
   `skill://…/<name>/SKILL.md`.
 ```
 
 - [ ] **Step 2: `README.md`**
 
-Replace the "## Skills" section body with:
+Replace the body of the "## Skills" section with:
 
 ```markdown
 Skills follow the Agent Skills disclosure levels. The MCP `instructions` list each selected skill
-by name and description, with a pointer; bodies never go there. A generated `read_skill` tool —
-one per tool set or composition, its input listing every skill id with its description — returns a
-body on demand, which works in every host. Hosts with the skills extension
-(`io.modelcontextprotocol/skills`) also get `skills/list`, `skills/get` and `resources/read` of
-`skill://<service-id>/<name>/SKILL.md`, with a SHA-256 manifest.
+by name and description, with the resource to read; bodies never go there. A body is served as
+`skill://<service-id>/<name>/SKILL.md` through `resources/read`, and through the skills extension
+(`io.modelcontextprotocol/skills`: `skills/list`, `skills/get`, with a SHA-256 manifest).
 
 A body is inline (`body`) or linked (`href`, a markdown file next to the document). `load()` reads
 linked bodies with its `fetch`; a composer caches them with conditional requests and revalidates
-them on `refresh()`. A body that cannot be read keeps the skill listed: `read_skill` reports the
-error, the service status carries a warning, and the manifest leaves it out.
+them on `refresh()`. A body that cannot be read keeps the skill listed: its resource answers the
+error, the service status carries a warning, and the skills manifest leaves it out.
 
 ### Upgrading to 0.4.0
 
 A skill's `description` is now at most 1024 characters and is never split into paragraphs. Move a
 long text to `body` (or to a file served next to the document, referenced by `href`) and write a
-one- or two-sentence `description`. Tool sets with skills gain the `read_skill` tool, and golden
-snapshots gain each skill's `digest`.
+one- or two-sentence `description`. The instructions now list skills instead of embedding them,
+and golden snapshots gain each skill's `digest`.
 ```
 
 In "Composing a deployment", after the paragraph about vocabulary warnings, add:
@@ -994,5 +904,5 @@ Expected: PASS except the known "arm A".
 
 ```bash
 git add docs/x-agent.md README.md skills/openapi-mcp/SKILL.md
-git commit -m "docs: linked skills, read_skill and the 0.4.0 upgrade"
+git commit -m "docs: linked skills and the 0.4.0 upgrade"
 ```
