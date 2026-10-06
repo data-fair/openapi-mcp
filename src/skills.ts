@@ -15,11 +15,16 @@ const withTools = (text: string, tools?: string[]) => tools?.length ? `${text}\n
 /** A served SKILL.md carries its own frontmatter, rebuilt from the entry; the file's is dropped. */
 const stripFrontmatter = (text: string) => text.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(\r?\n|$)/, '')
 
-function resolveHref (href: string, base: string | undefined): string | undefined {
+/** Never throws: a link that cannot be resolved becomes an error on its skill, not a failed load. */
+function resolveHref (href: string, base: string | undefined): { url: string } | { error: string } {
   try {
-    return new URL(href).href
+    return { url: new URL(href).href }
+  } catch {}
+  if (!base) return { error: `relative link ${href} has no base URL to resolve against` }
+  try {
+    return { url: new URL(href, base).href }
   } catch {
-    return base ? new URL(href, base).href : undefined
+    return { error: `cannot resolve link ${href} against ${base}` }
   }
 }
 
@@ -50,12 +55,12 @@ export async function resolveSkills (skills: AgentSkill[] | undefined, selected:
     let error: string | undefined
     const href = localize(skill.href, locale)
     if (href) {
-      const url = resolveHref(href, base)
-      if (!url) {
-        error = `relative link ${href} has no base URL to resolve against`
+      const resolved = resolveHref(href, base)
+      if ('error' in resolved) {
+        error = resolved.error
       } else {
-        const res = await fetchBody(url)
-        if ('error' in res) error = `${res.error} (${url})`
+        const res = await fetchBody(resolved.url)
+        if ('error' in res) error = `${res.error} (${resolved.url})`
         else text = stripFrontmatter(res.text).trim()
       }
     } else {

@@ -14,11 +14,15 @@ function stack () {
   const docs = new Map<string, { body: unknown, etag: string, text?: boolean }>()
   const hits: Record<string, number> = {}
   let counter = 0
+  /** URLs answering a given error status until cleared, whatever their validators */
+  const failing = new Map<string, number>()
   const set = (url: string, body: unknown) => docs.set(url, { body, etag: `"${++counter}"` })
   const setText = (url: string, body: string) => docs.set(url, { body, etag: `"${++counter}"`, text: true })
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = input instanceof Request ? input : new Request(input, init)
     hits[req.url] = (hits[req.url] ?? 0) + 1
+    const status = failing.get(req.url)
+    if (status) return new Response('unavailable', { status })
     const doc = docs.get(req.url)
     if (!doc) return new Response('not found', { status: 404 })
     if (req.headers.get('if-none-match') === doc.etag) return new Response(null, { status: 304, headers: { etag: doc.etag } })
@@ -26,7 +30,7 @@ function stack () {
       ? new Response(doc.body as string, { headers: { 'content-type': 'text/markdown', etag: doc.etag } })
       : new Response(JSON.stringify(doc.body), { headers: { 'content-type': 'application/json', etag: doc.etag } })
   }) as typeof fetch
-  return { set, setText, fetchFn, hits }
+  return { set, setText, failing, fetchFn, hits }
 }
 
 const INDEX = 'https://idx.test/index.json'
@@ -213,6 +217,38 @@ describe('createComposer', () => {
     const c = await composer.compose(['explore'])
     assert.equal(c.services[0].status, 'ok')
     assert.ok(c.services[0].warnings?.includes(warning))
+  })
+
+  it('recovers a skill body after a transient failure, even when the file did not change', async () => {
+    const s = base()
+    const url = 'https://pets.test/skills/workflow.md'
+    s.set(PETS, { ...petstore, 'x-agent': { ...petstore['x-agent'], skills: [{ name: 'workflow', description: 'When pets.', href: 'skills/workflow.md' }] } })
+    s.setText(url, 'The body.')
+    const composer = await createComposer(INDEX, { fetch: s.fetchFn })
+    const c = await composer.compose(['explore'])
+    const skill = () => c.toolSet.skills.find(x => x.id === 'pets/workflow')!
+    s.failing.set(url, 503)
+    assert.equal(await composer.refresh(), true)
+    assert.match(skill().error!, /HTTP 503/)
+    assert.ok(composer.services[0].warnings?.some(w => w.startsWith('skill workflow: HTTP 503')), 'the composer-level status follows the refresh')
+    s.failing.delete(url)
+    assert.equal(await composer.refresh(), true)
+    assert.equal(skill().body, 'The body.')
+    assert.equal(skill().error, undefined)
+    assert.ok(!composer.services[0].warnings?.some(w => w.startsWith('skill ')), 'the warning is cleared')
+  })
+
+  it('serves an index skill body to concurrent first compositions', async () => {
+    const s = base()
+    s.set(INDEX, { version: 1, services: [{ id: 'pets', openapi: PETS }], profiles: { explore: {}, full: { includes: ['explore', 'edit'] } }, skills: [{ name: 'cross', description: 'When crossing.', href: 'https://idx.test/skills/cross.md' }] })
+    s.setText('https://idx.test/skills/cross.md', 'Cross body.')
+    const composer = await createComposer(INDEX, { fetch: s.fetchFn })
+    const [a, b] = await Promise.all([composer.compose(['explore']), composer.compose(['full'])])
+    for (const c of [a, b]) {
+      const cross = c.toolSet.skills.find(x => x.id === 'cross')!
+      assert.equal(cross.error, undefined)
+      assert.equal(cross.body, 'Cross body.')
+    }
   })
 
   it('restricts a composition to some services and overrides the prefix — a compatibility route', async () => {

@@ -47,6 +47,18 @@ describe('resolveSkills', () => {
   })
 })
 
+describe('resolveSkills — unresolvable links', () => {
+  it('puts an error on the skill instead of throwing, for a relative base or a malformed link', async () => {
+    const skills = await resolveSkills([
+      { name: 'rel', description: 'd', href: 'w.md' },
+      { name: 'bad', description: 'd', href: 'http://[' }
+    ], new Set(), 'en', '/api/v1/', fetchBody)
+    assert.deepEqual(skills.map(s => [s.id, s.body]), [['rel', ''], ['bad', '']])
+    assert.match(skills[0].error!, /cannot resolve link w\.md against \/api\/v1\//)
+    assert.match(skills[1].error!, /cannot resolve link http:\/\/\[/)
+  })
+})
+
 describe('defaultSkillFetcher', () => {
   it('returns the text, or the HTTP status, or the network error', async () => {
     const fetchFn = (async (input: RequestInfo | URL) => {

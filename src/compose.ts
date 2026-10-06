@@ -86,12 +86,15 @@ async function fetchConditional<T> (entry: Cached<T>, fetchFn: typeof fetch, par
   } catch (err: any) {
     entry.error = `fetch failed: ${err?.message ?? err}`
     entry.value = undefined
+    // without a value, a 304 on the next revalidation could never restore it
+    entry.etag = entry.lastModified = undefined
     return had
   }
   if (res.status === 304) return false
   if (!res.ok) {
     entry.error = `HTTP ${res.status}`
     entry.value = undefined
+    entry.etag = entry.lastModified = undefined
     return had
   }
   entry.etag = res.headers.get('etag') ?? undefined
@@ -124,15 +127,18 @@ export async function createComposer (index: string | Index, options: ComposerOp
 
   const docs = new Map<string, CachedDoc>()
   // Linked skill bodies, shared by every composition: fetched once, revalidated on refresh.
-  const skillCache = new Map<string, Cached<string>>()
+  // The first read of a URL is shared: a concurrent caller awaits it rather than finding it empty.
+  const skillCache = new Map<string, { entry: Cached<string>, ready: Promise<unknown> }>()
   const readText = (res: Response) => res.text()
   const skillBodies: SkillBodyFetcher = async (url) => {
-    let entry = skillCache.get(url)
-    if (!entry) {
-      entry = { url }
-      skillCache.set(url, entry)
-      await fetchConditional(entry, fetchFn, body => body as string, readText)
+    let item = skillCache.get(url)
+    if (!item) {
+      const entry: Cached<string> = { url }
+      item = { entry, ready: fetchConditional(entry, fetchFn, body => body as string, readText) }
+      skillCache.set(url, item)
     }
+    await item.ready
+    const { entry } = item
     return entry.value !== undefined ? { text: entry.value } : { error: entry.error ?? 'not loaded' }
   }
   // Every skill of a document, whatever the request (every profile its skills name is selected):
@@ -301,8 +307,12 @@ export async function createComposer (index: string | Index, options: ComposerOp
       if (indexEntry.value) { current = indexEntry.value; changed = true } else debug('index refresh failed: %s', indexEntry.error)
     }
     if (await syncServices()) changed = true
-    for (const entry of skillCache.values()) {
+    for (const { entry } of skillCache.values()) {
       if (await fetchConditional(entry, fetchFn, body => body as string, readText)) changed = true
+    }
+    // the composer-level status follows the bodies, not only the documents
+    for (const d of docs.values()) {
+      if (d.value) d.skillWarnings = await skillWarnings(d.value['x-agent']?.skills, d.url)
     }
     if (!changed) return false
     let any = false
