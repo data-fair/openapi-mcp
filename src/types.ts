@@ -161,23 +161,32 @@ export interface Tool {
   execute (params: Record<string, unknown>, ctx?: CallContext): Promise<ToolResult>
 }
 
-/** A text-only skill, ready to be served as a `skill://` resource or rendered into instructions. */
+/** A resolved skill, ready to be served as a `skill://` resource and listed in instructions. */
 export interface Skill {
   /** `<skill-name>` for a single document, `<service-id>/<skill-name>` once composed */
   id: string
   name: string
-  /** the first paragraph, at most 1024 characters — the SKILL.md frontmatter description */
+  /** what the skill is for and when to use it — the SKILL.md frontmatter description */
   description: string
-  /** the whole localized text, plus a `Tools:` line when the annotation lists tools */
+  /** the markdown body, plus a `Tools:` line when the skill lists tools; empty when `error` is set */
   body: string
+  /** `sha256:` over `body` */
+  digest: string
+  /** why a linked body could not be read; the skill stays listed and its resource read reports it */
+  error?: string
   tools?: string[]
   profiles?: string[]
 }
+
+/** Reads a linked skill body; never throws. */
+export type SkillBodyFetcher = (url: string) => Promise<{ text: string } | { error: string }>
 
 export interface ToolSet {
   /** the profiles requested, in request order */
   profiles: string[]
   instructions: string
+  /** the document's own sections (tag guides), without skill entries — what a composer nests under the service heading */
+  guide?: string
   tools: Tool[]
   skills: Skill[]
 }
