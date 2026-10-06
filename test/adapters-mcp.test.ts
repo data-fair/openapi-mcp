@@ -8,6 +8,7 @@ import { toNodeHandler } from '@modelcontextprotocol/node'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { z } from 'zod'
 import { load } from '../src/load.ts'
+import type { ToolSet } from '../src/types.ts'
 import { createComposer } from '../src/compose.ts'
 import { createMcpServer, createMcpHttpHandler } from '../src/adapters/mcp.ts'
 
@@ -22,8 +23,8 @@ const fetchFn = (async (input: RequestInfo | URL) => {
 const INFO = { name: 'test', version: '0.0.0' }
 const SkillsList = z.object({ skills: z.array(z.any()), ttlMs: z.number().optional(), cacheScope: z.string().optional() }).passthrough()
 
-async function inMemory () {
-  const toolSet = await load(petstore, { fetch: fetchFn })
+async function inMemory (given?: ToolSet) {
+  const toolSet = given ?? await load(petstore, { fetch: fetchFn })
   const server = await createMcpServer(toolSet, INFO)
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
@@ -70,6 +71,20 @@ describe('mcp adapter over a tool set (in-memory, 2025 era)', () => {
     assert.deepEqual(got.skill, entry)
     await assert.rejects(client.request({ method: 'skills/get', params: { uri: 'skill://nope/SKILL.md' } }, z.any()), (err: any) => err.code === -32602)
     await assert.rejects(client.readResource({ uri: 'skill://nope/SKILL.md' }), (err: any) => err.code === -32602)
+  })
+  it('lists a skill whose body failed as a resource that answers an error, and leaves it out of skills/list', async () => {
+    const toolSet = await load({
+      ...structuredClone(petstore),
+      servers: [{ url: 'https://api.test/v1' }],
+      'x-agent': { ...petstore['x-agent'], skills: [{ name: 'ok', description: 'Fine.' }, { name: 'gone', description: 'Broken.', href: 'gone.md' }] }
+    }, { fetch: (async () => new Response('no', { status: 404 })) as unknown as typeof fetch })
+    const { client } = await inMemory(toolSet)
+    const { resources } = await client.listResources()
+    assert.deepEqual(resources.map(r => r.uri), ['skill://ok/SKILL.md', 'skill://gone/SKILL.md'])
+    const listed = await client.request({ method: 'skills/list', params: {} }, SkillsList)
+    assert.deepEqual(listed.skills.map((s: any) => s.frontmatter.name), ['ok'])
+    await assert.rejects(client.readResource({ uri: 'skill://gone/SKILL.md' }), (err: any) => /HTTP 404 \(https:\/\/api\.test\/v1\/gone\.md\)/.test(err.message))
+    await assert.rejects(client.request({ method: 'skills/get', params: { uri: 'skill://gone/SKILL.md' } }, z.any()), (err: any) => err.code === -32602)
   })
 })
 

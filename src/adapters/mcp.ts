@@ -1,8 +1,8 @@
 import {
-  Server, createMcpHandler, fromJsonSchema, ProtocolError, INVALID_PARAMS,
+  Server, createMcpHandler, fromJsonSchema, ProtocolError, INVALID_PARAMS, INTERNAL_ERROR,
   type ServerOptions, type McpServerFactory, type McpHttpHandler, type CreateMcpHandlerOptions, type CacheHint
 } from '@modelcontextprotocol/server'
-import { renderSkillFile, type SkillFile } from '../skills.ts'
+import { renderSkillFile, skillUri, type SkillFile } from '../skills.ts'
 import type { Composer, Composition } from '../compose.ts'
 import type { CallContext, ToolSet } from '../types.ts'
 
@@ -59,8 +59,11 @@ const skillEntry = (s: SkillFile) => ({ uri: s.uri, frontmatter: s.frontmatter, 
 /** Register tools, resources and the skills extension on a low-level server, for one caller. */
 export function toMcpServer (toolSet: ToolSet, server: Server, options: { ctx?: CallContext, refreshMs?: number } = {}): void {
   const refreshMs = options.refreshMs ?? DEFAULT_REFRESH_MS
-  const skills = toolSet.skills.map(renderSkillFile)
+  // A skill whose body could not be read has no digest to publish in the manifest; its resource
+  // stays listed and answers the error, so an agent following an instructions entry learns why.
+  const skills = toolSet.skills.filter(s => !s.error).map(renderSkillFile)
   const byUri = new Map(skills.map(s => [s.uri, s]))
+  const failed = new Map(toolSet.skills.filter(s => s.error).map(s => [skillUri(s), s]))
 
   server.setRequestHandler('tools/list', async () => ({
     tools: toolSet.tools.map(t => ({
@@ -84,10 +87,15 @@ export function toMcpServer (toolSet: ToolSet, server: Server, options: { ctx?: 
     }
   })
   server.setRequestHandler('resources/list', async () => ({
-    resources: skills.map(s => ({ uri: s.uri, name: s.frontmatter.name, description: s.frontmatter.description, mimeType: 'text/markdown' }))
+    resources: [
+      ...skills.map(s => ({ uri: s.uri, name: s.frontmatter.name, description: s.frontmatter.description, mimeType: 'text/markdown' })),
+      ...[...failed.entries()].map(([uri, s]) => ({ uri, name: s.name, description: s.description, mimeType: 'text/markdown' }))
+    ]
   }))
   server.setRequestHandler('resources/read', async (req) => {
     const s = byUri.get(req.params.uri)
+    const broken = failed.get(req.params.uri)
+    if (broken) throw new ProtocolError(INTERNAL_ERROR, `The skill ${broken.id} could not be read: ${broken.error}`)
     if (!s) throw new ProtocolError(INVALID_PARAMS, `No resource is served at ${req.params.uri}`)
     return { contents: [{ uri: s.uri, mimeType: 'text/markdown', text: s.text }] }
   })
