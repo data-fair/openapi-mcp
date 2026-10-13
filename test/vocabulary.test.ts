@@ -139,3 +139,26 @@ describe('skills: description, body and href', () => {
     assert.throws(() => validateVocabulary(withSkills([{ name: 'a', description: 'd', href: 'a.md', body: 'b' }])), /x-agent invalid at \//)
   })
 })
+
+describe('response.file', () => {
+  const fileDoc = (method: string, agent: unknown) => ({
+    openapi: '3.1.0',
+    info: { title: 't', version: '1' },
+    paths: { '/export': { [method]: { operationId: 'exportThings', 'x-agent': agent, responses: {} } } }
+  })
+  it('accepts file: true on a GET operation', () => {
+    assert.doesNotThrow(() => validateVocabulary(fileDoc('get', { name: 'export_things', response: { file: true } })))
+  })
+  it('accepts only true', () => {
+    assert.throws(() => validateVocabulary(fileDoc('get', { response: { file: false } })), /x-agent invalid at \/paths\/~1export\/get: \/response\/file must be equal to constant/)
+  })
+  it('refuses an operation other than GET', () => {
+    assert.throws(() => validateVocabulary(fileDoc('post', { response: { file: true } })), /x-agent invalid at \/paths\/~1export\/post: response.file needs a GET operation/)
+  })
+  it('refuses the rendering keys beside it', () => {
+    assert.throws(() => validateVocabulary(fileDoc('get', { response: { file: true, rows: '/results', hints: true } })), /x-agent invalid at \/paths\/~1export\/get: response.file does not combine with rows, hints/)
+  })
+  it('checks every view of an array', () => {
+    assert.throws(() => validateVocabulary(fileDoc('post', [{ name: 'a' }, { name: 'b', response: { file: true } }])), /x-agent invalid at \/paths\/~1export\/post\/1: response.file needs a GET operation/)
+  })
+})

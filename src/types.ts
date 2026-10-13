@@ -24,6 +24,11 @@ export interface AgentResponse {
   detailed?: true | string[]
   selectParam?: string
   hints?: boolean
+  /**
+   * The response is a file: the tool performs no request and returns a link to it (an MCP
+   * `resource_link`) built from its arguments. GET only; excludes every rendering key.
+   */
+  file?: true
 }
 
 export interface AgentOperation {

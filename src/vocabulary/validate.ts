@@ -48,14 +48,24 @@ function checkParams (params: any[] | undefined, path: string) {
   })
 }
 
+const RENDERING = ['rows', 'concise', 'detailed', 'selectParam', 'hints'] as const
+
 /**
  * An editor group edits the whole document its schema describes; it does not honour a body
- * allow-list, so accepting both would offer the fields the list exists to keep out.
+ * allow-list, so accepting both would offer the fields the list exists to keep out. A file
+ * response is a link the caller fetches: there is no request to send with a body, and nothing
+ * is rendered.
  */
-function checkView (view: unknown, path: string) {
+function checkView (view: unknown, path: string, method: string) {
   check('operation', view, path)
-  const { editor, bodyFields } = view as AgentOperation
+  const { editor, bodyFields, response } = view as AgentOperation
   if (editor !== undefined && bodyFields) throw new Error(`x-agent invalid at ${path}: bodyFields does not apply to an editor group`)
+  if (response?.file) {
+    if (method !== 'get') throw new Error(`x-agent invalid at ${path}: response.file needs a GET operation: the tool returns a link to fetch, it sends no request`)
+    const rendering = RENDERING.filter(k => response[k] !== undefined)
+    if (rendering.length) throw new Error(`x-agent invalid at ${path}: response.file does not combine with ${rendering.join(', ')}: a file is not rendered`)
+    if (editor !== undefined) throw new Error(`x-agent invalid at ${path}: response.file does not apply to an editor group`)
+  }
 }
 
 /**
@@ -64,12 +74,12 @@ function checkView (view: unknown, path: string) {
  * selected together whenever a profile includes another, and a clash found only for some
  * profile sets would surface far from the annotation that caused it.
  */
-function checkOperation (value: unknown, path: string) {
-  if (!Array.isArray(value)) return checkView(value, path)
+function checkOperation (value: unknown, path: string, method: string) {
+  if (!Array.isArray(value)) return checkView(value, path, method)
   if (!value.length) throw new Error(`x-agent invalid at ${path}: an array of views needs at least one view`)
   const names = new Set<string>()
   value.forEach((view, i) => {
-    checkView(view, `${path}/${i}`)
+    checkView(view, `${path}/${i}`, method)
     const name = (view as AgentOperation).name
     if (!name) throw new Error(`x-agent invalid at ${path}/${i}: every view of an operation needs a name`)
     if (names.has(name)) throw new Error(`x-agent invalid at ${path}/${i}: duplicate view name "${name}"`)
@@ -88,7 +98,7 @@ export function validateVocabulary (doc: JsonSchema): void {
       const op = item?.[m]
       if (!op) continue
       const opPath = `${itemPath}/${m}`
-      if (op['x-agent'] !== undefined) checkOperation(op['x-agent'], opPath)
+      if (op['x-agent'] !== undefined) checkOperation(op['x-agent'], opPath, m)
       checkParams(op.parameters, `${opPath}/parameters`)
       for (const [mt, media] of Object.entries<any>(op.requestBody?.content ?? {})) checkSchema(media?.schema, `${opPath}/requestBody/content/${esc(mt)}/schema`)
       for (const [code, resp] of Object.entries<any>(op.responses ?? {})) {
