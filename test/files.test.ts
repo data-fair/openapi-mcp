@@ -44,6 +44,13 @@ interface Received { url: string, headers: IncomingHttpHeaders, body: Buffer }
 const received: Received[] = []
 const api = createServer((req, res) => {
   req.on('error', () => {})
+  if (req.url!.includes('/slow-413/')) {
+    // the head first, the body later, while the upload is still going on
+    res.writeHead(413, { 'content-type': 'text/plain' })
+    res.write('too ')
+    setTimeout(() => res.end('big'), 250)
+    return
+  }
   if (req.url!.includes('/too-big/')) { res.writeHead(413); return res.end('too big') }
   // like data-fair's checkStorage: an upload of unknown size is refused
   if (req.headers['content-length'] === undefined) { res.writeHead(411); return res.end('length required') }
@@ -169,6 +176,11 @@ describe('file inputs, end to end', () => {
     const res = await (await tool('bulk_lines')).execute({ id: 'too-big', file: `${src}/files/slow.csv` })
     assert.deepEqual(res, { isError: true, text: 'HTTP 413: too big' })
     await Promise.race([slowClosed, new Promise((_resolve, reject) => setTimeout(() => reject(new Error('the source connection was not released within 2s')), 2000))])
+  })
+  it('returns an early upstream error whose body is still arriving, and releases the source', async () => {
+    const res = await (await tool('bulk_lines')).execute({ id: 'slow-413', file: `${src}/files/hang-slow413.csv` })
+    assert.deepEqual(res, { isError: true, text: 'HTTP 413: too big' })
+    await released('/files/hang-slow413.csv')
   })
   it('releases the source when the upstream fetch throws', async () => {
     const ts = await load(filesDoc, { baseUrl: apiBase, files: { urlPrefixes: [`${src}/files/`] }, fetch: async () => { throw new Error('boom') } })

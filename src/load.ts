@@ -113,10 +113,14 @@ function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDes
         return { isError: true, text: err?.message ?? String(err) }
       }
       let res: Response
+      let body: string
       try {
         const req = buildRequest(op, bindings, params, o.baseUrl, files)
         debug('%s %s', req.method, req.url)
         res = await callFetch(req, ctx, o.fetch)
+        // The body is read before the sources are released: closing one errors the request
+        // body, and undici then terminates the response still arriving with it.
+        body = await res.text()
       } catch (err: any) {
         return { isError: true, text: `Request failed: ${failureText(err)}` }
       } finally {
@@ -125,12 +129,10 @@ function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDes
         closeFiles(files)
       }
       if (!res.ok) {
-        const body = await res.text()
         const truncated = body.length > o.maxErrorLength ? body.slice(0, o.maxErrorLength) + '…' : body
         return { isError: true, text: `HTTP ${res.status}: ${truncated}` }
       }
       const contentType = res.headers.get('content-type') ?? ''
-      const body = await res.text()
       if (!body.trim()) return { text: 'OK' }
       if (contentType.startsWith('application/json')) {
         let json: unknown
