@@ -95,6 +95,7 @@ export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetc
   const prefix = (inlined['x-agent'] as AgentRoot | undefined)?.namePrefix ?? ''
   for (const { path, method } of leftOut.values()) {
     const op = inlined.paths[path][method]
+    if (!op['x-agent']) continue // not a tool: nothing to strip from a skill, nothing of its own left out
     for (const view of Array.isArray(op['x-agent']) ? op['x-agent'] : [op['x-agent']]) {
       const name = view?.name ?? (typeof op.operationId === 'string' ? snakeCase(op.operationId) : undefined)
       if (name) gone.add(prefix + name)
@@ -105,7 +106,7 @@ export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetc
   if (gone.size) for (const skill of (inlined['x-agent'] as AgentRoot | undefined)?.skills ?? []) if (skill.tools) skill.tools = skill.tools.filter(t => !gone.has(t))
   if (leftOut.size && options.lint === 'warn') {
     const lines = [...leftOut.values()].map(o => `  ${o.method.toUpperCase()} ${o.path}: ${o.reasons.join('; ')}`)
-    console.warn(`openapi-mcp: ${leftOut.size} operation(s) left out, their x-agent is not accepted by this version:\n${lines.join('\n')}`)
+    console.warn(`openapi-mcp: ${leftOut.size} operation(s) left out of the tool set, their annotations are not accepted by this version:\n${lines.join('\n')}`)
   }
   return inlined
 }

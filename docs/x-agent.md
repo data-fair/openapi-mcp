@@ -427,13 +427,17 @@ that ignore links:
 
 - `mimeType`: the success response's media type when one is declared; among several, the one
   that a `format` query value names by extension (`format=csv` → `text/csv`); else none.
+  `application/octet-stream` counts as no type. A client that fetches a link carrying no type
+  should name and type the file from the response's `Content-Disposition` and `Content-Type`.
 - `name`: the value of the last path parameter followed by the segments after it
   (`/datasets/{id}/lines` → `rge-lines`), so exports of two resources do not collide in a file
   store; characters outside `[A-Za-z0-9._-]` become `-`; the extension of `mimeType` is appended
   when the name has none (not for `application/octet-stream`).
 - The client fetches the link with its own credentials, like any call to the API: the bytes never
   cross this server.
-- A header parameter cannot be part of a link: an operation exposing one refuses the tool set.
+- A header parameter cannot be part of a link: an operation exposing one is refused like any other
+  finding (`lint: 'error'`), or left out of the tool set under `lint: 'warn'`/`'off'` (see
+  [Forward compatibility](#forward-compatibility)).
   `response.file` excludes `rows`, `concise`, `detailed`, `selectParam`, `hints` and `editor`;
   such a tool declares no `outputSchema`.
 

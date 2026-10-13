@@ -23,10 +23,11 @@ describe('response.file', () => {
     })
     assert.equal(calls.length, 0)
   })
-  it('gives no extension for application/octet-stream', async () => {
+  it('gives no type and no extension for application/octet-stream', async () => {
     const ts = await load(filesDoc, { fetch: recorder().fetchFn })
     const res = await ts.tools.find(t => t.name === 'download_raw')!.execute({ id: 'rge' })
-    assert.deepEqual(res.resourceLink, { uri: 'https://files.example/api/datasets/rge/raw', name: 'rge-raw', mimeType: 'application/octet-stream' })
+    assert.deepEqual(res.resourceLink, { uri: 'https://files.example/api/datasets/rge/raw', name: 'rge-raw' })
+    assert.ok(!res.text.includes('('))
   })
   it('validates the arguments before building the link', async () => {
     const ts = await load(filesDoc, { fetch: recorder().fetchFn })
@@ -52,6 +53,7 @@ describe('linkMimeType', () => {
     assert.equal(linkMimeType(['application/json', 'text/csv'], new URL('https://x.test/a?format=csv')), 'text/csv')
     assert.equal(linkMimeType(['application/json', 'text/csv'], new URL('https://x.test/a')), undefined)
     assert.equal(linkMimeType(['application/json', 'text/csv'], new URL('https://x.test/a?format=xlsx')), undefined)
+    assert.equal(linkMimeType(['application/octet-stream'], new URL('https://x.test/a')), undefined)
     assert.equal(linkMimeType(['*/*'], new URL('https://x.test/a')), undefined)
   })
 })

@@ -10,7 +10,8 @@ const essence = (t: string) => t.split(';')[0].trim().toLowerCase()
  * `format` query value names by extension (`fixed: { format: csv }` → text/csv); else none.
  */
 export function linkMimeType (declared: string[], url: URL): string | undefined {
-  const types = [...new Set(declared.map(essence))].filter(t => !t.includes('*'))
+  // octet-stream says "bytes", not what they are: no type, so the client types the file from the response
+  const types = [...new Set(declared.map(essence))].filter(t => !t.includes('*') && t !== 'application/octet-stream')
   if (types.length === 1) return types[0]
   const format = url.searchParams.get('format')
   const named = format ? lookup(format) : false
@@ -31,7 +32,7 @@ export function linkName (pathTemplate: string, url: URL, mimeType: string | und
   const lastParam = template.findLastIndex(s => /^\{.+\}$/.test(s))
   const words = lastParam === -1 ? [actual.at(-1) ?? 'file'] : actual.slice(lastParam)
   let name = words.join('-').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'file'
-  const ext = mimeType && mimeType !== 'application/octet-stream' ? extension(mimeType) : false
+  const ext = mimeType ? extension(mimeType) : false
   if (ext && !/\.[A-Za-z0-9]+$/.test(name)) name += `.${ext}`
   return name
 }

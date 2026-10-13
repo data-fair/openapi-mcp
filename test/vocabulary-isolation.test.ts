@@ -65,6 +65,15 @@ describe('an operation whose tool cannot be built', () => {
     assert.deepEqual(ts.skills[0].tools, ['good'])
     assert.ok(!ts.instructions.includes('bad'))
   })
+  it('an unannotated operation with a finding strips no same-named tool and is worded apart', async () => {
+    const d: any = docWith({ get: { operationId: 'good', parameters: [{ name: 'p', in: 'query', schema: { type: 'string' }, 'x-agent': { futureKey: true } }], responses: {} } }, { skills: [{ name: 'sk', description: 'd', body: 'b', tools: ['good'] }] })
+    let ts: any
+    const w = await warnings(async () => { ts = await load(d, { lint: 'warn', fetch: fetchFn }) })
+    assert.deepEqual(ts.skills[0].tools, ['good'])
+    assert.equal(w.length, 1)
+    assert.match(w[0], /GET \/bad/)
+    assert.doesNotMatch(w[0], /their x-agent is not accepted/)
+  })
 })
 
 describe('an operation annotation this version rejects', () => {
