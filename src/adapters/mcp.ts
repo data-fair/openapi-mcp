@@ -80,8 +80,11 @@ export function toMcpServer (toolSet: ToolSet, server: Server, options: { ctx?: 
     const tool = toolSet.tools.find(t => t.name === req.params.name)
     if (!tool) return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${req.params.name}` }] }
     const result = await tool.execute(req.params.arguments ?? {}, options.ctx)
+    // The text first: a client that ignores resource links still reads where the file is.
+    const content: ({ type: 'text', text: string } | { type: 'resource_link', uri: string, name: string, mimeType?: string })[] = [{ type: 'text', text: result.text }]
+    if (result.resourceLink) content.push({ type: 'resource_link', ...result.resourceLink })
     return {
-      content: [{ type: 'text', text: result.text }],
+      content,
       ...(result.structuredContent !== undefined ? { structuredContent: result.structuredContent } : {}),
       ...(result.isError ? { isError: true } : {})
     }
