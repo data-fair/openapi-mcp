@@ -211,6 +211,8 @@ that need a file — a required file part, raw body or list of files — are not
 file parts disappear from their tool), without the caller's credentials, and streams them upstream with an exact
 `Content-Length`. Behind a credential-injecting proxy (`NODE_USE_ENV_PROXY`), keep the file store in
 `NO_PROXY`: see [`docs/x-agent.md#files`](docs/x-agent.md#files).
+An optional file part that a tool cannot do without is made required for that tool with the
+view key `bodyRequired`, so the tool disappears with the file store rather than lose its file.
 
 ## Annotation lint
 

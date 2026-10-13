@@ -53,6 +53,13 @@ export interface AgentOperation {
    * later is exposed nowhere until an annotation places it.
    */
   bodyFields?: string[]
+  /**
+   * Body properties this tool requires, on top of those the schema requires. Each must be one
+   * the tool offers (in `bodyFields` when present). For an operation serving several purposes
+   * through one body, where the tool is about one of them: a required file part also makes the
+   * tool unavailable when no file store is configured.
+   */
+  bodyRequired?: string[]
   response?: AgentResponse
   editor?: true | AgentEditor
 }

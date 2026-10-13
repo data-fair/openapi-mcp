@@ -110,6 +110,7 @@ operation is not exposed at all.
 | `fixed` | object | Values sent on every call and never exposed in the input schema. |
 | `body` | `flat` \| `compact` | How a JSON request body reaches the input schema. |
 | `bodyFields` | string[] | Allow-list of request body properties this tool offers. See [Request bodies](#request-bodies). |
+| `bodyRequired` | string[] | Body properties this tool requires, on top of the schema's `required`. See [Request bodies](#request-bodies). |
 | `response` | object | Projection and rendering of the response. |
 | `editor` | `true` or object | Expose json-layout form tools instead of a one-shot tool. See [editor tool groups](./editor-tool-groups.md). |
 
@@ -189,6 +190,16 @@ one of them; both are checked when the document loads, on every view whatever pr
 requested. It does not combine with `editor`: a form group edits the whole document, so the
 two together are refused. An allow-list rather than a deny-list: a property added to the API
 later is offered by no tool until an annotation places it.
+
+`bodyRequired` makes body properties required for this tool, on top of those the schema
+requires; each must be one the tool offers (in `bodyFields` when there is one). It is for an
+operation that serves several purposes through one body while a tool is about one of them:
+data-fair's `POST /datasets` creates a dataset from a file, or without one from another dataset
+or as an editable dataset, so its document rightly declares the file part optional; its
+`create_dataset_from_file` view declares `bodyRequired: [file]`. Required-ness also decides
+whether a tool exists: a required file part makes the tool unavailable when no file store is
+configured (see [File inputs](#file-inputs)), so the tool is not offered without the one argument
+it is about. Checked at load on every view, like `bodyFields`; refused on an editor group.
 
 ### Responses
 

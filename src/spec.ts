@@ -113,11 +113,16 @@ function checkBodies (doc: JsonSchema) {
         if (view.body === 'compact' && body && body.kind !== 'json') {
           throw new Error(`x-agent invalid at ${at}: body: compact needs a JSON request body (this one is ${body.kind === 'multipart' ? 'multipart/form-data' : body.mediaTypes!.join(', ')})`)
         }
-        if (!view.bodyFields) return
+        if (!view.bodyFields && !view.bodyRequired) return
         const schema = body && body.kind !== 'file' ? body.schema : undefined
-        if (schema?.type !== 'object' || !schema.properties) throw new Error(`x-agent invalid at ${at}: bodyFields needs a JSON or multipart request body that is an object with properties`)
-        const missing = view.bodyFields.filter(f => !Object.hasOwn(schema.properties, f))
-        if (missing.length) throw new Error(`x-agent invalid at ${at}: bodyFields names properties the request body does not declare: ${missing.join(', ')}`)
+        if (schema?.type !== 'object' || !schema.properties) throw new Error(`x-agent invalid at ${at}: ${view.bodyFields ? 'bodyFields' : 'bodyRequired'} needs a JSON or multipart request body that is an object with properties`)
+        if (view.bodyFields) {
+          const missing = view.bodyFields.filter(f => !Object.hasOwn(schema.properties, f))
+          if (missing.length) throw new Error(`x-agent invalid at ${at}: bodyFields names properties the request body does not declare: ${missing.join(', ')}`)
+        }
+        const offered = view.bodyFields ?? Object.keys(schema.properties)
+        const stray = (view.bodyRequired ?? []).filter(f => !offered.includes(f))
+        if (stray.length) throw new Error(`x-agent invalid at ${at}: bodyRequired names properties the tool does not offer: ${stray.join(', ')}`)
       })
     }
   }

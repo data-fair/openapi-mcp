@@ -70,27 +70,30 @@ function paramSchema (p: ResolvedParam, locale: string): JsonSchema {
 }
 
 /**
- * A view's body allow-list: the request body schema reduced to the named properties. Applied
- * before the flat/compact choice so the flat properties, the compact listing and the local
- * validation agree; `additionalProperties: false` keeps a compact body from carrying a field
- * the view does not offer. Composition keywords of the original schema are dropped on purpose:
- * an allow-list that a `oneOf` could widen again would not be one.
+ * A view's body as its tool sends it: reduced to `bodyFields` when the view has an allow-list,
+ * and with `bodyRequired` added to what is required. Applied before the flat/compact choice so
+ * the flat properties, the compact listing and the local validation agree;
+ * `additionalProperties: false` keeps a compact body from carrying a field the view does not
+ * offer. With an allow-list, composition keywords of the original schema are dropped on
+ * purpose: an allow-list that a `oneOf` could widen again would not be one.
  */
 function pickBody (op: ResolvedOperation): ResolvedOperation['requestBody'] {
-  const fields = op.agent.bodyFields
-  if (!op.requestBody || !fields) return op.requestBody
+  const { bodyFields: fields, bodyRequired } = op.agent
+  if (!op.requestBody || (!fields && !bodyRequired)) return op.requestBody
   const schema = op.requestBody.schema
-  if (schema.type !== 'object' || !schema.properties) throw new Error(`${op.toolName}: bodyFields needs an object request body with properties`)
-  const missing = fields.filter(f => !Object.hasOwn(schema.properties, f))
+  if (schema.type !== 'object' || !schema.properties) throw new Error(`${op.toolName}: ${fields ? 'bodyFields' : 'bodyRequired'} needs an object request body with properties`)
+  const missing = (fields ?? []).filter(f => !Object.hasOwn(schema.properties, f))
   if (missing.length) throw new Error(`${op.toolName}: bodyFields names properties the request body does not declare: ${missing.join(', ')}`)
-  const picked: JsonSchema = {
-    type: 'object',
-    properties: Object.fromEntries(fields.map(f => [f, schema.properties[f]])),
-    additionalProperties: false
-  }
-  if (schema.description) picked.description = schema.description
-  const required = (schema.required ?? []).filter((r: string) => fields.includes(r))
+  const offered = fields ?? Object.keys(schema.properties)
+  const stray = (bodyRequired ?? []).filter(f => !offered.includes(f))
+  if (stray.length) throw new Error(`${op.toolName}: bodyRequired names properties the tool does not offer: ${stray.join(', ')}`)
+  const picked: JsonSchema = fields
+    ? { type: 'object', properties: Object.fromEntries(fields.map(f => [f, schema.properties[f]])), additionalProperties: false }
+    : { ...schema }
+  if (fields && schema.description) picked.description = schema.description
+  const required = [...new Set([...(schema.required ?? []).filter((r: string) => offered.includes(r)), ...(bodyRequired ?? [])])]
   if (required.length) picked.required = required
+  else delete picked.required
   return { ...op.requestBody, schema: picked }
 }
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { inlineRefs, resolveOperations } from '../src/spec.ts'
 import { buildInput, responseFields, isFilePart, FILE_NOTE } from '../src/input.ts'
+import type { AgentOperation } from '../src/types.ts'
 
 const petstore = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8')))
 const ops = resolveOperations(petstore, 'explore')
@@ -228,5 +229,37 @@ describe('buildInput — files', () => {
   it('leaves JSON bodies exactly as they were', () => {
     const { inputSchema } = buildInput(createPet, 'en', on)
     assert.ok(!JSON.stringify(inputSchema).includes('x-mcp-file'))
+  })
+})
+
+describe('buildInput — bodyRequired', () => {
+  /** data-fair's case: the file part is optional, since the operation also creates datasets without one */
+  const optionalFile = (agent: Partial<AgentOperation>) => {
+    const op = structuredClone(createDataset)
+    op.requestBody!.schema.required = []
+    op.agent = { ...op.agent, ...agent }
+    return op
+  }
+  it('requires an optional part for this tool, inside its allow-list', () => {
+    const { inputSchema, unavailable } = buildInput(optionalFile({ bodyFields: ['file', 'title'], bodyRequired: ['file'] }), 'en', on)
+    assert.equal(unavailable, undefined)
+    assert.deepEqual(Object.keys(inputSchema.properties), ['file', 'title'])
+    assert.deepEqual(inputSchema.required, ['file'])
+  })
+  it('makes a tool that requires a file unavailable without a file store', () => {
+    const { unavailable } = buildInput(optionalFile({ bodyFields: ['file', 'title'], bodyRequired: ['file'] }), 'en')
+    assert.match(unavailable!, /create_dataset: needs a file \("file"\), and file inputs are off/)
+  })
+  it('applies without bodyFields, keeping every property', () => {
+    const { inputSchema } = buildInput(optionalFile({ bodyRequired: ['title'] }), 'en', on)
+    assert.ok(inputSchema.properties.schema && inputSchema.properties.draft)
+    assert.deepEqual(inputSchema.required, ['title'])
+  })
+  it('refuses a property the tool does not offer', () => {
+    assert.throws(() => buildInput(optionalFile({ bodyFields: ['title'], bodyRequired: ['file'] }), 'en', on), /create_dataset: bodyRequired names properties the tool does not offer: file/)
+  })
+  it('applies to a compact JSON body too', () => {
+    const op = { ...publishThing, agent: { ...publishThing.agent, body: 'compact' as const, bodyRequired: ['publicationSites'] } }
+    assert.deepEqual(buildInput(op, 'en').bodySchema!.required, ['publicationSites'])
   })
 })

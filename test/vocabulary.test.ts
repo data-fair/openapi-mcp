@@ -121,6 +121,18 @@ describe('bodyFields and editor groups', () => {
   })
 })
 
+describe('bodyRequired', () => {
+  it('accepts a non-empty list of names', () => {
+    assert.doesNotThrow(() => validateVocabulary(viewsDoc({ name: 'a', bodyRequired: ['file'] })))
+  })
+  it('refuses an empty list', () => {
+    assert.throws(() => validateVocabulary(viewsDoc({ name: 'a', bodyRequired: [] })), /x-agent invalid/)
+  })
+  it('refuses bodyRequired on an editor group', () => {
+    assert.throws(() => validateVocabulary(viewsDoc({ name: 'a', editor: true, bodyRequired: ['title'] })), /patch: bodyRequired does not apply to an editor group/)
+  })
+})
+
 describe('skills: description, body and href', () => {
   const withSkills = (skills: unknown[]) => doc({ 'x-agent': { skills } })
   it('accepts a linked body, an inline body, or neither', () => {

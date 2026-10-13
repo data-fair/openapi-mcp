@@ -200,3 +200,24 @@ describe('loadSpec — multipart bodies', () => {
     await assert.rejects(loadSpec(multipartDoc({ name: 'upload', body: 'compact' }), fetch), /post: body: compact needs a JSON request body \(this one is multipart\/form-data\)/)
   })
 })
+
+describe('loadSpec — bodyRequired checked on every view', () => {
+  it('refuses a property the view does not offer', async () => {
+    const doc = structuredClone(views)
+    doc.paths['/things/{id}'].patch['x-agent'][1].bodyRequired = ['title']
+    await assert.rejects(loadSpec(doc, fetch), /patch\/1: bodyRequired names properties the tool does not offer: title/)
+  })
+  it('accepts a property of the allow-list, or of the whole body without one', async () => {
+    const doc = structuredClone(views)
+    doc.paths['/things/{id}'].patch['x-agent'][1].bodyRequired = ['publicationSites']
+    await assert.doesNotReject(loadSpec(doc, fetch))
+    const single = structuredClone(views)
+    single.paths['/things/{id}'].patch['x-agent'] = { name: 'update_thing', bodyRequired: ['description'] }
+    await assert.doesNotReject(loadSpec(single, fetch))
+  })
+  it('refuses bodyRequired on an operation without a request body', async () => {
+    const doc = structuredClone(views)
+    doc.paths['/things/{id}'].get = { operationId: 'getThing', 'x-agent': { name: 'get_thing', bodyRequired: ['title'] }, responses: { 200: { description: 'ok' } } }
+    await assert.rejects(loadSpec(doc, fetch), /get: bodyRequired needs a JSON or multipart request body that is an object with properties/)
+  })
+})
