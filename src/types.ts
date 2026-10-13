@@ -224,6 +224,8 @@ export interface ToolSet {
   instructions: string
   /** the document's own sections (tag guides), without skill entries — what a composer nests under the service heading */
   guide?: string
+  /** `instructions` without the skill entries: what a client listing skills itself (SEP-2640) is sent. */
+  guideInstructions?: string
   tools: Tool[]
   skills: Skill[]
 }

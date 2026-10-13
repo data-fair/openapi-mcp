@@ -223,5 +223,5 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
   const skills = [...await resolveSkills(root.skills, selected, o.locale, skillBase, options.skillBodies ?? defaultSkillFetcher(fetchFn)), ...editorSkills]
   const guide = buildInstructions(doc, profiles, ops, o.locale)
   const instructions = [skillEntries(skills), guide].filter(Boolean).join('\n\n')
-  return { profiles, instructions, guide, tools, skills }
+  return { profiles, instructions, guideInstructions: guide || undefined, guide, tools, skills }
 }

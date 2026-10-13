@@ -144,6 +144,12 @@ by name and description, with the resource to read; bodies never go there. A bod
 `skill://<service-id>/<name>/SKILL.md` through `resources/read`, and through the skills extension
 (`io.modelcontextprotocol/skills`: `skills/list`, `skills/get`, with a SHA-256 manifest).
 
+A client that declares the skills extension in its `initialize`
+(`capabilities.extensions['io.modelcontextprotocol/skills']`) lists skills itself with `skills/list`,
+so its `instructions` carry the guides only, without the skill entries. A skill that names tools
+carries them in its frontmatter as `metadata.tools` (space-separated), so a host can hide a skill
+whose tools it filtered out without reading its body.
+
 A body is inline (`body`) or linked (`href`, a markdown file next to the document). `load()` reads
 linked bodies with its `fetch`; a composer caches them with conditional requests and revalidates
 them on `refresh()`. A body that cannot be read keeps the skill listed: its resource answers the

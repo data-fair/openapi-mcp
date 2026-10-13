@@ -226,6 +226,7 @@ export async function createComposer (index: string | Index, options: ComposerOp
     const tools: Tool[] = []
     const names = new Map<string, string>()
     const sections: string[] = []
+    const guideSections: string[] = []
     const skills: Skill[] = []
     const statuses: ServiceStatus[] = []
     const indexSelected = selectProfiles(requested, expandProfiles(undefined, current.profiles))
@@ -263,10 +264,11 @@ export async function createComposer (index: string | Index, options: ComposerOp
       skills.push(...serviceSkills)
       const serviceText = [skillEntries(serviceSkills), ts.guide].filter(Boolean).join('\n\n')
       if (serviceText) sections.push(`# ${d.value.info?.title ?? d.id}\n\n${serviceText}`)
+      if (ts.guide) guideSections.push(`# ${d.value.info?.title ?? d.id}\n\n${ts.guide}`)
       const failed = ts.skills.filter(s => s.error).map(s => `skill ${s.name}: ${s.error}`)
       if (failed.length) status.warnings = [...(status.warnings ?? []), ...failed]
     }
-    return { toolSet: { profiles: requested, instructions: sections.join('\n\n'), tools, skills }, services: statuses }
+    return { toolSet: { profiles: requested, instructions: sections.join('\n\n'), guideInstructions: guideSections.join('\n\n') || undefined, tools, skills }, services: statuses }
   }
 
   const makeComposition = async (requested: string[], composeOptions?: ComposeOptions): Promise<LiveComposition> => {

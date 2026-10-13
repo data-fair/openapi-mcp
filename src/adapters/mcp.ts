@@ -45,11 +45,31 @@ export async function resolveToolSet (source: ToolSource, profiles?: string[]): 
   return source
 }
 
-export function serverOptions (toolSet: ToolSet, refreshMs: number): ServerOptions {
+/**
+ * Whether the client listing this server declared the skills extension (SEP-2640) in its `initialize`.
+ * Such a client lists skills itself, so the skill entries are left out of `instructions`. Read from a
+ * clone: the handler reads the body afterwards. Never throws.
+ *
+ * The 2026-07-28 era sends no `initialize`: those clients get the full `instructions` until the SDK
+ * hands the factory the request's client capabilities.
+ */
+export async function clientDeclaresSkills (request: Request | undefined): Promise<boolean> {
+  if (!request || request.method !== 'POST') return false
+  try {
+    const message = await request.clone().json()
+    const params = message?.method === 'initialize' ? message.params : undefined
+    return !!params?.capabilities?.extensions?.[SKILLS_EXTENSION]
+  } catch {
+    return false
+  }
+}
+
+export function serverOptions (toolSet: ToolSet, refreshMs: number, opts: { skillsAware?: boolean } = {}): ServerOptions {
   const hint: CacheHint = { ttlMs: refreshMs, cacheScope: 'private' }
+  const instructions = opts.skillsAware ? toolSet.guideInstructions : toolSet.instructions
   return {
     capabilities: { tools: { listChanged: true }, resources: { listChanged: true }, extensions: { [SKILLS_EXTENSION]: {} } },
-    instructions: toolSet.instructions || undefined,
+    instructions: instructions || undefined,
     cacheHints: { 'tools/list': hint, 'resources/list': hint, 'resources/read': hint, 'server/discover': hint }
   }
 }
@@ -120,7 +140,7 @@ export async function createMcpServer (source: ToolSource | ToolSourceFn, info: 
   const resolved = isSourceFn(source) ? await source(options.request) : source
   const toolSet = await resolveToolSet(resolved, requestProfiles(options.request) ?? options.profiles)
   const refreshMs = options.refreshMs ?? DEFAULT_REFRESH_MS
-  const server = new Server(info, serverOptions(toolSet, refreshMs))
+  const server = new Server(info, serverOptions(toolSet, refreshMs, { skillsAware: await clientDeclaresSkills(options.request) }))
   toMcpServer(toolSet, server, { ctx: options.context?.(options.request), refreshMs })
   return server
 }

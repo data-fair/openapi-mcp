@@ -96,7 +96,7 @@ export function editorSkill (op: ResolvedOperation, body: string, tools: string[
 
 export interface SkillFile {
   uri: string
-  frontmatter: { name: string, description: string }
+  frontmatter: { name: string, description: string, metadata?: { tools: string } }
   text: string
   /** `sha256:` + 64 lowercase hex over `text`'s UTF-8 bytes */
   digest: string
@@ -105,9 +105,12 @@ export interface SkillFile {
 
 /** The SKILL.md a host reads through `resources/read`, with the entry fields `skills/list` publishes. */
 export function renderSkillFile (skill: Skill): SkillFile {
-  const frontmatter = { name: skill.name, description: skill.description }
+  // `metadata.tools` (Agent Skills' string map): which tools the procedure drives, so a host can hide a
+  // skill whose tools a caller filtered out without reading its body.
+  const tools = skill.tools?.length ? skill.tools.join(' ') : undefined
+  const frontmatter = { name: skill.name, description: skill.description, ...(tools ? { metadata: { tools } } : {}) }
   // JSON.stringify yields a valid double-quoted YAML scalar; the name needs no quoting by its pattern.
-  const text = `---\nname: ${skill.name}\ndescription: ${JSON.stringify(skill.description)}\n---\n\n${skill.body}\n`
+  const text = `---\nname: ${skill.name}\ndescription: ${JSON.stringify(skill.description)}\n${tools ? `metadata:\n  tools: ${JSON.stringify(tools)}\n` : ''}---\n\n${skill.body}\n`
   const bytes = Buffer.from(text, 'utf8')
   return {
     uri: skillUri(skill),
