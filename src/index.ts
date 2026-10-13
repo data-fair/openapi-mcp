@@ -11,3 +11,4 @@ export { validateIndex, indexSchema, type Index, type IndexService, type IndexPr
 export { expandProfiles, selectProfiles, matchesProfiles } from './profiles.ts'
 export { resolveSkills, defaultSkillFetcher, digestOf, skillUri, skillEntries, renderSkillFile, type SkillFile } from './skills.ts'
 export { callFetch, contextualFetch, currentCall } from './context.ts'
+export { createFileFetcher, type FileLoadOptions, type FileFetcher } from './files.ts'

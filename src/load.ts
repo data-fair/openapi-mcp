@@ -11,6 +11,8 @@ import { localize } from './localize.ts'
 import { callFetch, contextualFetch } from './context.ts'
 import { resolveSkills, defaultSkillFetcher, editorSkill, skillEntries } from './skills.ts'
 import { lintToolInput, formatFindings, type LintFinding } from './vocabulary/lint.ts'
+import { createFileFetcher, openFiles, closeFiles, type FileFetcher, type FileLoadOptions } from './files.ts'
+import type { FileSource } from './multipart.ts'
 import type { JsonSchema, ResolvedOperation, Skill, SkillBodyFetcher, Tool, ToolResult, ToolSet, AgentRoot, AgentTag } from './types.ts'
 
 const debug = Debug('openapi-mcp')
@@ -43,6 +45,12 @@ export interface LoadOptions {
    * heuristic is wrong and you need to ship anyway. 'off' skips the check.
    */
   lint?: 'error' | 'warn' | 'off'
+  /**
+   * File inputs (indirect uploads): the file store's URL prefixes — none, and file inputs are off —
+   * the size cap and the timeout. See docs/x-agent.md#files. A file URL is fetched without the
+   * call context, never with its credentials.
+   */
+  files?: FileLoadOptions
 }
 
 const ajv = new Ajv2020({ strict: false, allErrors: true, useDefaults: true, coerceTypes: false })
@@ -64,8 +72,17 @@ function errorsText (validate: ValidateFunction): string {
   return (validate.errors ?? []).map(e => `${e.instancePath || 'params'} ${e.message}`).join('; ')
 }
 
-function makeTool (op: ResolvedOperation, o: Required<Omit<LoadOptions, 'profile' | 'profiles' | 'namePrefix' | 'documentUrl' | 'skillBodies'>>): Tool & { authoredDescriptions: Set<string> } {
-  const { inputSchema, bindings, authoredDescriptions, bodySchema } = buildInput(op, o.locale)
+export type ToolOptions = Required<Omit<LoadOptions, 'profile' | 'profiles' | 'namePrefix' | 'documentUrl' | 'skillBodies' | 'files'>> & { files: FileFetcher | undefined }
+
+/** A fetch failure's message with its cause: undici reports a failed body stream as "fetch failed". */
+const failureText = (err: any) => err?.cause?.message ? `${err.message} (${err.cause.message})` : (err?.message ?? String(err))
+
+function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDescriptions: Set<string> }) | undefined {
+  const { inputSchema, bindings, authoredDescriptions, bodySchema, unavailable } = buildInput(op, o.locale, { files: o.files })
+  if (unavailable) {
+    debug('not offered: %s', unavailable)
+    return undefined
+  }
   const validate = ajv.compile(inputSchema)
   // In compact mode the tool's own schema describes the body only as `object`, so the real
   // one validates it here. This is the point of summarising rather than dropping: a
@@ -88,13 +105,24 @@ function makeTool (op: ResolvedOperation, o: Required<Omit<LoadOptions, 'profile
       if (validateBody && !validateBody(params.body)) {
         return { isError: true, text: `Invalid body: ${errorsText(validateBody)}` }
       }
+      // Every file is opened before the request: its Content-Length needs every size.
+      let files: Record<string, FileSource>
+      try {
+        files = o.files ? await openFiles(bindings, params, o.files, ctx?.signal) : {}
+      } catch (err: any) {
+        return { isError: true, text: err?.message ?? String(err) }
+      }
       let res: Response
       try {
-        const req = buildRequest(op, bindings, params, o.baseUrl)
+        const req = buildRequest(op, bindings, params, o.baseUrl, files)
         debug('%s %s', req.method, req.url)
         res = await callFetch(req, ctx, o.fetch)
       } catch (err: any) {
-        return { isError: true, text: `Request failed: ${err?.message ?? err}` }
+        return { isError: true, text: `Request failed: ${failureText(err)}` }
+      } finally {
+        // An upstream answering before it read the body (413, 401) does not cancel it: release
+        // the sources so a large file is not streamed for nothing.
+        closeFiles(files)
       }
       if (!res.ok) {
         const body = await res.text()
@@ -146,12 +174,13 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
     structuredContent: options.structuredContent ?? false,
     maxStringLength: options.maxStringLength ?? 500,
     maxErrorLength: options.maxErrorLength ?? 4000,
-    lint: options.lint ?? 'error'
+    lint: options.lint ?? 'error',
+    files: createFileFetcher(options.files)
   }
   const ops = resolveOperations(doc, profiles, { namePrefix: options.namePrefix })
   const editorOps = ops.filter(op => op.agent.editor)
   const plainOps = ops.filter(op => !op.agent.editor)
-  const built = plainOps.map(op => makeTool(op, o))
+  const built = plainOps.flatMap(op => makeTool(op, o) ?? [])
 
   if (o.lint !== 'off') {
     const findings: LintFinding[] = built.flatMap(t => lintToolInput(t.name, t.inputSchema, t.authoredDescriptions))
