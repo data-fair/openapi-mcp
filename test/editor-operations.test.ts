@@ -83,3 +83,15 @@ describe('editorRequest', () => {
     assert.deepEqual(await req.json(), { nom: 'Rennes' })
   })
 })
+
+describe('resolveEditorOperations — body kind', () => {
+  it('refuses a multipart write operation', () => {
+    const doc = {
+      openapi: '3.1.0',
+      info: { title: 't', version: '1' },
+      paths: { '/uploads': { post: { operationId: 'upload', 'x-agent': { name: 'upload', editor: true }, requestBody: { content: { 'multipart/form-data': { schema: { type: 'object' } } } }, responses: {} } } }
+    }
+    const op = resolveOperationById(doc, 'upload')!
+    assert.throws(() => resolveEditorOperations(op, doc), /upload: an editor needs a JSON request body/)
+  })
+})

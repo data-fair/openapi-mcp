@@ -49,7 +49,7 @@ describe('buildRequest', () => {
   })
   it('sends a whole body and header params', async () => {
     const op = structuredClone(createPet)
-    op.requestBody = { schema: { type: 'array', items: { type: 'string' } }, required: true }
+    op.requestBody = { kind: 'json', schema: { type: 'array', items: { type: 'string' } }, required: true }
     op.params.push({ name: 'x-trace', in: 'header', required: false, schema: { type: 'string' }, agent: {} })
     const { bindings } = buildInput(op, 'en')
     const req = buildRequest(op, bindings, { body: ['a'], 'x-trace': 't1' }, base)

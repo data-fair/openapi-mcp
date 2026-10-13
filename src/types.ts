@@ -111,6 +111,22 @@ export interface ResolvedParam {
   agent: AgentParamOverride
 }
 
+/**
+ * The request body a tool sends, chosen among those an operation declares: `application/json`
+ * first, then `multipart/form-data`, then a raw body that is the bytes of one file (`text/csv`,
+ * ndjson…). A JSON tool therefore stays what it was when an operation also accepts uploads.
+ */
+export interface ResolvedBody {
+  kind: 'json' | 'multipart' | 'file'
+  /** the declared schema; `{}` for a raw file body */
+  schema: JsonSchema
+  required: boolean
+  /** multipart: the media types a part declares in `encoding.<part>.contentType` (a comma-separated list) */
+  encoding?: Record<string, string[]>
+  /** file: the raw media types the operation declares, in document order */
+  mediaTypes?: string[]
+}
+
 export interface ResolvedOperation {
   operationId: string
   method: string
@@ -119,7 +135,7 @@ export interface ResolvedOperation {
   summary?: string
   description?: string
   params: ResolvedParam[]
-  requestBody?: { schema: JsonSchema, required: boolean }
+  requestBody?: ResolvedBody
   /** JSON schema of the 2xx application/json response, if any */
   responseSchema?: JsonSchema
   /** media types declared for the 2xx response, in document order */

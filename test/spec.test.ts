@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { loadSpec, inlineRefs, resolveOperations, resolveOperationById, snakeCase, defaultProfile } from '../src/spec.ts'
+import { loadSpec, inlineRefs, resolveOperations, resolveOperationById, snakeCase, defaultProfile, resolveBody } from '../src/spec.ts'
 
 const petstore = JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8'))
 const views = JSON.parse(await readFile(new URL('./fixtures/views.json', import.meta.url), 'utf8'))
@@ -155,6 +155,48 @@ describe('loadSpec — bodyFields checked on every view', () => {
   it('refuses bodyFields on an operation without a JSON request body', async () => {
     const doc = structuredClone(views)
     doc.paths['/things/{id}'].get = { operationId: 'getThing', 'x-agent': { name: 'get_thing', bodyFields: ['title'] }, responses: { 200: { description: 'ok' } } }
-    await assert.rejects(loadSpec(doc, fetch), /get: bodyFields needs a JSON request body that is an object with properties/)
+    await assert.rejects(loadSpec(doc, fetch), /get: bodyFields needs a JSON or multipart request body that is an object with properties/)
+  })
+})
+
+describe('resolveBody', () => {
+  it('prefers JSON, then multipart, then a raw file body', () => {
+    assert.equal(resolveBody({ content: { 'multipart/form-data': { schema: { type: 'object' } }, 'application/json': { schema: { type: 'object' } } } })?.kind, 'json')
+    assert.deepEqual(
+      resolveBody({ required: true, content: { 'multipart/form-data': { schema: { type: 'object' }, encoding: { file: { contentType: 'text/csv, application/zip' }, title: {} } } } }),
+      { kind: 'multipart', schema: { type: 'object' }, required: true, encoding: { file: ['text/csv', 'application/zip'] } }
+    )
+    assert.deepEqual(
+      resolveBody({ content: { 'text/csv': {}, 'application/x-ndjson': {} } }),
+      { kind: 'file', schema: {}, required: false, mediaTypes: ['text/csv', 'application/x-ndjson'] }
+    )
+  })
+  it('leaves out, as before, the JSON-like and form bodies it does not send', () => {
+    assert.equal(resolveBody({ content: { 'application/merge-patch+json': { schema: {} } } }), undefined)
+    assert.equal(resolveBody({ content: { 'application/x-www-form-urlencoded': { schema: {} } } }), undefined)
+    assert.equal(resolveBody(undefined), undefined)
+  })
+})
+
+describe('loadSpec — multipart bodies', () => {
+  const multipartDoc = (agent: Record<string, unknown>) => ({
+    openapi: '3.1.0',
+    info: { title: 't', version: '1' },
+    paths: {
+      '/uploads': {
+        post: {
+          operationId: 'upload',
+          'x-agent': agent,
+          requestBody: { content: { 'multipart/form-data': { schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' }, title: { type: 'string' } } } } } },
+          responses: {}
+        }
+      }
+    }
+  })
+  it('accepts bodyFields naming multipart parts', async () => {
+    await assert.doesNotReject(loadSpec(multipartDoc({ name: 'upload', bodyFields: ['file'] }), fetch))
+  })
+  it('refuses body: compact on a multipart body', async () => {
+    await assert.rejects(loadSpec(multipartDoc({ name: 'upload', body: 'compact' }), fetch), /post: body: compact needs a JSON request body \(this one is multipart\/form-data\)/)
   })
 })

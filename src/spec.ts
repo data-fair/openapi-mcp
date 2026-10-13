@@ -1,6 +1,6 @@
 import { validateVocabulary } from './vocabulary/validate.ts'
 import { expandProfiles, selectProfiles, matchesProfiles } from './profiles.ts'
-import type { JsonSchema, AgentOperation, AgentOperationAnnotation, AgentParamOverride, AgentRoot, AgentTag, ResolvedOperation, ResolvedParam } from './types.ts'
+import type { JsonSchema, AgentOperation, AgentOperationAnnotation, AgentParamOverride, AgentRoot, AgentTag, ResolvedBody, ResolvedOperation, ResolvedParam } from './types.ts'
 
 const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']
 
@@ -66,29 +66,56 @@ export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetc
   validateVocabulary(doc)
   expandProfiles((doc['x-agent'] as AgentRoot | undefined)?.profiles)
   const inlined = inlineRefs(doc)
-  checkBodyFields(inlined)
+  checkBodies(inlined)
   return inlined
 }
 
 const esc = (s: string) => s.replace(/~/g, '~0').replace(/\//g, '~1')
 
+const isJsonMedia = (t: string) => t === 'application/json' || /^application\/[^;]+\+json$/.test(t)
+/** Media types that are not one file's bytes: JSON (sent as JSON, or not at all), forms, multipart. */
+const notAFile = (t: string) => isJsonMedia(t) || t.startsWith('multipart/') || t === 'application/x-www-form-urlencoded'
+
+/** The body a tool sends — see ResolvedBody. `+json` and form bodies are left out, as they always were. */
+export function resolveBody (requestBody: any): ResolvedBody | undefined {
+  const content: Record<string, any> = requestBody?.content ?? {}
+  const required = requestBody?.required === true
+  const json = content['application/json']
+  if (json) return { kind: 'json', schema: json.schema ?? {}, required }
+  const multipart = content['multipart/form-data']
+  if (multipart) {
+    const encoding: Record<string, string[]> = {}
+    for (const [part, enc] of Object.entries<any>(multipart.encoding ?? {})) {
+      if (typeof enc?.contentType === 'string') encoding[part] = enc.contentType.split(',').map((s: string) => s.trim()).filter(Boolean)
+    }
+    return { kind: 'multipart', schema: multipart.schema ?? {}, required, encoding }
+  }
+  const mediaTypes = Object.keys(content).filter(t => !notAFile(t))
+  if (mediaTypes.length) return { kind: 'file', schema: {}, required, mediaTypes }
+  return undefined
+}
+
 /**
- * bodyFields is checked on every view, whatever profiles are requested later: a misspelled
+ * Body annotations are checked on every view, whatever profiles are requested later: a misspelled
  * field on a view only some profile sets select would otherwise fail far from its annotation,
  * and take the whole service out of those sets in a composition. Needs the inlined document,
  * since a request body is usually a $ref.
  */
-function checkBodyFields (doc: JsonSchema) {
+function checkBodies (doc: JsonSchema) {
   for (const [path, item] of Object.entries<any>(doc.paths ?? {})) {
     for (const method of METHODS) {
       const annotation: AgentOperationAnnotation | undefined = item?.[method]?.['x-agent']
       if (annotation === undefined) continue
+      const body = resolveBody(item[method].requestBody)
       const views = Array.isArray(annotation) ? annotation : [annotation]
       views.forEach((view, i) => {
-        if (!view.bodyFields) return
         const at = `/paths/${esc(path)}/${method}${Array.isArray(annotation) ? `/${i}` : ''}`
-        const schema = item[method].requestBody?.content?.['application/json']?.schema
-        if (schema?.type !== 'object' || !schema.properties) throw new Error(`x-agent invalid at ${at}: bodyFields needs a JSON request body that is an object with properties`)
+        if (view.body === 'compact' && body && body.kind !== 'json') {
+          throw new Error(`x-agent invalid at ${at}: body: compact needs a JSON request body (this one is ${body.kind === 'multipart' ? 'multipart/form-data' : body.mediaTypes!.join(', ')})`)
+        }
+        if (!view.bodyFields) return
+        const schema = body && body.kind !== 'file' ? body.schema : undefined
+        if (schema?.type !== 'object' || !schema.properties) throw new Error(`x-agent invalid at ${at}: bodyFields needs a JSON or multipart request body that is an object with properties`)
         const missing = view.bodyFields.filter(f => !Object.hasOwn(schema.properties, f))
         if (missing.length) throw new Error(`x-agent invalid at ${at}: bodyFields names properties the request body does not declare: ${missing.join(', ')}`)
       })
@@ -120,7 +147,6 @@ function resolveOne (path: string, item: any, method: string, op: any, agent: Ag
   }
   const params = [...rawParams.values()].map(p => mergeParam(p, agent.params?.[p.name]))
 
-  const bodyMedia = op.requestBody?.content?.['application/json']
   const okCode = Object.keys(op.responses ?? {}).find(c => /^2\d\d$/.test(c))
   const okContent = okCode ? op.responses[okCode]?.content ?? {} : {}
 
@@ -132,7 +158,7 @@ function resolveOne (path: string, item: any, method: string, op: any, agent: Ag
     summary: op.summary,
     description: op.description,
     params,
-    requestBody: bodyMedia ? { schema: bodyMedia.schema ?? {}, required: op.requestBody.required === true } : undefined,
+    requestBody: resolveBody(op.requestBody),
     responseSchema: okContent['application/json']?.schema,
     responseMediaTypes: Object.keys(okContent),
     agent: { ...agent, profiles },

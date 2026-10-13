@@ -27,7 +27,7 @@ function named (doc: JsonSchema, operationId: string | undefined, write: Resolve
 }
 
 export function resolveEditorOperations (write: ResolvedOperation, doc: JsonSchema): EditorOperations {
-  if (!write.requestBody) throw new Error(`${write.operationId}: an editor needs a JSON request body`)
+  if (write.requestBody?.kind !== 'json') throw new Error(`${write.operationId}: an editor needs a JSON request body`)
   const editor: AgentEditor = write.agent.editor === true ? {} : (write.agent.editor ?? {})
   const pathParamNames = write.params.filter(p => p.in === 'path').map(p => p.name)
   return {

@@ -57,7 +57,7 @@ describe('buildInput', () => {
   })
   it('wraps a non-object body as a single body property', () => {
     const op = structuredClone(createPet)
-    op.requestBody = { schema: { type: 'array', items: { type: 'string' } }, required: true }
+    op.requestBody = { kind: 'json', schema: { type: 'array', items: { type: 'string' } }, required: true }
     const { inputSchema, bindings } = buildInput(op, 'en')
     assert.equal(inputSchema.properties.body.type, 'array')
     assert.deepEqual(inputSchema.required, ['body'])
@@ -149,7 +149,7 @@ describe('buildInput — bodyFields', () => {
     assert.throws(() => buildInput(op, 'en'), /t_publish_thing: bodyFields names properties the request body does not declare: nope/)
   })
   it('fails on a body that is not an object with properties', () => {
-    const op = { ...publishThing, requestBody: { schema: { type: 'array', items: { type: 'string' } }, required: true } }
+    const op = { ...publishThing, requestBody: { kind: 'json' as const, schema: { type: 'array', items: { type: 'string' } }, required: true } }
     assert.throws(() => buildInput(op, 'en'), /t_publish_thing: bodyFields needs an object request body with properties/)
   })
 })
