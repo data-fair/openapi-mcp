@@ -451,6 +451,28 @@ rejects it before any request is sent. `load` lints descriptions the annotation 
 The default `lint: 'error'` refuses the tool set, listing every finding at once.
 `lint: 'warn'` prints and continues; `lint: 'off'` skips the check.
 
+## Forward compatibility
+
+The vocabulary grows, and its schemas are strict: a server one version behind meets keys it
+does not know. What happens depends on `lint`:
+
+- Errors in the root `x-agent`, a tag's, or anything not attributable to one operation fail the
+  document, whatever the level.
+- Errors attributable to one operation's `x-agent` (unknown key, invalid value, a failed
+  cross-field rule such as `response.file` on a non-GET, `bodyFields`/`bodyRequired` naming
+  missing properties, `body: compact` on a non-JSON body) behave per level:
+  - `lint: 'error'` (the default) fails the document with the message of the finding;
+  - `lint: 'warn'` leaves that operation out, with all its views, loads every other operation
+    and prints one `console.warn` listing each left-out operation (method, path) and the reason;
+  - `lint: 'off'` does the same silently.
+
+Leaving the operation out is fail-closed on purpose: ignoring an unknown key could change what
+the tool means (an ignored `response.file` would download a file as text; an ignored
+`bodyRequired` would offer an upload tool without its file). The service stays `ok` in a
+composition and serves its other tools. Authoring and CI must run with `lint: 'error'` to catch
+mistakes. Servers older than this behaviour (up to 0.4.0) still drop the whole service on such
+a key, so deploy openapi-mcp before publishing documents that use new keys.
+
 ## Not in the vocabulary
 
 Templates, hooks, executable composition, jq and codegen. `x-agent` describes an API to an

@@ -222,7 +222,9 @@ the agent rejected before any request is sent. Descriptions inherited from the O
 document are not linted: they belong upstream.
 
 A disagreement refuses the tool set by default, listing every one at once. Pass
-`lint: 'warn'` to print and continue, or `lint: 'off'` to skip the check.
+`lint: 'warn'` to print and continue, or `lint: 'off'` to skip the check. Under `warn` and `off`,
+an operation whose `x-agent` this version does not accept is left out (the rest loads): see
+Forward compatibility in docs/x-agent.md.
 
 ## Coding agent skill
 

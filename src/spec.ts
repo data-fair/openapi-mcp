@@ -1,4 +1,4 @@
-import { validateVocabulary } from './vocabulary/validate.ts'
+import { validateVocabulary, type OperationFinding } from './vocabulary/validate.ts'
 import { expandProfiles, selectProfiles, matchesProfiles } from './profiles.ts'
 import type { JsonSchema, AgentOperation, AgentOperationAnnotation, AgentParamOverride, AgentRoot, AgentTag, ResolvedBody, ResolvedOperation, ResolvedParam } from './types.ts'
 
@@ -53,7 +53,17 @@ export function inlineRefs (doc: JsonSchema): JsonSchema {
   return walk(doc, []) as JsonSchema
 }
 
-export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetch): Promise<JsonSchema> {
+export interface LoadSpecOptions {
+  /**
+   * What an operation whose x-agent this version rejects does. 'error' (the default) fails the
+   * document. 'warn' and 'off' leave that operation's tools out and load the rest ('warn' says
+   * which on the console): ignoring a key a server does not know could change a tool's meaning.
+   * Findings outside one operation (root, tags, shared schemas) fail the document whatever the level.
+   */
+  lint?: 'error' | 'warn' | 'off'
+}
+
+export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetch, options: LoadSpecOptions = {}): Promise<JsonSchema> {
   let doc: JsonSchema
   if (typeof input === 'string') {
     const res = await fetchFn(input, { headers: { accept: 'application/json' } })
@@ -63,10 +73,27 @@ export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetc
     doc = input
   }
   if (typeof doc?.openapi !== 'string' || !doc.openapi.startsWith('3.')) throw new Error('only OpenAPI 3.x documents are supported')
-  validateVocabulary(doc)
+  const lenient = options.lint === 'warn' || options.lint === 'off'
+  const leftOut = new Map<string, { path: string, method: string, reasons: string[] }>()
+  const onOperation = lenient
+    ? ({ path, method, message }: OperationFinding) => {
+        const key = `${method} ${path}`
+        const entry = leftOut.get(key) ?? { path, method, reasons: [] }
+        entry.reasons.push(message)
+        leftOut.set(key, entry)
+      }
+    : undefined
+  validateVocabulary(doc, onOperation)
   expandProfiles((doc['x-agent'] as AgentRoot | undefined)?.profiles)
   const inlined = inlineRefs(doc)
-  checkBodies(inlined)
+  checkBodies(inlined, onOperation, key => leftOut.has(key))
+  // The annotation is what makes an operation a tool: without it the operation contributes none
+  // of its views, and the document is otherwise untouched (inlined is a copy).
+  for (const { path, method } of leftOut.values()) delete inlined.paths[path][method]['x-agent']
+  if (leftOut.size && options.lint === 'warn') {
+    const lines = [...leftOut.values()].map(o => `  ${o.method.toUpperCase()} ${o.path}: ${o.reasons.join('; ')}`)
+    console.warn(`openapi-mcp: ${leftOut.size} operation(s) left out, their x-agent is not accepted by this version:\n${lines.join('\n')}`)
+  }
   return inlined
 }
 
@@ -101,31 +128,40 @@ export function resolveBody (requestBody: any): ResolvedBody | undefined {
  * and take the whole service out of those sets in a composition. Needs the inlined document,
  * since a request body is usually a $ref.
  */
-function checkBodies (doc: JsonSchema) {
+function checkBodies (doc: JsonSchema, onOperation?: (finding: OperationFinding) => void, alreadyLeftOut: (key: string) => boolean = () => false) {
   for (const [path, item] of Object.entries<any>(doc.paths ?? {})) {
     for (const method of METHODS) {
       const annotation: AgentOperationAnnotation | undefined = item?.[method]?.['x-agent']
-      if (annotation === undefined) continue
-      const body = resolveBody(item[method].requestBody)
-      const views = Array.isArray(annotation) ? annotation : [annotation]
-      views.forEach((view, i) => {
-        const at = `/paths/${esc(path)}/${method}${Array.isArray(annotation) ? `/${i}` : ''}`
-        if (view.body === 'compact' && body && body.kind !== 'json') {
-          throw new Error(`x-agent invalid at ${at}: body: compact needs a JSON request body (this one is ${body.kind === 'multipart' ? 'multipart/form-data' : body.mediaTypes!.join(', ')})`)
-        }
-        if (!view.bodyFields && !view.bodyRequired) return
-        const schema = body && body.kind !== 'file' ? body.schema : undefined
-        if (schema?.type !== 'object' || !schema.properties) throw new Error(`x-agent invalid at ${at}: ${view.bodyFields ? 'bodyFields' : 'bodyRequired'} needs a JSON or multipart request body that is an object with properties`)
-        if (view.bodyFields) {
-          const missing = view.bodyFields.filter(f => !Object.hasOwn(schema.properties, f))
-          if (missing.length) throw new Error(`x-agent invalid at ${at}: bodyFields names properties the request body does not declare: ${missing.join(', ')}`)
-        }
-        const offered = view.bodyFields ?? Object.keys(schema.properties)
-        const stray = (view.bodyRequired ?? []).filter(f => !offered.includes(f))
-        if (stray.length) throw new Error(`x-agent invalid at ${at}: bodyRequired names properties the tool does not offer: ${stray.join(', ')}`)
-      })
+      if (annotation === undefined || alreadyLeftOut(`${method} ${path}`)) continue
+      try {
+        checkOperationBody(path, method, item[method], annotation)
+      } catch (err: any) {
+        if (!onOperation) throw err
+        onOperation({ path, method, message: err.message })
+      }
     }
   }
+}
+
+function checkOperationBody (path: string, method: string, operation: any, annotation: AgentOperationAnnotation) {
+  const body = resolveBody(operation.requestBody)
+  const views = Array.isArray(annotation) ? annotation : [annotation]
+  views.forEach((view, i) => {
+    const at = `/paths/${esc(path)}/${method}${Array.isArray(annotation) ? `/${i}` : ''}`
+    if (view.body === 'compact' && body && body.kind !== 'json') {
+      throw new Error(`x-agent invalid at ${at}: body: compact needs a JSON request body (this one is ${body.kind === 'multipart' ? 'multipart/form-data' : body.mediaTypes!.join(', ')})`)
+    }
+    if (!view.bodyFields && !view.bodyRequired) return
+    const schema = body && body.kind !== 'file' ? body.schema : undefined
+    if (schema?.type !== 'object' || !schema.properties) throw new Error(`x-agent invalid at ${at}: ${view.bodyFields ? 'bodyFields' : 'bodyRequired'} needs a JSON or multipart request body that is an object with properties`)
+    if (view.bodyFields) {
+      const missing = view.bodyFields.filter(f => !Object.hasOwn(schema.properties, f))
+      if (missing.length) throw new Error(`x-agent invalid at ${at}: bodyFields names properties the request body does not declare: ${missing.join(', ')}`)
+    }
+    const offered = view.bodyFields ?? Object.keys(schema.properties)
+    const stray = (view.bodyRequired ?? []).filter(f => !offered.includes(f))
+    if (stray.length) throw new Error(`x-agent invalid at ${at}: bodyRequired names properties the tool does not offer: ${stray.join(', ')}`)
+  })
 }
 
 /** Operation-level override wins over parameter-level x-agent. */

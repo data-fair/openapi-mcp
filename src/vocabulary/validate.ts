@@ -88,8 +88,18 @@ function checkOperation (value: unknown, path: string, method: string) {
   })
 }
 
-/** Throws on the first invalid x-agent object found anywhere in the OpenAPI document. */
-export function validateVocabulary (doc: JsonSchema): void {
+/** A finding attributable to one operation's x-agent: what a lenient caller leaves out, rather than fail the document. */
+export interface OperationFinding { path: string, method: string, message: string }
+
+/**
+ * Throws on the first invalid x-agent object found anywhere in the OpenAPI document.
+ *
+ * With `onOperation`, a finding attributable to ONE operation (its own x-agent, its own
+ * parameters, the schemas of its own request and responses) is handed to the callback instead
+ * and the scan goes on; everything else (root, tags, path-level parameters, shared components)
+ * still throws. One implementation: the callback only decides what happens to the finding.
+ */
+export function validateVocabulary (doc: JsonSchema, onOperation?: (finding: OperationFinding) => void): void {
   if (doc['x-agent'] !== undefined) check('root', doc['x-agent'], '/')
   if (Array.isArray(doc.tags)) doc.tags.forEach((t: any, i: number) => { if (t?.['x-agent'] !== undefined) check('tag', t['x-agent'], `/tags/${i}`) })
   for (const [p, item] of Object.entries<any>(doc.paths ?? {})) {
@@ -99,11 +109,16 @@ export function validateVocabulary (doc: JsonSchema): void {
       const op = item?.[m]
       if (!op) continue
       const opPath = `${itemPath}/${m}`
-      if (op['x-agent'] !== undefined) checkOperation(op['x-agent'], opPath, m)
-      checkParams(op.parameters, `${opPath}/parameters`)
-      for (const [mt, media] of Object.entries<any>(op.requestBody?.content ?? {})) checkSchema(media?.schema, `${opPath}/requestBody/content/${esc(mt)}/schema`)
-      for (const [code, resp] of Object.entries<any>(op.responses ?? {})) {
-        for (const [mt, media] of Object.entries<any>(resp?.content ?? {})) checkSchema(media?.schema, `${opPath}/responses/${code}/content/${esc(mt)}/schema`)
+      try {
+        if (op['x-agent'] !== undefined) checkOperation(op['x-agent'], opPath, m)
+        checkParams(op.parameters, `${opPath}/parameters`)
+        for (const [mt, media] of Object.entries<any>(op.requestBody?.content ?? {})) checkSchema(media?.schema, `${opPath}/requestBody/content/${esc(mt)}/schema`)
+        for (const [code, resp] of Object.entries<any>(op.responses ?? {})) {
+          for (const [mt, media] of Object.entries<any>(resp?.content ?? {})) checkSchema(media?.schema, `${opPath}/responses/${code}/content/${esc(mt)}/schema`)
+        }
+      } catch (err: any) {
+        if (!onOperation) throw err
+        onOperation({ path: p, method: m, message: err.message })
       }
     }
   }

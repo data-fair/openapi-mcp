@@ -155,7 +155,7 @@ export async function createComposer (index: string | Index, options: ComposerOp
     const changed = await fetchConditional(entry, fetchFn, json => json as JsonSchema)
     if (changed && entry.value) {
       try {
-        entry.value = await loadSpec(entry.value, fetchFn)
+        entry.value = await loadSpec(entry.value, fetchFn, { lint: options.lint })
         // fetched with the document, so a broken link shows in the service status at startup
         entry.skillWarnings = await skillWarnings(entry.value['x-agent']?.skills, entry.url)
       } catch (err: any) {

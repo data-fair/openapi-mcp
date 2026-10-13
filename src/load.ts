@@ -170,7 +170,7 @@ function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDes
 
 export async function load (spec: string | JsonSchema, options: LoadOptions = {}): Promise<ToolSet> {
   const fetchFn = options.fetch ?? globalThis.fetch
-  const doc = await loadSpec(spec, fetchFn)
+  const doc = await loadSpec(spec, fetchFn, { lint: options.lint })
   const root: AgentRoot = doc['x-agent'] ?? {}
   const declared = Object.keys(root.profiles ?? {})
   const profiles = options.profiles ?? (options.profile ? [options.profile] : [defaultProfile(doc)])
