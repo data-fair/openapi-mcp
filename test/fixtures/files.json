@@ -1,0 +1,68 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Files", "version": "1" },
+  "servers": [{ "url": "https://files.example/api" }],
+  "x-agent": { "profiles": { "edit": { "title": "Edit" } } },
+  "paths": {
+    "/datasets": {
+      "post": {
+        "operationId": "createDataset",
+        "summary": "Create a dataset from a file",
+        "x-agent": { "name": "create_dataset" },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                  "file": { "type": "string", "format": "binary", "description": "The data file." },
+                  "attachments": { "type": "string", "contentMediaType": "application/zip" },
+                  "title": { "type": "string" },
+                  "schema": { "type": "array", "items": { "type": "object" } },
+                  "draft": { "type": "boolean" },
+                  "previews": { "type": "array", "items": { "type": "string", "format": "binary" } }
+                }
+              },
+              "encoding": { "file": { "contentType": "text/csv, application/vnd.ms-excel" } }
+            }
+          }
+        },
+        "responses": { "201": { "description": "created", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "string" } } } } } } }
+      }
+    },
+    "/datasets/{id}/_bulk_lines": {
+      "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }],
+      "post": {
+        "operationId": "bulkLines",
+        "summary": "Send lines as a file",
+        "x-agent": { "name": "bulk_lines" },
+        "requestBody": { "required": true, "content": { "text/csv": {}, "application/x-ndjson": {} } },
+        "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": { "type": "object" } } } } }
+      }
+    },
+    "/datasets/{id}/lines": {
+      "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }],
+      "get": {
+        "operationId": "readLines",
+        "summary": "Export the lines of a dataset",
+        "parameters": [
+          { "in": "query", "name": "q", "schema": { "type": "string" } },
+          { "in": "query", "name": "format", "schema": { "type": "string", "enum": ["json", "csv"] } }
+        ],
+        "x-agent": { "name": "export_lines", "fixed": { "format": "csv" }, "response": { "file": true } },
+        "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": { "type": "object" } }, "text/csv": { "schema": { "type": "string" } } } } }
+      }
+    },
+    "/datasets/{id}/raw": {
+      "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }],
+      "get": {
+        "operationId": "downloadRaw",
+        "summary": "Download the original data file",
+        "x-agent": { "name": "download_raw", "response": { "file": true } },
+        "responses": { "200": { "description": "ok", "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } } } }
+      }
+    }
+  }
+}

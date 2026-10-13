@@ -4,10 +4,13 @@ import type { JsonSchema, ResolvedOperation, ResolvedParam } from './types.ts'
 
 export interface Binding {
   toolName: string
-  kind: 'path' | 'query' | 'header' | 'body' | 'bodyProp' | 'fields' | 'responseFormat'
+  kind: 'path' | 'query' | 'header' | 'body' | 'bodyProp' | 'fields' | 'responseFormat' | 'file'
+  /** API name; for a raw file body, 'body' */
   apiName: string
   style?: string
   explode?: boolean
+  /** file: the media types the API accepts for it, when it declares specific ones */
+  accept?: string[]
 }
 
 /** Walk a JSON pointer inside a schema: "/results" → schema.properties.results; array steps go through items. */
@@ -91,7 +94,41 @@ function pickBody (op: ResolvedOperation): ResolvedOperation['requestBody'] {
   return { ...op.requestBody, schema: picked }
 }
 
-export function buildInput (op: ResolvedOperation, locale: string): { inputSchema: JsonSchema, bindings: Binding[], authoredDescriptions: Set<string>, bodySchema?: JsonSchema } {
+/**
+ * A multipart part that carries a file: `format: binary` (OpenAPI 3.0) or a `contentMediaType`
+ * (OpenAPI 3.1, JSON Schema 2020-12 §8.4) without a `contentEncoding`, which would make it
+ * inline encoded text rather than a file.
+ */
+export function isFilePart (schema: JsonSchema | undefined): boolean {
+  return !!schema && (schema.format === 'binary' || (typeof schema.contentMediaType === 'string' && schema.contentEncoding === undefined))
+}
+
+export const FILE_NOTE = 'URL of the file to send, from the file store this server is configured for: the server downloads it and names it after the last path segment, extension included.'
+
+/** File inputs are on: the size cap to publish. Absent: no file store is configured. */
+export interface FileInputs {
+  maxSize: number
+}
+
+/** application/octet-stream says nothing about what is accepted, so it is not published. */
+const specificTypes = (types: string[]): string[] | undefined => {
+  const specific = types.filter(t => t !== 'application/octet-stream')
+  return specific.length ? specific : undefined
+}
+
+/**
+ * A file input: a URL the server fetches, marked with `x-mcp-file` (the keyword of the MCP
+ * file-input proposals SEP-2356 / SEP-2631). Not `contentMediaType`, which would say the string
+ * IS the bytes.
+ */
+function fileProperty (description: string | undefined, accept: string[] | undefined, maxSize: number): JsonSchema {
+  const marker: JsonSchema = {}
+  if (accept) marker.accept = accept
+  marker.maxSize = maxSize
+  return { type: 'string', format: 'uri', description: description ? `${description.trim()}\n\n${FILE_NOTE}` : FILE_NOTE, 'x-mcp-file': marker }
+}
+
+export function buildInput (op: ResolvedOperation, locale: string, options: { files?: FileInputs } = {}): { inputSchema: JsonSchema, bindings: Binding[], authoredDescriptions: Set<string>, bodySchema?: JsonSchema, unavailable?: string } {
   const properties: JsonSchema = {}
   const required: string[] = []
   const bindings: Binding[] = []
@@ -99,6 +136,9 @@ export function buildInput (op: ResolvedOperation, locale: string): { inputSchem
   // generated params below. Only these are linted: an inherited description belongs to the
   // upstream document and cannot be fixed from here.
   const authoredDescriptions = new Set<string>()
+  // Set when the tool cannot be offered: it needs a file that cannot be sent. load leaves it out.
+  let unavailable: string | undefined
+  const filesOff = (name: string) => `${op.toolName}: needs a file ("${name}"), and file inputs are off (no files.urlPrefixes configured)`
   const fixed = op.agent.fixed ?? {}
   const selectParam = op.agent.response?.selectParam
 
@@ -116,7 +156,7 @@ export function buildInput (op: ResolvedOperation, locale: string): { inputSchem
   // is returned for the caller to validate against — a tool definition carrying data-fair's
   // 28 KB dataset body costs more than the entire six-tool explore set.
   let bodySchema: JsonSchema | undefined
-  if (requestBody && op.agent.body === 'compact') {
+  if (requestBody?.kind === 'json' && op.agent.body === 'compact') {
     properties.body = {
       type: 'object',
       description: `The request body. Properties (\`?\` marks optional):\n\n${summariseSchema(requestBody.schema)}`
@@ -125,16 +165,43 @@ export function buildInput (op: ResolvedOperation, locale: string): { inputSchem
     bindings.push({ toolName: 'body', kind: 'body', apiName: 'body', style: undefined, explode: undefined })
     authoredDescriptions.add('body')
     bodySchema = requestBody.schema
+  } else if (requestBody?.kind === 'file') {
+    // A raw body is the bytes of one file: one input, named after what it is.
+    const toolName = 'file' in properties ? 'file__body' : 'file'
+    if (!options.files) {
+      if (requestBody.required) unavailable = filesOff(toolName)
+    } else {
+      const accept = specificTypes(requestBody.mediaTypes ?? [])
+      properties[toolName] = fileProperty(undefined, accept, options.files.maxSize)
+      if (requestBody.required) required.push(toolName)
+      bindings.push({ toolName, kind: 'file', apiName: 'body', accept })
+    }
   } else if (requestBody) {
     const body = requestBody.schema
     if (body.type === 'object' && body.properties) {
       for (const [name, schema] of Object.entries<any>(body.properties)) {
         const toolName = name in properties ? `${name}__body` : name
-        properties[toolName] = schema
-        if (body.required?.includes(name)) required.push(toolName)
-        bindings.push({ toolName, kind: 'bodyProp', apiName: name, style: undefined, explode: undefined })
+        const isRequired = body.required?.includes(name) === true
+        if (requestBody.kind === 'multipart' && isFilePart(schema)) {
+          if (!options.files) {
+            // No file store: an optional file part is not offered, a required one makes the tool unavailable.
+            if (isRequired) unavailable ??= filesOff(name)
+            continue
+          }
+          const accept = specificTypes(requestBody.encoding?.[name] ?? (typeof schema.contentMediaType === 'string' ? [schema.contentMediaType] : []))
+          properties[toolName] = fileProperty(schema.description, accept, options.files.maxSize)
+          bindings.push({ toolName, kind: 'file', apiName: name, accept })
+        } else if (requestBody.kind === 'multipart' && schema?.type === 'array' && isFilePart(schema.items)) {
+          // A tool input carries one URL per part: a list of files is not offered, and a tool needing one is not either.
+          if (isRequired) unavailable ??= `${op.toolName}: multipart part "${name}" is a list of files, which a tool cannot send (one URL per part)`
+          continue
+        } else {
+          properties[toolName] = schema
+          bindings.push({ toolName, kind: 'bodyProp', apiName: name, style: undefined, explode: undefined })
+        }
+        if (isRequired) required.push(toolName)
       }
-    } else {
+    } else if (requestBody.kind === 'json') {
       properties.body = body
       if (requestBody.required) required.push('body')
       bindings.push({ toolName: 'body', kind: 'body', apiName: 'body', style: undefined, explode: undefined })
@@ -165,5 +232,5 @@ export function buildInput (op: ResolvedOperation, locale: string): { inputSchem
 
   const inputSchema: JsonSchema = { type: 'object', properties, additionalProperties: false }
   if (required.length) inputSchema.required = required
-  return { inputSchema, bindings, authoredDescriptions, bodySchema }
+  return { inputSchema, bindings, authoredDescriptions, bodySchema, unavailable }
 }

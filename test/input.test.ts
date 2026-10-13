@@ -2,7 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { inlineRefs, resolveOperations } from '../src/spec.ts'
-import { buildInput, responseFields } from '../src/input.ts'
+import { buildInput, responseFields, isFilePart, FILE_NOTE } from '../src/input.ts'
 
 const petstore = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8')))
 const ops = resolveOperations(petstore, 'explore')
@@ -151,5 +151,82 @@ describe('buildInput — bodyFields', () => {
   it('fails on a body that is not an object with properties', () => {
     const op = { ...publishThing, requestBody: { kind: 'json' as const, schema: { type: 'array', items: { type: 'string' } }, required: true } }
     assert.throws(() => buildInput(op, 'en'), /t_publish_thing: bodyFields needs an object request body with properties/)
+  })
+})
+
+const filesDoc = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/files.json', import.meta.url), 'utf8')))
+const fileOps = resolveOperations(filesDoc, 'edit')
+const createDataset = fileOps.find(o => o.operationId === 'createDataset')!
+const bulkLines = fileOps.find(o => o.operationId === 'bulkLines')!
+
+/** file inputs on, as when files.urlPrefixes is configured */
+const on = { files: { maxSize: 1000 } }
+
+describe('buildInput — files', () => {
+  it('turns binary multipart parts into file URL inputs and keeps the other parts flat', () => {
+    const { inputSchema, bindings, unavailable } = buildInput(createDataset, 'en', on)
+    assert.equal(unavailable, undefined)
+    assert.deepEqual(inputSchema.properties.file, {
+      type: 'string',
+      format: 'uri',
+      description: `The data file.\n\n${FILE_NOTE}`,
+      'x-mcp-file': { accept: ['text/csv', 'application/vnd.ms-excel'], maxSize: 1000 }
+    })
+    assert.deepEqual(inputSchema.properties.attachments['x-mcp-file'], { accept: ['application/zip'], maxSize: 1000 })
+    assert.deepEqual(inputSchema.properties.title, { type: 'string' })
+    assert.deepEqual(inputSchema.properties.draft, { type: 'boolean' })
+    assert.ok(!inputSchema.properties.previews, 'a list of files is not offered')
+    assert.deepEqual(inputSchema.required, ['file'])
+    assert.deepEqual(bindings.filter(b => b.kind === 'file'), [
+      { toolName: 'file', kind: 'file', apiName: 'file', accept: ['text/csv', 'application/vnd.ms-excel'] },
+      { toolName: 'attachments', kind: 'file', apiName: 'attachments', accept: ['application/zip'] }
+    ])
+    assert.equal(bindings.find(b => b.toolName === 'schema')!.kind, 'bodyProp')
+  })
+  it('leaves accept out when a part declares no specific type', () => {
+    const op = structuredClone(createDataset)
+    op.requestBody!.encoding = { file: ['application/octet-stream'] }
+    const { inputSchema } = buildInput(op, 'en', on)
+    assert.deepEqual(inputSchema.properties.file['x-mcp-file'], { maxSize: 1000 })
+  })
+  it('turns a raw body into one file input named file', () => {
+    const { inputSchema, bindings } = buildInput(bulkLines, 'en', on)
+    assert.deepEqual(inputSchema.properties.file['x-mcp-file'], { accept: ['text/csv', 'application/x-ndjson'], maxSize: 1000 })
+    assert.equal(inputSchema.properties.file.description, FILE_NOTE)
+    assert.deepEqual(inputSchema.required, ['id', 'file'])
+    assert.deepEqual(bindings.at(-1), { toolName: 'file', kind: 'file', apiName: 'body', accept: ['text/csv', 'application/x-ndjson'] })
+  })
+  it('suffixes a raw file input colliding with a parameter', () => {
+    const op = structuredClone(bulkLines)
+    op.params.push({ name: 'file', in: 'query', required: false, schema: { type: 'string' }, agent: {} })
+    const { inputSchema, bindings } = buildInput(op, 'en', on)
+    assert.ok(inputSchema.properties.file && inputSchema.properties.file__body)
+    assert.equal(bindings.find(b => b.toolName === 'file__body')!.kind, 'file')
+  })
+  it('does not offer a tool that needs a list of files', () => {
+    const op = structuredClone(createDataset)
+    op.requestBody!.schema.required = ['file', 'previews']
+    assert.match(buildInput(op, 'en', on).unavailable!, /create_dataset: multipart part "previews" is a list of files, which a tool cannot send/)
+  })
+  it('with file inputs off, drops optional file parts and does not offer a tool that needs a file', () => {
+    const optional = structuredClone(createDataset)
+    optional.requestBody!.schema.required = []
+    const off = buildInput(optional, 'en')
+    assert.equal(off.unavailable, undefined)
+    assert.deepEqual(Object.keys(off.inputSchema.properties), ['title', 'schema', 'draft'])
+    assert.ok(!off.bindings.some(b => b.kind === 'file'))
+    assert.match(buildInput(createDataset, 'en').unavailable!, /create_dataset: needs a file \("file"\), and file inputs are off/)
+    assert.match(buildInput(bulkLines, 'en').unavailable!, /bulk_lines: needs a file \("file"\), and file inputs are off/)
+  })
+  it('recognises OAS 3.0 binary and OAS 3.1 contentMediaType parts, not inline encoded ones', () => {
+    assert.equal(isFilePart({ type: 'string', format: 'binary' }), true)
+    assert.equal(isFilePart({ type: 'string', contentMediaType: 'image/png' }), true)
+    assert.equal(isFilePart({ type: 'string', contentMediaType: 'image/png', contentEncoding: 'base64' }), false)
+    assert.equal(isFilePart({ type: 'string', format: 'byte' }), false)
+    assert.equal(isFilePart(undefined), false)
+  })
+  it('leaves JSON bodies exactly as they were', () => {
+    const { inputSchema } = buildInput(createPet, 'en', on)
+    assert.ok(!JSON.stringify(inputSchema).includes('x-mcp-file'))
   })
 })
