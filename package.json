@@ -64,7 +64,8 @@
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "debug": "^4.4.1",
-    "form-data": "^4.0.6"
+    "form-data": "^4.0.6",
+    "mime-types": "^3.0.2"
   },
   "peerDependencies": {
     "@json-layout/agents": "^0.2.0",
@@ -86,6 +87,7 @@
     "@json-layout/core": "^2.11.0",
     "@modelcontextprotocol/client": "^2.0.0",
     "@types/debug": "^4.1.12",
+    "@types/mime-types": "^3.0.1",
     "@types/node": "^24.0.0",
     "eslint": "^9.32.0",
     "neostandard": "^0.12.0",

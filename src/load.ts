@@ -6,6 +6,7 @@ import { expandProfiles, selectProfiles } from './profiles.ts'
 import { buildEditorTools } from './editor/index.ts'
 import { buildInput } from './input.ts'
 import { buildRequest } from './request.ts'
+import { fileLink } from './file-link.ts'
 import { render } from './render.ts'
 import { localize } from './localize.ts'
 import { callFetch, contextualFetch } from './context.ts'
@@ -83,6 +84,9 @@ function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDes
     debug('not offered: %s', unavailable)
     return undefined
   }
+  const fileResponse = op.agent.response?.file === true
+  const headerParams = bindings.filter(b => b.kind === 'header').map(b => b.apiName)
+  if (fileResponse && headerParams.length) throw new Error(`${op.toolName}: response.file returns a link, which cannot carry header parameters (${headerParams.join(', ')}); exclude them`)
   const validate = ajv.compile(inputSchema)
   // In compact mode the tool's own schema describes the body only as `object`, so the real
   // one validates it here. This is the point of summarising rather than dropping: a
@@ -96,7 +100,7 @@ function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDes
     title: localize(op.agent.title, o.locale),
     description: description || op.operationId,
     inputSchema,
-    outputSchema: o.structuredContent ? op.responseSchema : undefined,
+    outputSchema: o.structuredContent && !fileResponse ? op.responseSchema : undefined,
     annotations: { readOnlyHint: op.method === 'GET' || op.method === 'HEAD', destructiveHint: op.method === 'DELETE', ...(op.agent.annotations ?? {}) },
     examples: op.agent.examples,
     async execute (rawParams, ctx): Promise<ToolResult> {
@@ -104,6 +108,13 @@ function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDes
       if (!validate(params)) return { isError: true, text: `Invalid parameters: ${errorsText(validate)}` }
       if (validateBody && !validateBody(params.body)) {
         return { isError: true, text: `Invalid body: ${errorsText(validateBody)}` }
+      }
+      if (fileResponse) {
+        try {
+          return fileLink(op, bindings, params, o.baseUrl)
+        } catch (err: any) {
+          return { isError: true, text: `Request failed: ${err?.message ?? err}` }
+        }
       }
       // Every file is opened before the request: its Content-Length needs every size.
       let files: Record<string, FileSource>

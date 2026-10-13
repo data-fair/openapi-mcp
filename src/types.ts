@@ -150,10 +150,19 @@ export interface ResolvedOperation {
   toolName: string
 }
 
+/** An MCP `resource_link`: a file the client fetches itself (MCP 2026-07-28, tool results). */
+export interface ResourceLink {
+  uri: string
+  name: string
+  mimeType?: string
+}
+
 export interface ToolResult {
   text: string
   structuredContent?: unknown
   isError?: boolean
+  /** a file returned by reference (`response.file`); `text` then describes it */
+  resourceLink?: ResourceLink
 }
 
 /**
