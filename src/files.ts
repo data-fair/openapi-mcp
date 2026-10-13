@@ -125,7 +125,7 @@ export function createFileFetcher (options: FileLoadOptions = {}): FileFetcher |
     }
     const status = res.statusCode ?? 0
     if (status < 200 || status >= 300) {
-      res.resume()
+      res.destroy()
       throw new Error(status >= 300 && status < 400 ? `HTTP ${status}: redirects are not followed (a presigned URL answers directly)` : `HTTP ${status}`)
     }
     // Compressed bytes are not the file, and decoding them would lose the length the upload needs.
@@ -145,6 +145,9 @@ export function createFileFetcher (options: FileLoadOptions = {}): FileFetcher |
       throw new Error(`the file is ${size} bytes, over the ${maxSize} bytes limit`)
     }
     const body = counted(res, size, (err: any, read) => deadline.aborted ? timedOut() : new Error(`the source failed after ${read} of ${size} bytes (${err?.message ?? err})`))
+    // Until the upload attaches to it, the body has no consumer and an error would be thrown as
+    // uncaught: keep it (body.errored) for openFiles, and the upload's own listeners see it later.
+    body.on('error', () => {})
     return { name, contentType: res.headers['content-type'], size, body, close: () => { res.destroy(); body.destroy() } }
   }
 
@@ -170,6 +173,14 @@ export async function openFiles (bindings: Binding[], params: Record<string, unk
     } catch (err: any) {
       closeFiles(opened)
       throw new Error(`File "${b.toolName}" (${displayUrl(url)}) could not be fetched: ${err?.message ?? err}`)
+    }
+  }
+  // A source may have failed while a later one was being opened.
+  for (const b of bindings) {
+    const f = opened[b.toolName]
+    if (f?.body.errored) {
+      closeFiles(opened)
+      throw new Error(`File "${b.toolName}" (${displayUrl(params[b.toolName] as string)}) could not be fetched: ${f.body.errored.message}`)
     }
   }
   return opened

@@ -24,6 +24,17 @@ const source = createServer((req, res) => {
   if (path === '/files/h%C3%A9t%C3%A9.csv') { res.writeHead(200, { 'content-type': 'text/csv', 'content-length': accented.length }); return res.end(accented) }
   if (path === '/files/big.csv') { res.writeHead(200, { 'content-length': 2000 }); return res.end('x'.repeat(2000)) }
   if (path === '/files/short.csv') { res.writeHead(200, { 'content-length': 10 }); res.write('abc'); setTimeout(() => res.socket?.destroy(), 20); return }
+  if (path === '/files/dies-first.csv') {
+    res.writeHead(200, { 'content-length': 1000 }); res.write('x'.repeat(10))
+    res.on('close', () => closed.add(path))
+    setTimeout(() => res.socket?.destroy(), 100)
+    return
+  }
+  if (path === '/files/late.csv') {
+    res.on('close', () => closed.add(path))
+    setTimeout(() => { res.writeHead(200, { 'content-length': 3 }); res.end('abc') }, 500)
+    return
+  }
   if (path === '/files/slow.csv') {
     res.writeHead(200, { 'content-type': 'text/csv', 'content-length': 10 * 1024 * 1024 })
     const timer = setInterval(() => res.write(Buffer.alloc(64 * 1024, 120)), 20)
@@ -211,5 +222,40 @@ describe('file inputs, end to end', () => {
     assert.equal(res.isError, true)
     assert.match(res.text, /File "b" .* could not be fetched: HTTP 404/)
     await released('/files/hang-first.csv')
+  })
+  it('fails, naming the input, when a source fails while a later file is still opening', async () => {
+    const part = { type: 'string', format: 'binary', contentMediaType: 'text/csv' }
+    const doc = {
+      openapi: '3.1.0',
+      info: { title: 't', version: '1' },
+      'x-agent': { profiles: { edit: { title: 'Edit' } } },
+      paths: { '/two': { post: { operationId: 'two', 'x-agent': { name: 'two' }, requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['a', 'b'], properties: { a: part, b: part } } } } }, responses: { 201: { description: 'ok' } } } } }
+    }
+    const ts = await load(doc, { baseUrl: apiBase, files: { urlPrefixes: [`${src}/files/`] } })
+    // an uncaught exception fails the test itself
+    {
+      const res = await ts.tools.find(x => x.name === 'two')!.execute({ a: `${src}/files/dies-first.csv?sig=secret`, b: `${src}/files/late.csv` })
+      await new Promise(resolve => setTimeout(resolve, 200))
+      assert.equal(res.isError, true)
+      assert.match(res.text, /File "a" \(http:\/\/127\.0\.0\.1:\d+\/files\/dies-first\.csv\) could not be fetched: the source failed after 10 of 1000 bytes/)
+      assert.ok(!res.text.includes('secret'))
+      await released('/files/dies-first.csv')
+      await released('/files/late.csv')
+    }
+  })
+  it('fails the upload, and releases every source, when a source not yet being read fails', async () => {
+    const part = { type: 'string', format: 'binary', contentMediaType: 'text/csv' }
+    const doc = {
+      openapi: '3.1.0',
+      info: { title: 't', version: '1' },
+      'x-agent': { profiles: { edit: { title: 'Edit' } } },
+      paths: { '/two': { post: { operationId: 'two', 'x-agent': { name: 'two' }, requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['a', 'b'], properties: { a: part, b: part } } } } }, responses: { 201: { description: 'ok' } } } } }
+    }
+    const ts = await load(doc, { baseUrl: apiBase, files: { urlPrefixes: [`${src}/files/`] } })
+    const res = await ts.tools.find(x => x.name === 'two')!.execute({ a: `${src}/files/hang-streaming.csv`, b: `${src}/files/dies-first.csv` })
+    assert.equal(res.isError, true)
+    assert.match(res.text, /the source failed after 10 of 1000 bytes/)
+    await released('/files/hang-streaming.csv')
+    await released('/files/dies-first.csv')
   })
 })

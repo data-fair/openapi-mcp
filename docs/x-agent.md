@@ -377,8 +377,13 @@ At execution, before the upstream request:
   (OpenAPI's default content type for an object part; data-fair parses array parts as JSON too), a
   scalar as its string form. Names are escaped as browsers do (`"`, CR, LF percent-encoded) and
   sent as UTF-8. A file part's `Content-Type` is the source's, else the first
-  accepted type. A raw body's `Content-Type` is the source's when the operation declares it, else
+  accepted type, else `application/octet-stream`. A raw body's `Content-Type` is the source's when the operation declares it, else
   the first declared one.
+- **Proxy.** With `NODE_USE_ENV_PROXY=1`, Node 24 routes `http.get`/`https.get` through
+  `HTTP_PROXY`/`HTTPS_PROXY` as it does `fetch`, so the file fetch would go through a
+  credential-injecting proxy (e.g. nhi-proxy) and carry its credentials, which this server otherwise
+  never sends to file URLs (and S3 rejects a presigned GET that carries an `Authorization` header).
+  Put the file store's host in `NO_PROXY`.
 - **Errors** before the request come back as tool errors naming the input and the URL without its query string, which
   may carry a signature: `File "file" (https://s3…/report.csv) could not be fetched: HTTP 403`.
 

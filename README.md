@@ -206,9 +206,11 @@ Upload operations take a file as a URL, and `response: { file: true }` operation
 an MCP `resource_link`: file bytes never pass through the model or the MCP protocol. File inputs
 are indirect uploads. They are detected from the OpenAPI document (multipart `format: binary` /
 `contentMediaType` parts, raw `text/csv`-style bodies) and marked `x-mcp-file`. The server
-fetches only the presigned URLs of the file store named by `FILE_URL_PREFIXES` (unset: upload tools
-are not offered), without the caller's credentials, and streams them upstream with an exact
-`Content-Length`. See [`docs/x-agent.md#files`](docs/x-agent.md#files).
+fetches only the presigned URLs of the file store named by `FILE_URL_PREFIXES` (unset: operations
+that need a file — a required file part, raw body or list of files — are not offered, and optional
+file parts disappear from their tool), without the caller's credentials, and streams them upstream with an exact
+`Content-Length`. Behind a credential-injecting proxy (`NODE_USE_ENV_PROXY`), keep the file store in
+`NO_PROXY`: see [`docs/x-agent.md#files`](docs/x-agent.md#files).
 
 ## Annotation lint
 
