@@ -126,7 +126,16 @@ Every agent-facing string is a plain string or a locale map (`{ en: …, fr: …
    the request. Use it when a body schema is thousands of characters (data-fair's is
    28 KB). Otherwise leave `body: flat`.
 
-7. **Verify.** Nothing replaces actually loading the document:
+7. **Files.** Uploads need no annotation: a `multipart/form-data` part with `format: binary` (or a
+   3.1 `contentMediaType`) or a raw `text/csv` body becomes a URL input marked `x-mcp-file`. Make
+   sure the document declares those parts — an undeclared part is not offered. They are indirect
+   uploads: the server only fetches the presigned URLs of the file store it is configured with
+   (`files.urlPrefixes` / `FILE_URL_PREFIXES`), and without one an operation that needs a file is
+   not offered. A download is
+   `response: { file: true }` on a GET: the tool returns a link instead of the bytes; pin a
+   type-selecting parameter with `fixed` (`fixed: { format: csv }`).
+
+8. **Verify.** Nothing replaces actually loading the document:
 
    ```ts
    import { load } from '@data-fair/openapi-mcp'
@@ -197,7 +206,7 @@ put:
 Rules that decide whether this works:
 
 - The write operation must declare an `application/json` request body. Multipart bodies
-  are not supported.
+  are not supported by editor groups.
 - Use `editor: true` only when the declared body schema is already the form schema (it
   carries json-layout `layout` keywords). When the schema comes from the API — dataset
   schemas do — name a `schemaOperation`.
@@ -244,6 +253,8 @@ tool, a widened schema or a dropped parameter into a diff the reviewer sees.
 | `editor` fails at load naming an operationId | `schemaOperation`/`readOperation` does not match any operation in the document |
 | An editor tool call returns "missing required parameter" | The caller omitted one of the write operation's path parameters |
 | A huge schema bloats every tool definition | `body: compact` on the write operation |
+| An upload tool has no file input, or is missing | The multipart part lacks `format: binary` / `contentMediaType`; the operation also declares `application/json` (JSON wins); or no file store is configured (`files.urlPrefixes`), so a tool needing a file is not offered |
+| `response.file needs a GET operation` | `response.file` is for downloads; an upload's file is an input, detected from the body |
 | `selectParam` fails at load with "declares no properties" | The response schema it reads from is an empty/synthetic stub; use an operation with a real schema |
 
 ## Reference

@@ -24,7 +24,7 @@ const server = createMcpServer(toolSet, { name: 'my-api', version: '1.0.0' })
 
 `load` returns `{ profiles, instructions, tools, skills }` — provider-agnostic tools, each with an
 input schema, a description, MCP annotations and an `execute(params)` that returns
-`{ text, structuredContent?, isError? }` and never throws. `toMcpServer(toolSet, server)`
+`{ text, structuredContent?, resourceLink?, isError? }` and never throws. `toMcpServer(toolSet, server)`
 registers them on an existing SDK `Server` if you already have one.
 
 ## Standalone server
@@ -45,6 +45,9 @@ The package also installs an `openapi-mcp` binary that reads its configuration f
 | `API_KEY_HEADER`    | no       |         | Header name added to every upstream request                                      |
 | `API_KEY`           | no       |         | Value sent in `API_KEY_HEADER`                                                   |
 | `STRUCTURED_CONTENT`| no       | `false` | Set to `true` to also return `structuredContent` from tool calls                 |
+| `FILE_URL_PREFIXES` | no       |         | Comma-separated URL prefixes of the file store whose presigned URLs file inputs take; unset: file inputs off |
+| `FILE_MAX_SIZE`     | no       | `104857600` | Largest file a file input accepts, in bytes                                   |
+| `FILE_TIMEOUT`      | no       | `300`   | Seconds to fetch a file input, first request to last byte                         |
 
 In HTTP mode a request's `?profiles=explore,edit` selects the set for that request. HTTP
 mode here is single-identity and stateless: it is for development. A deployed server that
@@ -196,6 +199,16 @@ merging the schema's properties at top level.
 The real schema still validates the body before a request is sent, so a caller that
 misreads the listing gets a JSON path and a keyword locally rather than a round trip.
 `body: flat`, the default, keeps the previous behaviour.
+
+## Files
+
+Upload operations take a file as a URL, and `response: { file: true }` operations return one as
+an MCP `resource_link`: file bytes never pass through the model or the MCP protocol. File inputs
+are indirect uploads. They are detected from the OpenAPI document (multipart `format: binary` /
+`contentMediaType` parts, raw `text/csv`-style bodies) and marked `x-mcp-file`. The server
+fetches only the presigned URLs of the file store named by `FILE_URL_PREFIXES` (unset: upload tools
+are not offered), without the caller's credentials, and streams them upstream with an exact
+`Content-Length`. See [`docs/x-agent.md#files`](docs/x-agent.md#files).
 
 ## Annotation lint
 

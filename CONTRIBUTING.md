@@ -28,6 +28,9 @@ src/
   compose.ts    index → composer → compositions
   input.ts      input schema derivation
   request.ts    serialization → Request
+  multipart.ts  multipart (form-data) / raw file bodies with an exact length
+  files.ts      file inputs: the file store's URLs only, bounds
+  file-link.ts  file outputs: resource links
   render.ts     projection + markdown renderer
   editor/       json-layout form tool groups (optional peers, lazily imported)
   adapters/     mcp.ts — MCP SDK v2, both protocol eras, skills extension

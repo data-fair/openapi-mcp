@@ -30,12 +30,30 @@ const fetchFn: typeof fetch = (input, init) => {
   return fetch(req)
 }
 
+/** A positive number from the environment, or undefined when unset; anything else stops the binary. */
+const positiveEnv = (name: string): number | undefined => {
+  const raw = env[name]
+  if (raw === undefined || raw === '') return undefined
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) {
+    console.error(`${name} must be a positive number, got "${raw}"`)
+    process.exit(1)
+  }
+  return n
+}
+const fileTimeout = positiveEnv('FILE_TIMEOUT')
+
 const options = {
   locale: env.LOCALE ?? 'en',
   baseUrl: env.BASE_URL,
   structuredContent: env.STRUCTURED_CONTENT === 'true',
   lint,
-  fetch: fetchFn
+  fetch: fetchFn,
+  files: {
+    urlPrefixes: env.FILE_URL_PREFIXES?.split(',').map(s => s.trim()).filter(Boolean),
+    maxSize: positiveEnv('FILE_MAX_SIZE'),
+    timeout: fileTimeout === undefined ? undefined : fileTimeout * 1000
+  }
 }
 
 let source: ToolSource

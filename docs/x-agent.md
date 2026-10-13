@@ -165,10 +165,15 @@ does not appear in the input schema.
 
 ### Request bodies
 
-Only `application/json` request bodies are used. With `body: flat` (the default) an
-object body's properties are merged at the top level of the input schema; a name that
-collides with a parameter gets a `__body` suffix. A non-object body, or `body: compact`,
-exposes a single `body` property.
+A tool sends one of the bodies an operation declares: `application/json` first, then
+`multipart/form-data`, then a raw body whose media type is not JSON, multipart or
+form-urlencoded (`text/csv`, `application/x-ndjson`…). A JSON tool therefore stays what it was
+when the operation also accepts an upload. Other bodies (`application/merge-patch+json`,
+form-urlencoded) are not sent. Multipart parts and raw bodies that carry a file become file
+inputs: see [Files](#files). With `body: flat` (the default) an object body's properties
+(JSON properties, or multipart parts) are merged at the top level of the input schema; a name
+that collides with a parameter gets a `__body` suffix. A non-object JSON body, or
+`body: compact`, exposes a single `body` property; `body: compact` needs a JSON body.
 
 `body: compact` is for schemas too large to put in a tool definition — data-fair's dataset
 body is 28 KB. The property's description is a compact listing (name, required, type,
@@ -179,7 +184,7 @@ instead of a round trip.
 `bodyFields` restricts the body to an allow-list of its properties. The schema is pruned before
 the `flat`/`compact` choice, so the merged properties, the compact listing and the local
 validation all agree, and any other property is refused before a request is sent. It needs a
-JSON request body that is an object with declared properties, and every listed name must be
+JSON or multipart request body that is an object with declared properties, and every listed name must be
 one of them; both are checked when the document loads, on every view whatever profiles are
 requested. It does not combine with `editor`: a form group edits the whole document, so the
 two together are refused. An allow-list rather than a deny-list: a property added to the API
@@ -203,6 +208,7 @@ response:
 | `detailed` | `true` for every field, or a field list, for `response_format: detailed`. `concise` and `detailed` together generate the `response_format` enum parameter. |
 | `selectParam` | Name of the API's own projection parameter. Generates a `fields` parameter whose enum is read from the response schema, and maps it onto that API parameter. Fails at load when the response schema declares no properties. |
 | `hints` | Surface `meta.hints` from the response as `> Hint:` footnotes. |
+| `file` | `true`: the response is a file. The tool sends no request and returns a link to it. GET only; excludes every other key. See [File outputs](#file-outputs). |
 
 Projection order when rendering: explicit `fields` from the caller, then
 `response_format`, then `concise`, then everything.
@@ -229,7 +235,12 @@ const { profiles, instructions, tools, skills } = await load(docOrUrl, {
   structuredContent: false, // also return structuredContent from tool calls
   maxStringLength: 500, // truncation limit in rendered text
   maxErrorLength: 4000, // truncation limit for HTTP error bodies
-  lint: 'error'         // 'error' | 'warn' | 'off'
+  lint: 'error',        // 'error' | 'warn' | 'off'
+  files: {              // file inputs (indirect uploads), see Files
+    urlPrefixes: ['https://s3.example.com/agents-bucket/'], // the file store; none: file inputs off
+    maxSize: 104857600, // bytes; published as x-mcp-file.maxSize
+    timeout: 300000     // ms, request to last byte
+  }
 })
 ```
 
@@ -247,7 +258,7 @@ interface Tool {
   outputSchema?: JsonSchema
   annotations: ToolAnnotations
   examples?: Record<string, unknown>[]
-  execute (params: Record<string, unknown>, ctx?: CallContext): Promise<{ text: string, structuredContent?: unknown, isError?: boolean }>
+  execute (params: Record<string, unknown>, ctx?: CallContext): Promise<{ text: string, structuredContent?: unknown, resourceLink?: { uri: string, name: string, mimeType?: string }, isError?: boolean }>
 }
 
 interface CallContext {
@@ -265,6 +276,150 @@ channel.
 
 When an operation's 2xx response offers `text/markdown`, the request asks for it and the
 body is passed through untouched — the API renders, this library does not.
+
+## Files
+
+A tool takes a file as a **URL** and returns one as a **link**. No file bytes travel through the
+model, and none through the MCP protocol: the caller — an agent runtime with its own file store —
+hands out a URL the server can fetch, and fetches the links it gets back. This is the shape the
+MCP specification already gives file outputs (a tool result may hold a `resource_link` whose
+`https` URI the client fetches itself — [MCP 2026-07-28, tools](https://modelcontextprotocol.io/specification/latest/server/tools)
+and resources), and the one ChatGPT's Apps SDK gives file inputs: arguments listed in
+`openai/fileParams` receive a temporary download URL that the MCP server fetches
+([Apps SDK reference](https://developers.openai.com/apps-sdk/reference)).
+
+### File inputs
+
+File inputs are **indirect uploads**. The caller puts the file in its own store, signs a short-lived
+GET URL for it (a presigned URL), and passes that URL; this server fetches it and streams it to the
+API. That is their only purpose: the server fetches the URLs of the store it is configured for, and
+nothing else. Downloading an arbitrary resource on a client's behalf — a public URL found on the
+web — is not a supported case.
+
+`files.urlPrefixes` (`FILE_URL_PREFIXES` for the binary) names the store: its endpoint and bucket
+path, e.g. `https://s3.example.com/agents-bucket/`. **Without a prefix, file inputs are off.**
+Optional file parts are not offered. An operation whose body needs a file is not offered as a tool
+at all (a `debug` line names it): a required file part, or a required raw body.
+
+The inputs are detected from standard OpenAPI; there is nothing to annotate.
+
+- A `multipart/form-data` part with `format: binary` (OpenAPI 3.0) or a `contentMediaType`
+  (OpenAPI 3.1, which replaced `format: binary` with it — [OAS 3.1.1](https://spec.openapis.org/oas/v3.1.1.html)).
+  A part that also has a `contentEncoding` (base64) is inline text, not a file. Each such part is
+  one input, named after it.
+- A raw request body (see [Request bodies](#request-bodies)): one input named `file`
+  (`file__body` when a parameter already has that name).
+
+A part that is a list of files is not offered, because an input carries one URL. An operation
+that requires one is not offered either. Every other multipart part is an ordinary input.
+
+Each file input is:
+
+```json
+{ "type": "string", "format": "uri", "description": "…", "x-mcp-file": { "accept": ["text/csv"], "maxSize": 104857600 } }
+```
+
+- `accept`: the part's `encoding.<part>.contentType` (a comma-separated list), else its
+  `contentMediaType`, else the raw body's media types. `application/octet-stream` says nothing
+  and is left out.
+- `maxSize`: the size this library accepts (`files.maxSize`), so a caller can check before signing.
+- Why not `contentMediaType`: in JSON Schema it says the string *is* the content, possibly
+  encoded with `contentEncoding` ([2020-12 validation §8.4](https://json-schema.org/draft/2020-12/json-schema-validation#section-8)),
+  so a client would put the bytes there. Here the string is a reference.
+- Why `x-mcp-file`: it is the keyword of the MCP file-input proposals —
+  [SEP-2356](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2356), superseded
+  by the open draft [SEP-2631](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2631)
+  (File Uploads working group). A client that knows it can offer a file picker or a file store;
+  one that does not sees a URI string. Only top-level properties carry it, as with
+  `openai/fileParams`.
+
+At execution, before the upstream request:
+
+- **Only the store's URLs.** A URL is fetched only if, once parsed and normalized, it starts with
+  a configured prefix at a boundary. Normalization (WHATWG URL) resolves dot segments, `..` as
+  well as `%2e%2e`, lowercases the host and drops a default port. At a boundary means the prefix
+  ends with `/`, `?`, `&` or `=`, or the URL continues with `/` or `?`: the prefix
+  `…/bucket` admits `…/bucket/report.csv`, never `…/bucket-evil/report.csv`. Prefixes are
+  http(s) URLs without credentials, so a URL with credentials, another scheme or another host
+  never matches. Anything else is refused before any connection.
+- **Why an allowlist, not SSRF protection.** A general client for user-chosen URLs needs
+  address checks at connection time (private ranges, DNS rebinding, every redirect hop). This
+  server has no user-chosen URLs: its one target is a fixed endpoint the deployment trusts. An
+  allowlist is the narrower rule — a public host outside the store is refused too — and has no DNS
+  or proxy subtleties.
+- **Fetch without credentials.** A plain GET (Node's `http` / `https`), with none of the call's
+  context (`headers`, `fetch`) and not the load-time `fetch`: a presigned URL authorizes itself,
+  and the caller's cookies or API key never reach it.
+- **No redirect, no encoding.** A presigned GET answers directly, so a 3xx is an error, never
+  followed. A response with a `Content-Encoding` other than `identity` is refused: no encoding is
+  asked for, so it is an object stored compressed, its bytes are not the file, and decoding it
+  would lose the exact length the upload needs.
+- **Bounds.** `files.maxSize` (100 MiB) is checked against the source's `Content-Length` before
+  anything is read, and the bytes read must match it. `files.timeout` (300 s) runs from the
+  request to the last byte, and the call's abort signal stops it too.
+- **Streamed with an exact `Content-Length`.** The upstream request's length is computed before its
+  first byte: the source's `Content-Length` plus the multipart framing (boundaries, part headers,
+  fields, as the `form-data` package computes it). It is never sent `Transfer-Encoding: chunked`: an API that checks a quota before
+  accepting an upload needs the size first — data-fair answers 411 to a chunked upload. A source
+  without `Content-Length` is therefore refused rather than buffered in memory, and a source that
+  sends fewer bytes than it declared fails the upload instead of truncating it.
+- **Sources live as long as the exchange.** Every file is opened before the request, because the
+  length needs every size. They are released only after the upstream response body has been read:
+  closing one earlier errors the request body, and the HTTP client then terminates the response
+  still arriving with it. They are also released when the call fails, so an API that answers
+  early (413, 401) without reading the body does not keep a large file streaming for nothing. An
+  upstream error comes back as an `isError` text, `HTTP <status>: <body>`, like any other call.
+- **File name** = the URL path's last segment, percent-decoded (`…/report.csv?X-Amz-Signature=…`
+  → `report.csv`). APIs often type an upload by its name — data-fair uses the extension, not the
+  declared type — so the URL must end with the name, extension included.
+- **Encoding** (the `form-data` package). Fields first, then files (a server that filters files as they arrive, like multer,
+  has only seen the fields sent before them). An object or array field is sent as JSON text
+  (OpenAPI's default content type for an object part; data-fair parses array parts as JSON too), a
+  scalar as its string form. Names are escaped as browsers do (`"`, CR, LF percent-encoded) and
+  sent as UTF-8. A file part's `Content-Type` is the source's, else the first
+  accepted type. A raw body's `Content-Type` is the source's when the operation declares it, else
+  the first declared one.
+- **Errors** before the request come back as tool errors naming the input and the URL without its query string, which
+  may carry a signature: `File "file" (https://s3…/report.csv) could not be fetched: HTTP 403`.
+
+### File outputs
+
+`response: { file: true }` on a GET operation declares that its response is a file. Declared,
+not guessed from media types: a response whose type depends on a parameter (`/lines?format=csv`)
+is made a file by a `fixed` value.
+
+```yaml
+get:
+  operationId: readLines
+  x-agent:
+    name: export_lines
+    fixed: { format: csv }
+    response: { file: true }
+```
+
+Such a tool sends no request. It validates its arguments, builds the URL a call would use (the
+same `buildRequest` as any call: path, query and `fixed` parameters, the latter in the query
+string) and returns a `resource_link` plus a text block naming the file and the URL, for clients
+that ignore links:
+
+```json
+[
+  { "type": "text", "text": "File rge-lines.csv (text/csv), not downloaded by this tool: https://…/datasets/rge/lines?format=csv" },
+  { "type": "resource_link", "uri": "https://…/datasets/rge/lines?format=csv", "name": "rge-lines.csv", "mimeType": "text/csv" }
+]
+```
+
+- `mimeType`: the success response's media type when one is declared; among several, the one
+  that a `format` query value names by extension (`format=csv` → `text/csv`); else none.
+- `name`: the value of the last path parameter followed by the segments after it
+  (`/datasets/{id}/lines` → `rge-lines`), so exports of two resources do not collide in a file
+  store; characters outside `[A-Za-z0-9._-]` become `-`; the extension of `mimeType` is appended
+  when the name has none (not for `application/octet-stream`).
+- The client fetches the link with its own credentials, like any call to the API: the bytes never
+  cross this server.
+- A header parameter cannot be part of a link: an operation exposing one refuses the tool set.
+  `response.file` excludes `rows`, `concise`, `detailed`, `selectParam`, `hints` and `editor`;
+  such a tool declares no `outputSchema`.
 
 ## Annotation lint
 
