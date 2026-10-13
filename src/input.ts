@@ -131,6 +131,12 @@ function fileProperty (description: string | undefined, accept: string[] | undef
   return { type: 'string', format: 'uri', description: description ? `${description.trim()}\n\n${FILE_NOTE}` : FILE_NOTE, 'x-mcp-file': marker }
 }
 
+/** A file response is a link the caller fetches: it cannot carry the header parameters a request would. */
+export function assertFileResponseHeaders (op: ResolvedOperation, bindings: Binding[]): void {
+  const headerParams = bindings.filter(b => b.kind === 'header').map(b => b.apiName)
+  if (op.agent.response?.file === true && headerParams.length) throw new Error(`${op.toolName}: response.file returns a link, which cannot carry header parameters (${headerParams.join(', ')}); exclude them`)
+}
+
 export function buildInput (op: ResolvedOperation, locale: string, options: { files?: FileInputs } = {}): { inputSchema: JsonSchema, bindings: Binding[], authoredDescriptions: Set<string>, bodySchema?: JsonSchema, unavailable?: string } {
   const properties: JsonSchema = {}
   const required: string[] = []

@@ -4,7 +4,7 @@ import Debug from 'debug'
 import { loadSpec, resolveOperations, defaultProfile } from './spec.ts'
 import { expandProfiles, selectProfiles } from './profiles.ts'
 import { buildEditorTools } from './editor/index.ts'
-import { buildInput } from './input.ts'
+import { buildInput, assertFileResponseHeaders } from './input.ts'
 import { buildRequest } from './request.ts'
 import { fileLink } from './file-link.ts'
 import { render } from './render.ts'
@@ -85,8 +85,7 @@ function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDes
     return undefined
   }
   const fileResponse = op.agent.response?.file === true
-  const headerParams = bindings.filter(b => b.kind === 'header').map(b => b.apiName)
-  if (fileResponse && headerParams.length) throw new Error(`${op.toolName}: response.file returns a link, which cannot carry header parameters (${headerParams.join(', ')}); exclude them`)
+  assertFileResponseHeaders(op, bindings)
   const validate = ajv.compile(inputSchema)
   // In compact mode the tool's own schema describes the body only as `object`, so the real
   // one validates it here. This is the point of summarising rather than dropping: a

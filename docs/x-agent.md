@@ -466,6 +466,13 @@ does not know. What happens depends on `lint`:
     and prints one `console.warn` listing each left-out operation (method, path) and the reason;
   - `lint: 'off'` does the same silently.
 
+An operation is also left out when the tools it would become cannot be built (`selectParam`
+naming no parameter, header parameters on a `response.file`, an editor naming unknown
+operations, no `operationId`), and a root skill's `tools` no longer list its name. Keys on
+schema properties inside shared (`$ref`'d) component schemas, and on path-level parameters,
+are not attributable to one operation: they stay document-level, so a NEW schema-property key
+still requires servers to be upgraded first, even under `warn`.
+
 Leaving the operation out is fail-closed on purpose: ignoring an unknown key could change what
 the tool means (an ignored `response.file` would download a file as text; an ignored
 `bodyRequired` would offer an upload tool without its file). The service stays `ok` in a

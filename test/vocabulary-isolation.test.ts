@@ -38,6 +38,35 @@ async function warnings (fn: () => Promise<unknown>): Promise<string[]> {
   }
 }
 
+describe('an operation whose tool cannot be built', () => {
+  const headerParam = { name: 'X-Token', in: 'header', schema: { type: 'string' } }
+  const cases: [string, Record<string, unknown>][] = [
+    ['response.file with a header parameter', { get: op('bad', { name: 'bad', response: { file: true } }, { parameters: [headerParam] }) }],
+    ['selectParam naming a missing parameter', { get: op('bad', { name: 'bad', response: { selectParam: 'nope' } }) }],
+    ['an editor reading an unknown operation', { put: op('bad', { name: 'bad', editor: { readOperation: 'missing' } }, { requestBody: { content: { 'application/json': { schema: { type: 'object' } } } } }) }]
+  ]
+  for (const [label, bad] of cases) {
+    it(`warn: ${label} leaves only that tool out; error still throws`, async () => {
+      let ts: any
+      const w = await warnings(async () => { ts = await load(docWith(bad), { lint: 'warn', fetch: fetchFn }) })
+      assert.deepEqual(names(ts), ['good'])
+      assert.equal(w.length, 1)
+      await assert.rejects(load(docWith(bad), { fetch: fetchFn }))
+    })
+  }
+  it('no operationId: left out under warn', async () => {
+    const d = docWith({ get: { 'x-agent': { name: 'bad' }, responses: {} } })
+    assert.deepEqual(names(await load(d, { lint: 'off', fetch: fetchFn })), ['good'])
+    await assert.rejects(load(d, { fetch: fetchFn }), /has x-agent but no operationId/)
+  })
+  it('a skill does not list a tool that was left out', async () => {
+    const d: any = docWith({ get: op('bad', { name: 'bad', futureKey: true }) }, { skills: [{ name: 'sk', description: 'd', body: 'b', tools: ['good', 'bad'] }] })
+    const ts = await load(d, { lint: 'off', fetch: fetchFn })
+    assert.deepEqual(ts.skills[0].tools, ['good'])
+    assert.ok(!ts.instructions.includes('bad'))
+  })
+})
+
 describe('an operation annotation this version rejects', () => {
   it('warn: leaves only that operation out and says which and why, once', async () => {
     let ts: any

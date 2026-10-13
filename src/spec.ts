@@ -1,4 +1,6 @@
 import { validateVocabulary, type OperationFinding } from './vocabulary/validate.ts'
+import { buildInput, assertFileResponseHeaders } from './input.ts'
+import { resolveEditorOperations } from './editor/operations.ts'
 import { expandProfiles, selectProfiles, matchesProfiles } from './profiles.ts'
 import type { JsonSchema, AgentOperation, AgentOperationAnnotation, AgentParamOverride, AgentRoot, AgentTag, ResolvedBody, ResolvedOperation, ResolvedParam } from './types.ts'
 
@@ -86,10 +88,21 @@ export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetc
   validateVocabulary(doc, onOperation)
   expandProfiles((doc['x-agent'] as AgentRoot | undefined)?.profiles)
   const inlined = inlineRefs(doc)
-  checkBodies(inlined, onOperation, key => leftOut.has(key))
+  checkAnnotations(inlined, onOperation, key => leftOut.has(key))
   // The annotation is what makes an operation a tool: without it the operation contributes none
   // of its views, and the document is otherwise untouched (inlined is a copy).
-  for (const { path, method } of leftOut.values()) delete inlined.paths[path][method]['x-agent']
+  const gone = new Set<string>()
+  const prefix = (inlined['x-agent'] as AgentRoot | undefined)?.namePrefix ?? ''
+  for (const { path, method } of leftOut.values()) {
+    const op = inlined.paths[path][method]
+    for (const view of Array.isArray(op['x-agent']) ? op['x-agent'] : [op['x-agent']]) {
+      const name = view?.name ?? (typeof op.operationId === 'string' ? snakeCase(op.operationId) : undefined)
+      if (name) gone.add(prefix + name)
+    }
+    delete op['x-agent']
+  }
+  // A skill must not publish the name of a tool this load left out.
+  if (gone.size) for (const skill of (inlined['x-agent'] as AgentRoot | undefined)?.skills ?? []) if (skill.tools) skill.tools = skill.tools.filter(t => !gone.has(t))
   if (leftOut.size && options.lint === 'warn') {
     const lines = [...leftOut.values()].map(o => `  ${o.method.toUpperCase()} ${o.path}: ${o.reasons.join('; ')}`)
     console.warn(`openapi-mcp: ${leftOut.size} operation(s) left out, their x-agent is not accepted by this version:\n${lines.join('\n')}`)
@@ -128,13 +141,13 @@ export function resolveBody (requestBody: any): ResolvedBody | undefined {
  * and take the whole service out of those sets in a composition. Needs the inlined document,
  * since a request body is usually a $ref.
  */
-function checkBodies (doc: JsonSchema, onOperation?: (finding: OperationFinding) => void, alreadyLeftOut: (key: string) => boolean = () => false) {
+function checkAnnotations (doc: JsonSchema, onOperation?: (finding: OperationFinding) => void, alreadyLeftOut: (key: string) => boolean = () => false) {
   for (const [path, item] of Object.entries<any>(doc.paths ?? {})) {
     for (const method of METHODS) {
       const annotation: AgentOperationAnnotation | undefined = item?.[method]?.['x-agent']
       if (annotation === undefined || alreadyLeftOut(`${method} ${path}`)) continue
       try {
-        checkOperationBody(path, method, item[method], annotation)
+        checkOperationAnnotation(path, method, item, annotation, doc, onOperation !== undefined)
       } catch (err: any) {
         if (!onOperation) throw err
         onOperation({ path, method, message: err.message })
@@ -143,7 +156,8 @@ function checkBodies (doc: JsonSchema, onOperation?: (finding: OperationFinding)
   }
 }
 
-function checkOperationBody (path: string, method: string, operation: any, annotation: AgentOperationAnnotation) {
+function checkOperationAnnotation (path: string, method: string, item: any, annotation: AgentOperationAnnotation, doc: JsonSchema, structural: boolean) {
+  const operation = item[method]
   const body = resolveBody(operation.requestBody)
   const views = Array.isArray(annotation) ? annotation : [annotation]
   views.forEach((view, i) => {
@@ -162,6 +176,18 @@ function checkOperationBody (path: string, method: string, operation: any, annot
     const stray = (view.bodyRequired ?? []).filter(f => !offered.includes(f))
     if (stray.length) throw new Error(`x-agent invalid at ${at}: bodyRequired names properties the tool does not offer: ${stray.join(', ')}`)
   })
+  // What building the tools would refuse (selectParam, header parameters of a file response,
+  // an editor's references), found here for every view so that a lenient load can leave the
+  // operation out. A strict load keeps finding them when the tools of the selected profiles
+  // are built, as it always did.
+  if (!structural) return
+  const prefix = (doc['x-agent'] as AgentRoot | undefined)?.namePrefix ?? ''
+  for (const agent of views) {
+    if (!operation.operationId) throw new Error(`operation ${method.toUpperCase()} ${path} has x-agent but no operationId`)
+    const op = resolveOne(path, item, method, operation, agent, true, prefix)
+    if (agent.editor) resolveEditorOperations(op, doc)
+    else assertFileResponseHeaders(op, buildInput(op, 'en').bindings)
+  }
 }
 
 /** Operation-level override wins over parameter-level x-agent. */
