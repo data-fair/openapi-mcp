@@ -33,6 +33,8 @@ export interface SummaryOptions {
   maxDescription?: number
   /** Enums longer than this list their first values and then elide; some run to 18 members. */
   maxEnumValues?: number
+  /** Picks the `x-i18n-title` translation of a title used in place of a missing description. */
+  locale?: string
 }
 
 /**
@@ -61,13 +63,21 @@ function typeOf (schema: JsonSchema, maxEnumValues = 8): string {
     const shown = schema.enum.slice(0, maxEnumValues).map((v: unknown) => JSON.stringify(v)).join('|')
     return schema.enum.length > maxEnumValues ? `${shown}|… (${schema.enum.length} values)` : shown
   }
+  if ('const' in schema) return JSON.stringify(schema.const)
   const branches: JsonSchema[] | undefined = schema.oneOf ?? schema.anyOf
+  // a oneOf of consts is how json-layout gives an enum its labels
+  if (Array.isArray(branches) && branches.length && branches.every(b => b && typeof b === 'object' && 'const' in b)) {
+    return typeOf({ enum: branches.map(b => b.const) }, maxEnumValues)
+  }
   if (Array.isArray(branches)) return branches.map(b => typeOf(b, maxEnumValues)).join(' | ')
   if (schema.type === 'array') return `${typeOf(schema.items ?? {}, maxEnumValues)}[]`
   if (schema.type === 'object' || schema.properties) return 'object'
   if (Array.isArray(schema.type)) return schema.type.join('|')
   return schema.type ?? 'any'
 }
+
+// the base title is the default text, not the first translation: no fallback on another locale
+const title = (schema: JsonSchema, locale: string): string | undefined => schema['x-i18n-title']?.[locale] ?? schema.title
 
 function truncate (text: string, max: number): string {
   const flat = text.replace(/\s+/g, ' ').trim()
@@ -89,7 +99,8 @@ function lines (schema: JsonSchema, depth: number, o: Required<SummaryOptions>):
     let type = typeOf(nested && inner.type === 'array' ? { type: 'array', items: { type: 'object' } } : (nested ? { type: 'object' } : inner), o.maxEnumValues)
     if (nullable) type += ' | null'
 
-    const description = raw.description ?? inner.description
+    // a title alone still says what the property is; json-layout keeps its display text in x-i18n-title
+    const description = raw.description ?? inner.description ?? title(raw, o.locale) ?? title(inner, o.locale)
     const suffix = description ? ` — ${truncate(String(description), o.maxDescription)}` : ''
     out.push(`${indent}${name}${optional}: ${type}${suffix}`)
 
@@ -99,6 +110,6 @@ function lines (schema: JsonSchema, depth: number, o: Required<SummaryOptions>):
 }
 
 export function summariseSchema (schema: JsonSchema, options: SummaryOptions = {}): string {
-  const o = { maxDepth: options.maxDepth ?? 0, maxDescription: options.maxDescription ?? 80, maxEnumValues: options.maxEnumValues ?? 8 }
+  const o = { maxDepth: options.maxDepth ?? 0, maxDescription: options.maxDescription ?? 80, maxEnumValues: options.maxEnumValues ?? 8, locale: options.locale ?? 'en' }
   return lines(schema, 0, o).join('\n')
 }

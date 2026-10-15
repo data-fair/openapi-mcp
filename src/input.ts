@@ -168,7 +168,7 @@ export function buildInput (op: ResolvedOperation, locale: string, options: { fi
   if (requestBody?.kind === 'json' && op.agent.body === 'compact') {
     properties.body = {
       type: 'object',
-      description: `The request body. Properties (\`?\` marks optional):\n\n${summariseSchema(requestBody.schema)}`
+      description: `The request body. Properties (\`?\` marks optional):\n\n${summariseSchema(requestBody.schema, { locale })}`
     }
     if (requestBody.required) required.push('body')
     bindings.push({ toolName: 'body', kind: 'body', apiName: 'body', style: undefined, explode: undefined })

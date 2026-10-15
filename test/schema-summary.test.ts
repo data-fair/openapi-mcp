@@ -21,6 +21,15 @@ describe('summariseSchema — property lines', () => {
     const out = summariseSchema({ type: 'object', properties: { title: { type: 'string', description: 'Dataset title' } } })
     assert.equal(out, 'title?: string — Dataset title')
   })
+  it('falls back on the title when there is no description', () => {
+    const out = summariseSchema({ type: 'object', properties: { spatial: { type: 'string', title: 'Geographic coverage' }, t: { type: 'string', title: 'T', description: 'Described' } } })
+    assert.equal(out, 'spatial?: string — Geographic coverage\nt?: string — Described')
+  })
+  it('takes the title translation of the locale, the base title otherwise', () => {
+    const schema = { type: 'object', properties: { spatial: { type: 'string', title: 'Spatial', 'x-i18n-title': { en: 'Geographic coverage', fr: 'Couverture géographique' } }, title: { type: 'string', title: 'Title', 'x-i18n-title': { fr: 'Titre' } } } }
+    assert.equal(summariseSchema(schema), 'spatial?: string — Geographic coverage\ntitle?: string — Title')
+    assert.equal(summariseSchema(schema, { locale: 'fr' }), 'spatial?: string — Couverture géographique\ntitle?: string — Titre')
+  })
   it('truncates a long description', () => {
     const out = summariseSchema({ type: 'object', properties: { d: { type: 'string', description: 'x'.repeat(200) } } })
     assert.ok(out.length < 130, `line was ${out.length} chars`)
@@ -36,6 +45,25 @@ describe('summariseSchema — enum truncation', () => {
   })
   it('lists a short enum in full', () => {
     assert.equal(summariseSchema({ type: 'object', properties: { f: { type: 'string', enum: ['a', 'b'] } } }), 'f?: "a"|"b"')
+  })
+})
+
+describe('summariseSchema — titled constants', () => {
+  // the json-layout way to label choices, e.g. data-fair's dataset frequency
+  it('reads a oneOf of consts as an enum', () => {
+    const out = summariseSchema({ type: 'object', properties: { f: { type: 'string', oneOf: [{ const: 'daily', title: 'Every day' }, { const: 'weekly', title: 'Every week' }] } } })
+    assert.equal(out, 'f?: "daily"|"weekly"')
+  })
+  it('elides a long oneOf of consts like a long enum', () => {
+    const oneOf = Array.from({ length: 18 }, (_, i) => ({ const: `v${i}`, title: `Value ${i}` }))
+    assert.match(summariseSchema({ type: 'object', properties: { f: { type: 'string', oneOf } } }), /… \(18 values\)/)
+  })
+  it('keeps a nullable oneOf of consts', () => {
+    const out = summariseSchema({ type: 'object', properties: { f: { anyOf: [{ type: 'string', oneOf: [{ const: 'a' }, { const: 'b' }] }, { type: 'null' }] } } })
+    assert.equal(out, 'f?: "a"|"b" | null')
+  })
+  it('shows a lone const as its value', () => {
+    assert.equal(summariseSchema({ type: 'object', properties: { t: { const: 'file' } } }), 't?: "file"')
   })
 })
 
