@@ -1,8 +1,7 @@
 import { validateVocabulary, type OperationFinding } from './vocabulary/validate.ts'
 import { buildInput, assertFileResponseHeaders } from './input.ts'
 import { resolveEditorOperations } from './editor/operations.ts'
-import { expandProfiles, selectProfiles, matchesProfiles } from './profiles.ts'
-import type { JsonSchema, AgentOperation, AgentOperationAnnotation, AgentParamOverride, AgentRoot, AgentTag, ResolvedBody, ResolvedOperation, ResolvedParam } from './types.ts'
+import type { JsonSchema, AgentOperation, AgentOperationAnnotation, AgentParamOverride, AgentRoot, ResolvedBody, ResolvedOperation, ResolvedParam } from './types.ts'
 
 const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']
 
@@ -13,11 +12,6 @@ export function snakeCase (s: string): string {
     .replace(/^_+|_+$/g, '')
     .replace(/_+/g, '_')
     .toLowerCase()
-}
-
-export function defaultProfile (doc: JsonSchema): string {
-  const root: AgentRoot = doc['x-agent'] ?? {}
-  return Object.keys(root.profiles ?? {})[0] ?? 'default'
 }
 
 /** Resolve a local JSON pointer like #/components/schemas/pet against the document. */
@@ -86,19 +80,17 @@ export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetc
       }
     : undefined
   validateVocabulary(doc, onOperation)
-  expandProfiles((doc['x-agent'] as AgentRoot | undefined)?.profiles)
   const inlined = inlineRefs(doc)
   checkAnnotations(inlined, onOperation, key => leftOut.has(key))
   // The annotation is what makes an operation a tool: without it the operation contributes none
   // of its views, and the document is otherwise untouched (inlined is a copy).
   const gone = new Set<string>()
-  const prefix = (inlined['x-agent'] as AgentRoot | undefined)?.namePrefix ?? ''
   for (const { path, method } of leftOut.values()) {
     const op = inlined.paths[path][method]
     if (!op['x-agent']) continue // not a tool: nothing to strip from a skill, nothing of its own left out
     for (const view of Array.isArray(op['x-agent']) ? op['x-agent'] : [op['x-agent']]) {
       const name = view?.name ?? (typeof op.operationId === 'string' ? snakeCase(op.operationId) : undefined)
-      if (name) gone.add(prefix + name)
+      if (name) gone.add(name)
     }
     delete op['x-agent']
   }
@@ -137,9 +129,8 @@ export function resolveBody (requestBody: any): ResolvedBody | undefined {
 }
 
 /**
- * Body annotations are checked on every view, whatever profiles are requested later: a misspelled
- * field on a view only some profile sets select would otherwise fail far from its annotation,
- * and take the whole service out of those sets in a composition. Needs the inlined document,
+ * Body annotations are checked on every view up front, so that a misspelled field fails at its
+ * annotation (or, in a lenient load, leaves only that operation out). Needs the inlined document,
  * since a request body is usually a $ref.
  */
 function checkAnnotations (doc: JsonSchema, onOperation?: (finding: OperationFinding) => void, alreadyLeftOut: (key: string) => boolean = () => false) {
@@ -179,13 +170,11 @@ function checkOperationAnnotation (path: string, method: string, item: any, anno
   })
   // What building the tools would refuse (selectParam, header parameters of a file response,
   // an editor's references), found here for every view so that a lenient load can leave the
-  // operation out. A strict load keeps finding them when the tools of the selected profiles
-  // are built, as it always did.
+  // operation out. A strict load keeps finding them when the tools are built, as it always did.
   if (!structural) return
-  const prefix = (doc['x-agent'] as AgentRoot | undefined)?.namePrefix ?? ''
   for (const agent of views) {
     if (!operation.operationId) throw new Error(`operation ${method.toUpperCase()} ${path} has x-agent but no operationId`)
-    const op = resolveOne(path, item, method, operation, agent, true, prefix)
+    const op = resolveOne(path, item, method, operation, agent)
     if (agent.editor) resolveEditorOperations(op, doc)
     else assertFileResponseHeaders(op, buildInput(op, 'en').bindings)
   }
@@ -205,7 +194,7 @@ function mergeParam (raw: JsonSchema, override: AgentParamOverride | undefined):
   }
 }
 
-function resolveOne (path: string, item: any, method: string, op: any, agent: AgentOperation, profiles: string[] | true, prefix: string): ResolvedOperation {
+function resolveOne (path: string, item: any, method: string, op: any, agent: AgentOperation): ResolvedOperation {
   const tags: string[] = op.tags ?? []
   // path-level params first, operation-level override by (in, name)
   const rawParams = new Map<string, JsonSchema>()
@@ -229,35 +218,24 @@ function resolveOne (path: string, item: any, method: string, op: any, agent: Ag
     requestBody: resolveBody(op.requestBody),
     responseSchema: okContent['application/json']?.schema,
     responseMediaTypes: Object.keys(okContent),
-    agent: { ...agent, profiles },
-    toolName: prefix + (agent.name ?? snakeCase(op.operationId))
+    // a copy: a caller adjusting a resolved operation must not edit the document's annotation
+    agent: { ...agent },
+    toolName: agent.name ?? snakeCase(op.operationId)
   }
 }
 
-export function resolveOperations (doc: JsonSchema, profiles: string | string[], overrides: { namePrefix?: string } = {}): ResolvedOperation[] {
-  const root: AgentRoot = doc['x-agent'] ?? {}
-  // A caller may replace the document's prefix: a route kept for compatibility serves the
-  // same operations under the names its clients already have in their allow-lists.
-  const prefix = overrides.namePrefix ?? root.namePrefix ?? ''
-  const requested = Array.isArray(profiles) ? profiles : [profiles]
-  const selected = selectProfiles(requested, expandProfiles(root.profiles))
-  const tagAgents = new Map<string, AgentTag>()
-  for (const t of doc.tags ?? []) if (t?.['x-agent']) tagAgents.set(t.name, t['x-agent'])
-
+/** Every operation carrying `x-agent`, one entry per view. */
+export function resolveOperations (doc: JsonSchema): ResolvedOperation[] {
   const out: ResolvedOperation[] = []
   for (const [path, item] of Object.entries<any>(doc.paths ?? {})) {
     for (const method of METHODS) {
       const op = item?.[method]
       if (!op || op['x-agent'] === undefined) continue
       const annotation: AgentOperationAnnotation = op['x-agent']
-      const tags: string[] = op.tags ?? []
-      const tagProfiles = tags.map(t => tagAgents.get(t)?.profiles).find(p => p !== undefined)
-      // Each view of an operation is a tool of its own, selected by its own profiles.
+      // Each view of an operation is a tool of its own.
       for (const agent of Array.isArray(annotation) ? annotation : [annotation]) {
-        const opProfiles = agent.profiles ?? tagProfiles ?? true
-        if (!matchesProfiles(opProfiles, selected)) continue
         if (!op.operationId) throw new Error(`operation ${method.toUpperCase()} ${path} has x-agent but no operationId`)
-        out.push(resolveOne(path, item, method, op, agent, opProfiles, prefix))
+        out.push(resolveOne(path, item, method, op, agent))
       }
     }
   }
@@ -267,12 +245,11 @@ export function resolveOperations (doc: JsonSchema, profiles: string | string[],
 }
 
 /**
- * Resolve one operation by id with the x-agent and profile gates lifted. An `editor`
+ * Resolve one operation by id with the x-agent gate lifted. An `editor`
  * annotation names operations that usually have no annotation of their own, so they are
  * invisible to resolveOperations.
  */
 export function resolveOperationById (doc: JsonSchema, operationId: string): ResolvedOperation | undefined {
-  const prefix = (doc['x-agent'] as AgentRoot | undefined)?.namePrefix ?? ''
   for (const [path, item] of Object.entries<any>(doc.paths ?? {})) {
     for (const method of METHODS) {
       const op = item?.[method]
@@ -280,7 +257,7 @@ export function resolveOperationById (doc: JsonSchema, operationId: string): Res
       // An editor reads or compiles the raw operation; views are tools, not data sources.
       const annotation: AgentOperationAnnotation | undefined = op['x-agent']
       const agent: AgentOperation = annotation && !Array.isArray(annotation) ? annotation : {}
-      return resolveOne(path, item, method, op, agent, agent.profiles ?? true, prefix)
+      return resolveOne(path, item, method, op, agent)
     }
   }
   return undefined

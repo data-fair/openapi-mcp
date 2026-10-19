@@ -2,7 +2,6 @@
   "openapi": "3.1.0",
   "info": { "title": "Files", "version": "1" },
   "servers": [{ "url": "https://files.example/api" }],
-  "x-agent": { "profiles": { "edit": { "title": "Edit" } } },
   "paths": {
     "/datasets": {
       "post": {

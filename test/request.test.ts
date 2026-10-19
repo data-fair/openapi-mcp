@@ -8,10 +8,10 @@ import { buildRequest, rawContentType } from '../src/request.ts'
 import type { FileSource } from '../src/multipart.ts'
 
 const petstore = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8')))
-const explore = resolveOperations(petstore, 'explore')
-const listPets = explore.find(o => o.operationId === 'listPets')!
-const getPet = explore.find(o => o.operationId === 'getPet')!
-const createPet = resolveOperations(petstore, 'edit')[0]
+const ops = resolveOperations(petstore)
+const listPets = ops.find(o => o.operationId === 'listPets')!
+const getPet = ops.find(o => o.operationId === 'getPet')!
+const createPet = ops.find(o => o.operationId === 'createPet')!
 const base = 'https://pets.example/api/'
 
 describe('buildRequest', () => {
@@ -65,7 +65,7 @@ describe('buildRequest', () => {
 })
 
 const filesDoc = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/files.json', import.meta.url), 'utf8')))
-const fileOps = resolveOperations(filesDoc, 'edit')
+const fileOps = resolveOperations(filesDoc)
 const memoryFile = (name: string, text: string, contentType?: string): FileSource => {
   const bytes = Buffer.from(text)
   return { name, contentType, size: bytes.length, body: Readable.from([bytes]), close () {} }

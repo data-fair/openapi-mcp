@@ -5,7 +5,7 @@ import { inlineRefs, resolveOperations } from '../src/spec.ts'
 import { render, type RenderOptions } from '../src/render.ts'
 
 const petstore = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8')))
-const listPets = resolveOperations(petstore, 'explore').find(o => o.operationId === 'listPets')!
+const listPets = resolveOperations(petstore).find(o => o.operationId === 'listPets')!
 const goldenDir = new URL('./fixtures/render/', import.meta.url)
 
 // UPDATE_GOLDEN writes the file and then fails the test on purpose: a regeneration run must

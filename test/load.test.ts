@@ -19,43 +19,28 @@ function stub (handler: (req: Request) => Response | Promise<Response>) {
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } })
 
 describe('load', () => {
-  it('builds the tool set for the default profile with instructions', async () => {
+  it('builds the tool set with instructions', async () => {
     const ts = await load(petstore, { fetch: stub(() => json({})).fetchFn })
-    assert.deepEqual(ts.profiles, ['explore'])
-    assert.deepEqual(ts.tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet'])
-    assert.equal(ts.instructions, '## workflow\n\nStart with list_pets, then get_pet.\n\nRead it as the MCP resource skill://workflow/SKILL.md.\n\n## Pets\n\nPets have an id and a name.')
+    assert.deepEqual(ts.tools.map(t => t.name), ['list_pets', 'create_pet', 'get_pet'])
+    assert.equal(ts.instructions, '## workflow\n\nStart with list_pets, then get_pet.\n\nRead it as the MCP resource skill://workflow/SKILL.md.\n\n## editing\n\nUse create_pet only when asked.\n\nRead it as the MCP resource skill://editing/SKILL.md.\n\n## Pets\n\nPets have an id and a name.')
     const list = ts.tools[0]
     assert.equal(list.description, 'List pets. Use q for text search.')
     assert.deepEqual(list.annotations, { readOnlyHint: true, destructiveHint: false })
     assert.deepEqual(list.examples, [{ query: 'rex', size: 5 }])
     assert.equal(list.outputSchema, undefined)
-    assert.deepEqual(ts.skills.map(s => [s.id, s.description]), [['workflow', 'Start with list_pets, then get_pet.']])
+    assert.equal(ts.tools[1].annotations.readOnlyHint, false)
+    assert.deepEqual(ts.skills.map(s => [s.id, s.description]), [['workflow', 'Start with list_pets, then get_pet.'], ['editing', 'Use create_pet only when asked.']])
   })
-  it('localizes and switches profile', async () => {
-    const ts = await load(petstore, { profile: 'edit', locale: 'fr', fetch: stub(() => json({})).fetchFn })
-    assert.deepEqual(ts.tools.map(t => t.name), ['pets_create_pet'])
-    assert.equal(ts.instructions, '## workflow\n\nCommencez par list_pets.\n\nRead it as the MCP resource skill://workflow/SKILL.md.\n\n## editing\n\nUse create_pet only when asked.\n\nRead it as the MCP resource skill://editing/SKILL.md.\n\n## Pets\n\nPets have an id and a name.')
-    assert.equal(ts.tools[0].annotations.readOnlyHint, false)
-    assert.deepEqual(ts.skills.map(s => s.id), ['workflow', 'editing'])
-  })
-  it('loads a set of profiles and records it', async () => {
-    const ts = await load(petstore, { profiles: ['explore', 'edit'], fetch: stub(() => json({})).fetchFn })
-    assert.deepEqual(ts.profiles, ['explore', 'edit'])
-    assert.deepEqual(ts.tools.map(t => t.name), ['pets_list_pets', 'pets_create_pet', 'pets_get_pet'])
-    assert.match(ts.instructions, /## editing/)
-  })
-  it('rejects a set naming an undeclared profile', async () => {
-    await assert.rejects(load(petstore, { profiles: ['explore', 'nope'] }), /unknown profile "nope" \(declared: explore, edit\)/)
+  it('localizes', async () => {
+    const ts = await load(petstore, { locale: 'fr', fetch: stub(() => json({})).fetchFn })
+    assert.equal(ts.tools[0].description, 'Lister les animaux.')
+    assert.match(ts.instructions, /^## workflow\n\nCommencez par list_pets\./)
   })
   it('applies the call context to the upstream request', async () => {
     const { fetchFn, calls } = stub(() => json({ total: 0, results: [] }))
     const ts = await load(petstore, { fetch: fetchFn })
     await ts.tools[0].execute({}, { headers: { cookie: 'id_token=abc' } })
     assert.equal(calls[0].headers.get('cookie'), 'id_token=abc')
-  })
-  it('applies a name prefix override', async () => {
-    const ts = await load(petstore, { namePrefix: '', fetch: stub(() => json({})).fetchFn })
-    assert.deepEqual(ts.tools.map(t => t.name), ['list_pets', 'get_pet'])
   })
   it('executes: validates, fetches with defaults applied, renders', async () => {
     const { fetchFn, calls } = stub(() => json({ total: 1, results: [{ id: 'p1', name: 'Rex', internalCode: 'X' }], meta: { hints: ['h'] } }))
@@ -85,50 +70,75 @@ describe('load', () => {
   })
   it('passes text/markdown responses through', async () => {
     const ts = await load(petstore, { fetch: stub(() => new Response('# Rex\n', { headers: { 'content-type': 'text/markdown' } })).fetchFn })
-    assert.deepEqual(await ts.tools[1].execute({ id: 'p1' }), { text: '# Rex\n' })
+    assert.deepEqual(await ts.tools[2].execute({ id: 'p1' }), { text: '# Rex\n' })
   })
   it('adds structuredContent and outputSchema when asked', async () => {
     const ts = await load(petstore, { fetch: stub(() => json({ id: 'p1', name: 'Rex' })).fetchFn, structuredContent: true })
-    assert.equal(ts.tools[1].outputSchema?.type, 'object')
-    const res = await ts.tools[1].execute({ id: 'p1' })
+    assert.equal(ts.tools[2].outputSchema?.type, 'object')
+    const res = await ts.tools[2].execute({ id: 'p1' })
     assert.deepEqual(res.structuredContent, { id: 'p1', name: 'Rex' })
   })
   it('uses baseUrl override and empty responses', async () => {
     const { fetchFn, calls } = stub(() => new Response(null, { status: 204 }))
     const ts = await load(petstore, { fetch: fetchFn, baseUrl: 'http://localhost:1234/v1' })
-    assert.deepEqual(await ts.tools[1].execute({ id: 'p1' }), { text: 'OK' })
+    assert.deepEqual(await ts.tools[2].execute({ id: 'p1' }), { text: 'OK' })
     assert.equal(calls[0].url, 'http://localhost:1234/v1/pets/p1')
-  })
-  it('fails loudly on an unknown profile', async () => {
-    await assert.rejects(load(petstore, { profile: 'nope' }), /unknown profile "nope"/)
   })
   it('treats a 200 with an empty body and json content-type as OK', async () => {
     const ts = await load(petstore, { fetch: stub(() => new Response('', { status: 200, headers: { 'content-type': 'application/json' } })).fetchFn })
-    assert.deepEqual(await ts.tools[1].execute({ id: 'p1' }), { text: 'OK' })
+    assert.deepEqual(await ts.tools[2].execute({ id: 'p1' }), { text: 'OK' })
   })
   it('reports malformed json bodies as an error instead of throwing', async () => {
     const ts = await load(petstore, { fetch: stub(() => new Response('not json', { status: 200, headers: { 'content-type': 'application/json' } })).fetchFn })
-    const res = await ts.tools[1].execute({ id: 'p1' })
+    const res = await ts.tools[2].execute({ id: 'p1' })
     assert.equal(res.isError, true)
     assert.match(res.text, /Invalid JSON response/)
   })
 })
 
+describe('load — one document, no profiles', () => {
+  const doc = (rootAgent: Record<string, unknown> = {}, opAgent: Record<string, unknown> = { name: 'list_things' }) => ({
+    openapi: '3.1.0',
+    info: { title: 'Things', version: '1' },
+    servers: [{ url: 'https://things.test/api' }],
+    'x-agent': rootAgent,
+    paths: {
+      '/things': {
+        get: { operationId: 'listThings', 'x-agent': opAgent, responses: { 200: { description: 'ok' } } },
+        post: { operationId: 'createThing', 'x-agent': {}, responses: { 201: { description: 'created' } } }
+      },
+      '/things/{id}': {
+        delete: { operationId: 'deleteThing', parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }], responses: { 204: { description: 'gone' } } }
+      }
+    }
+  })
+
+  it('loads every annotated operation without profiles', async () => {
+    const toolSet = await load(doc(), { fetch: stub(() => json({})).fetchFn })
+    assert.deepEqual(toolSet.tools.map(t => t.name), ['list_things', 'create_thing'])
+    assert.equal('profiles' in toolSet, false)
+  })
+  it('refuses profiles and namePrefix in x-agent', async () => {
+    await assert.rejects(load(doc({ namePrefix: 'x_' })), /namePrefix/)
+    await assert.rejects(load(doc({}, { profiles: ['read'] })), /profiles/)
+  })
+  it('all root skills are listed', async () => {
+    const toolSet = await load(doc({ skills: [{ name: 'how-to', description: 'How to handle things.' }] }), { fetch: stub(() => json({})).fetchFn })
+    assert.deepEqual(toolSet.skills.map(s => s.id), ['how-to'])
+  })
+})
+
 describe('load — operation views', () => {
   it('builds one tool per view, each with its own description and annotations', async () => {
-    const ts = await load(views, { profiles: ['manage'], fetch: stub(() => json({ id: '1' })).fetchFn })
-    assert.deepEqual(ts.tools.map(t => t.name), ['t_update_thing', 't_publish_thing'])
+    const ts = await load(views, { fetch: stub(() => json({ id: '1' })).fetchFn })
+    assert.deepEqual(ts.tools.map(t => t.name), ['update_thing', 'publish_thing'])
     assert.equal(ts.tools[1].description, 'Choose the sites a thing is published on.')
     assert.deepEqual(ts.tools[1].annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true })
   })
-  it('offers only the views of the requested profiles', async () => {
-    const ts = await load(views, { profiles: ['write'], fetch: stub(() => json({ id: '1' })).fetchFn })
-    assert.deepEqual(ts.tools.map(t => t.name), ['t_update_thing'])
-  })
   it('sends only the allowed fields, and refuses others before any request', async () => {
     const s = stub(() => json({ id: '1' }))
-    const ts = await load(views, { profiles: ['manage'], fetch: s.fetchFn })
-    const publish = ts.tools.find(t => t.name === 't_publish_thing')!
+    const ts = await load(views, { fetch: s.fetchFn })
+    const publish = ts.tools.find(t => t.name === 'publish_thing')!
     const refused = await publish.execute({ id: '1', publicationSites: ['portal-a'], title: 'x' })
     assert.equal(refused.isError, true)
     assert.match(refused.text, /^Invalid parameters/)
@@ -143,8 +153,8 @@ describe('load — operation views', () => {
     const doc = structuredClone(views)
     doc.paths['/things/{id}'].patch['x-agent'][1].body = 'compact'
     const s = stub(() => json({ id: '1' }))
-    const ts = await load(doc, { profiles: ['manage'], fetch: s.fetchFn })
-    const publish = ts.tools.find(t => t.name === 't_publish_thing')!
+    const ts = await load(doc, { fetch: s.fetchFn })
+    const publish = ts.tools.find(t => t.name === 'publish_thing')!
     const refused = await publish.execute({ id: '1', body: { publicationSites: ['portal-a'], title: 'x' } })
     assert.equal(refused.isError, true)
     assert.match(refused.text, /^Invalid body/)
@@ -177,16 +187,16 @@ describe('load — linked skills', () => {
 
   it('lists skills in the instructions without bodies, pointing to their resources', async () => {
     const s = bodies({ 'https://api.test/v1/w.md': 'SECRET BODY' })
-    const ts = await load(skilled([{ name: 'w', description: 'When w.', href: 'w.md', tools: ['pets_list_pets'] }]), { fetch: s.fetchFn })
-    assert.equal(ts.instructions, '## w\n\nWhen w.\n\nTools: pets_list_pets\nRead it as the MCP resource skill://w/SKILL.md.\n\n## Pets\n\nPets have an id and a name.')
+    const ts = await load(skilled([{ name: 'w', description: 'When w.', href: 'w.md', tools: ['list_pets'] }]), { fetch: s.fetchFn })
+    assert.equal(ts.instructions, '## w\n\nWhen w.\n\nTools: list_pets\nRead it as the MCP resource skill://w/SKILL.md.\n\n## Pets\n\nPets have an id and a name.')
     assert.equal(ts.guide, '## Pets\n\nPets have an id and a name.')
-    assert.deepEqual(ts.tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet'])
-    assert.equal(ts.skills[0].body, 'SECRET BODY\n\nTools: pets_list_pets')
+    assert.deepEqual(ts.tools.map(t => t.name), ['list_pets', 'create_pet', 'get_pet'])
+    assert.equal(ts.skills[0].body, 'SECRET BODY\n\nTools: list_pets')
   })
 
   it('keeps serving when a body is unreachable', async () => {
     const ts = await load(skilled([{ name: 'w', description: 'When w.', href: 'gone.md' }]), { fetch: bodies({}).fetchFn })
-    assert.deepEqual(ts.tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet'])
+    assert.deepEqual(ts.tools.map(t => t.name), ['list_pets', 'create_pet', 'get_pet'])
     assert.match(ts.skills[0].error!, /HTTP 404 \(https:\/\/api\.test\/v1\/gone\.md\)/)
   })
 })

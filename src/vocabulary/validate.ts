@@ -71,9 +71,8 @@ function checkView (view: unknown, path: string, method: string) {
 
 /**
  * An operation annotation is one view or an array of views. Every view of an array is a tool
- * of its own, so each needs a name, unique within the array: the views of one PATCH are
- * selected together whenever a profile includes another, and a clash found only for some
- * profile sets would surface far from the annotation that caused it.
+ * of its own, so each needs a name, unique within the array: a clash is reported at the
+ * annotation that caused it rather than as a duplicate tool name.
  */
 function checkOperation (value: unknown, path: string, method: string) {
   if (!Array.isArray(value)) return checkView(value, path, method)

@@ -32,7 +32,6 @@ export interface AgentResponse {
 }
 
 export interface AgentOperation {
-  profiles?: string[] | true
   name?: string
   title?: Localized
   description?: Localized
@@ -66,7 +65,7 @@ export interface AgentOperation {
 
 /**
  * An operation's `x-agent`: one tool, or several views of the operation, each its own tool —
- * a PATCH whose fields belong to different profile tiers is offered as one tool per tier.
+ * a PATCH whose fields serve different purposes is offered as one tool per purpose.
  */
 export type AgentOperationAnnotation = AgentOperation | AgentOperation[]
 
@@ -90,19 +89,14 @@ export interface AgentSkill {
   description: Localized
   href?: Localized
   body?: Localized
-  profiles?: string[]
   tools?: string[]
 }
 
 export interface AgentRoot {
-  namePrefix?: string
-  /** `includes` declares a superset: requesting this profile also selects every operation of the included ones. */
-  profiles?: Record<string, { title?: Localized, description?: Localized, includes?: string[] }>
   skills?: AgentSkill[]
 }
 
 export interface AgentTag {
-  profiles?: string[] | true
   skill?: Localized
 }
 
@@ -152,8 +146,8 @@ export interface ResolvedOperation {
   responseSchema?: JsonSchema
   /** media types declared for the 2xx response, in document order */
   responseMediaTypes: string[]
-  agent: AgentOperation & { profiles: string[] | true }
-  /** final tool name (prefix + name or snake_case operationId) */
+  agent: AgentOperation
+  /** final tool name (x-agent name, else snake_case operationId) */
   toolName: string
 }
 
@@ -212,15 +206,12 @@ export interface Skill {
   /** why a linked body could not be read; the skill stays listed and its resource read reports it */
   error?: string
   tools?: string[]
-  profiles?: string[]
 }
 
 /** Reads a linked skill body; never throws. */
 export type SkillBodyFetcher = (url: string) => Promise<{ text: string } | { error: string }>
 
 export interface ToolSet {
-  /** the profiles requested, in request order */
-  profiles: string[]
   instructions: string
   /** the document's own sections (tag guides), without skill entries — what a composer nests under the service heading */
   guide?: string

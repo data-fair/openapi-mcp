@@ -5,7 +5,6 @@ import { load } from '../src/load.ts'
 const doc = {
   openapi: '3.1.0',
   info: { title: 't', version: '1' },
-  'x-agent': { profiles: { write: { description: 'write' } } },
   paths: {
     '/datasets/{id}/schema': {
       parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
@@ -22,7 +21,6 @@ const doc = {
         requestBody: { content: { 'application/json': { schema: { type: 'object' } } } },
         responses: { 200: { description: 'ok' } },
         'x-agent': {
-          profiles: ['write'],
           name: 'dataset_line',
           title: { en: 'Edit a record' },
           editor: { schemaOperation: 'readSchema', schemaParams: { mimeType: 'application/schema+json' }, readOperation: 'readLine' }
@@ -44,7 +42,7 @@ const fetchFn = (async (input: Request) => {
 
 describe('editor tool group', () => {
   it('produces eight tools named after the operation', async () => {
-    const { tools } = await load(doc, { profile: 'write', fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    const { tools } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
     assert.deepEqual(tools.map(t => t.name).sort(), [
       'dataset_line_describeState', 'dataset_line_editArray', 'dataset_line_getData',
       'dataset_line_getFieldSuggestions', 'dataset_line_reloadForm', 'dataset_line_saveForm',
@@ -54,12 +52,12 @@ describe('editor tool group', () => {
 
   it('makes no HTTP request while building the tools', async () => {
     calls.length = 0
-    await load(doc, { profile: 'write', fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
     assert.equal(calls.length, 0, 'descriptors must be published without touching the API')
   })
 
   it('every tool takes the write operation path parameters', async () => {
-    const { tools } = await load(doc, { profile: 'write', fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    const { tools } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
     for (const tool of tools) {
       assert.equal(tool.inputSchema.properties.id !== undefined, true, `${tool.name} should take id`)
       assert.equal(tool.inputSchema.properties.lineId !== undefined, true, `${tool.name} should take lineId`)
@@ -67,7 +65,7 @@ describe('editor tool group', () => {
   })
 
   it('opens a session on first call and describes the fetched schema', async () => {
-    const { tools } = await load(doc, { profile: 'write', fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    const { tools } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
     const describe = tools.find(t => t.name === 'dataset_line_describeState')!
     const result = await describe.execute({ id: 'communes', lineId: 'abc' })
     assert.equal(result.isError, undefined)
@@ -75,7 +73,7 @@ describe('editor tool group', () => {
   })
 
   it('resumes the same session for the same record', async () => {
-    const { tools } = await load(doc, { profile: 'write', fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    const { tools } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
     const set = tools.find(t => t.name === 'dataset_line_setFieldValue')!
     const get = tools.find(t => t.name === 'dataset_line_getData')!
     await set.execute({ id: 'communes', lineId: 'abc', path: '/nom', value: 'Brest' })
@@ -84,12 +82,12 @@ describe('editor tool group', () => {
   })
 
   it('appends the group guide to the instructions', async () => {
-    const { instructions } = await load(doc, { profile: 'write', fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    const { instructions } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
     assert.match(instructions, /dataset_line/)
   })
 
   it('publishes the operation title in every tool description', async () => {
-    const { tools } = await load(doc, { profile: 'write', fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    const { tools } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
     for (const tool of tools) {
       assert.match(tool.description, /Edit a record/, `${tool.name} should carry the operation title`)
       assert.doesNotMatch(tool.description, /"form"/, `${tool.name} should not carry the bootstrap title`)
@@ -97,7 +95,7 @@ describe('editor tool group', () => {
   })
 
   it('partitions sessions by identity and sends each call with its own headers', async () => {
-    const { tools } = await load(doc, { profile: 'write', fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    const { tools } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
     const set = tools.find(t => t.name === 'dataset_line_setFieldValue')!
     const get = tools.find(t => t.name === 'dataset_line_getData')!
     calls.length = 0
@@ -118,7 +116,6 @@ describe('editor group skill', () => {
   const declaredDoc = {
     openapi: '3.1.0',
     info: { title: 't', version: '1' },
-    'x-agent': { profiles: { write: { description: 'write' } } },
     paths: {
       '/portals/{id}': {
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
@@ -137,7 +134,7 @@ describe('editor group skill', () => {
             }
           },
           responses: { 200: { description: 'ok' } },
-          'x-agent': { profiles: ['write'], name: 'portal_config', title: { en: 'Edit a portal configuration' }, editor: { readOperation: 'readPortal' } }
+          'x-agent': { name: 'portal_config', title: { en: 'Edit a portal configuration' }, editor: { readOperation: 'readPortal' } }
         }
       }
     }
@@ -145,7 +142,7 @@ describe('editor group skill', () => {
 
   it('publishes the fill-form skill of a declared schema, its agent guide included', async () => {
     calls.length = 0
-    const { skills } = await load(declaredDoc, { profile: 'write', fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    const { skills } = await load(declaredDoc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
     const skill = skills.find(s => s.id === 'portal-config')
     assert.ok(skill, `an editor group skill is published (have ${skills.map(s => s.id).join(', ')})`)
     assert.match(skill.body, /Social links take an identifier, not a URL\./)
@@ -156,7 +153,7 @@ describe('editor group skill', () => {
   })
 
   it('publishes a generic skill when the schema is only known per record', async () => {
-    const { skills } = await load(doc, { profile: 'write', fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    const { skills } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
     const skill = skills.find(s => s.id === 'dataset-line')
     assert.ok(skill)
     assert.match(skill.body, /dataset_line_describeState/)

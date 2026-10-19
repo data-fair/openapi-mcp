@@ -3,15 +3,13 @@
   "info": { "title": "Pets", "version": "1" },
   "servers": [{ "url": "https://pets.example/api" }],
   "x-agent": {
-    "namePrefix": "pets_",
-    "profiles": { "explore": { "title": "Explore" }, "edit": { "title": "Edit" } },
     "skills": [
       { "name": "workflow", "description": { "en": "Start with list_pets, then get_pet.", "fr": "Commencez par list_pets." } },
-      { "name": "editing", "description": "Use create_pet only when asked.", "profiles": ["edit"] }
+      { "name": "editing", "description": "Use create_pet only when asked." }
     ]
   },
   "tags": [
-    { "name": "Pets", "x-agent": { "profiles": ["explore"], "skill": "Pets have an id and a name." } },
+    { "name": "Pets", "x-agent": { "skill": "Pets have an id and a name." } },
     { "name": "Admin" }
   ],
   "components": {
@@ -71,7 +69,7 @@
       "post": {
         "operationId": "createPet",
         "tags": ["Pets"],
-        "x-agent": { "profiles": ["edit"] },
+        "x-agent": {},
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/pet" } } } },
         "responses": { "201": { "description": "created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/pet" } } } } }
       }

@@ -18,7 +18,7 @@ describe('resolveSkills', () => {
       { name: 'inline', description: 'When inline.', body: 'Inline body.', tools: ['t1', 't2'] },
       { name: 'a', description: 'When a.', href: 'agents/skills/a.md' },
       { name: 'plain', description: 'Just this.' }
-    ], new Set(['explore']), 'en', base, fetchBody)
+    ], 'en', base, fetchBody)
     assert.deepEqual(skills.map(s => [s.id, s.description, s.body]), [
       ['inline', 'When inline.', 'Inline body.\n\nTools: t1, t2'],
       ['a', 'When a.', '# A\n\nDo this.'],
@@ -31,18 +31,17 @@ describe('resolveSkills', () => {
     const skills = await resolveSkills([
       { name: 'b', description: 'd', href: { en: 'agents/skills/b.en.md', fr: 'agents/skills/b.fr.md' } },
       { name: 'c', description: 'd', href: 'https://cdn.test/c.md' }
-    ], new Set(), 'fr', base, fetchBody)
+    ], 'fr', base, fetchBody)
     assert.deepEqual(skills.map(s => s.body), ['Faites ceci.', 'Absolute.'])
   })
-  it('keeps an unreachable skill with its error, and filters by profiles', async () => {
+  it('keeps an unreachable skill with its error', async () => {
     const skills = await resolveSkills([
-      { name: 'gone', description: 'd', href: 'nope.md' },
-      { name: 'edit-only', description: 'd', profiles: ['edit'] }
-    ], new Set(['explore']), 'en', base, fetchBody)
+      { name: 'gone', description: 'd', href: 'nope.md' }
+    ], 'en', base, fetchBody)
     assert.deepEqual(skills.map(s => [s.id, s.body, s.error]), [['gone', '', 'HTTP 404 (https://api.test/v1/nope.md)']])
   })
   it('refuses a relative link without a base URL, as an error on the skill', async () => {
-    const [skill] = await resolveSkills([{ name: 'a', description: 'd', href: 'a.md' }], new Set(), 'en', undefined, fetchBody)
+    const [skill] = await resolveSkills([{ name: 'a', description: 'd', href: 'a.md' }], 'en', undefined, fetchBody)
     assert.match(skill.error!, /no base URL/)
   })
 })
@@ -52,7 +51,7 @@ describe('resolveSkills — unresolvable links', () => {
     const skills = await resolveSkills([
       { name: 'rel', description: 'd', href: 'w.md' },
       { name: 'bad', description: 'd', href: 'http://[' }
-    ], new Set(), 'en', '/api/v1/', fetchBody)
+    ], 'en', '/api/v1/', fetchBody)
     assert.deepEqual(skills.map(s => [s.id, s.body]), [['rel', ''], ['bad', '']])
     assert.match(skills[0].error!, /cannot resolve link w\.md against \/api\/v1\//)
     assert.match(skills[1].error!, /cannot resolve link http:\/\/\[/)
@@ -76,7 +75,7 @@ describe('defaultSkillFetcher', () => {
 
 describe('skillEntries', () => {
   it('renders name, description, tools and the resource to read, never the body', async () => {
-    const skills = await resolveSkills([{ name: 'w', description: 'When w.', body: 'SECRET BODY', tools: ['t1'] }], new Set(), 'en', base, fetchBody)
+    const skills = await resolveSkills([{ name: 'w', description: 'When w.', body: 'SECRET BODY', tools: ['t1'] }], 'en', base, fetchBody)
     const composed = skills.map(s => ({ ...s, id: 'svc/w' }))
     assert.equal(skillUri(composed[0]), 'skill://svc/w/SKILL.md')
     const text = skillEntries(composed)

@@ -116,7 +116,7 @@ describe('load — body: "compact"', () => {
         put: {
           operationId: 'putThing',
           parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
-          'x-agent': { profiles: true, name: 'put_thing', body },
+          'x-agent': { name: 'put_thing', body },
           requestBody: {
             required: true,
             content: {

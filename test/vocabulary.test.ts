@@ -29,10 +29,10 @@ describe('validateVocabulary', () => {
   })
   it('accepts valid root, tag, operation, parameter and property annotations', () => {
     const d: any = doc({
-      'x-agent': { namePrefix: 'df_', profiles: { explore: { title: { fr: 'Explorer', en: 'Explore' } } }, skills: [{ name: 'workflow', description: 'Start with list_things.' }] },
-      tags: [{ name: 'Things', 'x-agent': { profiles: ['explore'], skill: 'Things are…' } }]
+      'x-agent': { skills: [{ name: 'workflow', description: 'Start with list_things.', tools: ['list_things'] }] },
+      tags: [{ name: 'Things', 'x-agent': { skill: 'Things are…' } }]
     })
-    d.paths['/things'].get['x-agent'] = { profiles: true, name: 'list_things', params: { size: { maximum: 50 } }, response: { rows: '/results', concise: ['id'] } }
+    d.paths['/things'].get['x-agent'] = { name: 'list_things', params: { size: { maximum: 50 } }, response: { rows: '/results', concise: ['id'] } }
     d.paths['/things'].get.parameters[0]['x-agent'] = { default: 10 }
     d.paths['/things'].get.responses[200].content['application/json'].schema.properties.id['x-agent'] = { hint: 'opaque id' }
     assert.doesNotThrow(() => validateVocabulary(d))
@@ -40,7 +40,7 @@ describe('validateVocabulary', () => {
   it('rejects a multi-segment rows pointer and accepts a single-segment one', () => {
     const withRows = (rows: string) => {
       const d: any = doc({})
-      d.paths['/things'].get['x-agent'] = { profiles: true, response: { rows } }
+      d.paths['/things'].get['x-agent'] = { response: { rows } }
       return d
     }
     assert.throws(() => validateVocabulary(withRows('/data/results')), /x-agent invalid at \/paths\/~1things\/get: .*rows/)
@@ -48,14 +48,20 @@ describe('validateVocabulary', () => {
   })
   it('rejects unknown fields and names the path', () => {
     const d: any = doc({})
-    d.paths['/things'].get['x-agent'] = { profiles: true, template: '{{id}}' }
+    d.paths['/things'].get['x-agent'] = { template: '{{id}}' }
     assert.throws(() => validateVocabulary(d), /x-agent invalid at \/paths\/~1things\/get: .*template/)
   })
   it('rejects a wrong type at root', () => {
-    assert.throws(() => validateVocabulary(doc({ 'x-agent': { namePrefix: 3 } })), /x-agent invalid at \/: .*namePrefix/)
+    assert.throws(() => validateVocabulary(doc({ 'x-agent': { skills: 3 } })), /x-agent invalid at \/: .*skills/)
   })
-  it('accepts includes on a root profile', () => {
-    assert.doesNotThrow(() => validateVocabulary(doc({ 'x-agent': { profiles: { a: {}, b: { includes: ['a'] } } } })))
+  it('refuses the retired namePrefix and profiles, wherever they appear', () => {
+    assert.throws(() => validateVocabulary(doc({ 'x-agent': { namePrefix: 'df_' } })), /x-agent invalid at \/: .*namePrefix/)
+    assert.throws(() => validateVocabulary(doc({ 'x-agent': { profiles: { explore: {} } } })), /x-agent invalid at \/: .*profiles/)
+    assert.throws(() => validateVocabulary(doc({ 'x-agent': { skills: [{ name: 'w', description: 'd', profiles: ['explore'] }] } })), /x-agent invalid at \/: .*profiles/)
+    assert.throws(() => validateVocabulary(doc({ tags: [{ name: 'Things', 'x-agent': { profiles: ['explore'] } }] })), /x-agent invalid at .*profiles/)
+    const d: any = doc({})
+    d.paths['/things'].get['x-agent'] = { name: 'list_things', profiles: true }
+    assert.throws(() => validateVocabulary(d), /x-agent invalid at \/paths\/~1things\/get: .*profiles/)
   })
   it('rejects a skill name outside the Agent Skills format', () => {
     assert.throws(() => validateVocabulary(doc({ 'x-agent': { skills: [{ name: 'Workflow', description: 'd' }] } })), /x-agent invalid at \/: \/skills\/0\/name must match pattern/)
@@ -91,12 +97,12 @@ const viewsDoc = (views: unknown) => ({
 describe('operation views', () => {
   it('accepts an array of named views with body allow-lists', () => {
     assert.doesNotThrow(() => validateVocabulary(viewsDoc([
-      { name: 'update_thing', profiles: ['write'], bodyFields: ['title'] },
-      { name: 'publish_thing', profiles: ['manage'], bodyFields: ['publicationSites'] }
+      { name: 'update_thing', bodyFields: ['title'] },
+      { name: 'publish_thing', bodyFields: ['publicationSites'] }
     ])))
   })
   it('requires a name on every view, naming the view', () => {
-    assert.throws(() => validateVocabulary(viewsDoc([{ name: 'update_thing' }, { profiles: ['manage'] }])), /patch\/1: every view of an operation needs a name/)
+    assert.throws(() => validateVocabulary(viewsDoc([{ name: 'update_thing' }, { bodyFields: ['publicationSites'] }])), /patch\/1: every view of an operation needs a name/)
   })
   it('refuses two views with the same name', () => {
     assert.throws(() => validateVocabulary(viewsDoc([{ name: 'thing' }, { name: 'thing' }])), /patch\/1: duplicate view name "thing"/)

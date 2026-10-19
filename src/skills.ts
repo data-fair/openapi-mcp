@@ -42,14 +42,13 @@ export function defaultSkillFetcher (fetchFn: typeof fetch): SkillBodyFetcher {
 }
 
 /**
- * The skills a profile set selects, from a document's or an index's `skills`, with their bodies:
+ * A document's `skills` with their bodies:
  * inline, linked (resolved against `base`), or the description itself. A body that cannot be read
  * leaves the skill listed with an `error`, so a broken link never takes a service down.
  */
-export async function resolveSkills (skills: AgentSkill[] | undefined, selected: Set<string>, locale: string, base: string | undefined, fetchBody: SkillBodyFetcher): Promise<Skill[]> {
+export async function resolveSkills (skills: AgentSkill[] | undefined, locale: string, base: string | undefined, fetchBody: SkillBodyFetcher): Promise<Skill[]> {
   const out: Skill[] = []
   for (const skill of skills ?? []) {
-    if (skill.profiles && !skill.profiles.some(p => selected.has(p))) continue
     const description = (localize(skill.description, locale) ?? '').trim()
     let text: string | undefined
     let error: string | undefined
@@ -67,7 +66,7 @@ export async function resolveSkills (skills: AgentSkill[] | undefined, selected:
       text = (localize(skill.body, locale) ?? description).trim()
     }
     const body = text === undefined ? '' : withTools(text, skill.tools)
-    out.push({ id: skill.name, name: skill.name, description, body, digest: digestOf(body), tools: skill.tools, profiles: skill.profiles, ...(error ? { error } : {}) })
+    out.push({ id: skill.name, name: skill.name, description, body, digest: digestOf(body), tools: skill.tools, ...(error ? { error } : {}) })
   }
   return out
 }
@@ -89,9 +88,8 @@ export function editorSkill (op: ResolvedOperation, body: string, tools: string[
   const title = (localize(op.agent.title, locale) ?? op.summary ?? '').trim()
   const description = (title ? `${title}: how to use the ${op.toolName}_* form tools.` : `How to use the ${op.toolName}_* form tools.`)
     .slice(0, MAX_DESCRIPTION)
-  const profiles = Array.isArray(op.agent.profiles) ? op.agent.profiles : undefined
   const text = body.trim()
-  return { id: name, name, description, body: text, digest: digestOf(text), tools, ...(profiles ? { profiles } : {}) }
+  return { id: name, name, description, body: text, digest: digestOf(text), tools }
 }
 
 export interface SkillFile {

@@ -18,7 +18,7 @@ describe('skill frontmatter', () => {
   })
 })
 
-const toolSet = { profiles: [], tools: [], skills: [], instructions: '## workflow\n\nRead it as the MCP resource skill://svc/workflow/SKILL.md.\n\nGuide text.', guideInstructions: 'Guide text.' }
+const toolSet = { tools: [], skills: [], instructions: '## workflow\n\nRead it as the MCP resource skill://svc/workflow/SKILL.md.\n\nGuide text.', guideInstructions: 'Guide text.' }
 
 describe('instructions for skills-aware clients', () => {
   it('keep the skill index for a client that does not declare skills', () => {

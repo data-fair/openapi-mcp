@@ -1,8 +1,7 @@
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js'
 import addFormatsModule, { type FormatsPlugin } from 'ajv-formats'
 import Debug from 'debug'
-import { loadSpec, resolveOperations, defaultProfile } from './spec.ts'
-import { expandProfiles, selectProfiles } from './profiles.ts'
+import { loadSpec, resolveOperations } from './spec.ts'
 import { buildEditorTools } from './editor/index.ts'
 import { buildInput, assertFileResponseHeaders } from './input.ts'
 import { buildRequest } from './request.ts'
@@ -23,12 +22,6 @@ const debug = Debug('openapi-mcp')
 const addFormats = addFormatsModule as unknown as FormatsPlugin
 
 export interface LoadOptions {
-  /** one profile; `profiles` wins when both are given */
-  profile?: string
-  /** a set of profiles; an operation in any of them (after `includes` expansion) is selected once */
-  profiles?: string[]
-  /** replaces the document's `x-agent.namePrefix` (`''` strips it) */
-  namePrefix?: string
   fetch?: typeof fetch
   locale?: string
   baseUrl?: string
@@ -57,8 +50,8 @@ export interface LoadOptions {
 const ajv = new Ajv2020({ strict: false, allErrors: true, useDefaults: true, coerceTypes: false })
 addFormats(ajv)
 
-/** The document's own guide: the skill text of the tags its selected operations carry. Skills are listed separately, by skillEntries. */
-export function buildInstructions (doc: JsonSchema, profiles: string[], ops: ResolvedOperation[], locale: string): string {
+/** The document's own guide: the skill text of the tags its operations carry. Skills are listed separately, by skillEntries. */
+export function buildInstructions (doc: JsonSchema, ops: ResolvedOperation[], locale: string): string {
   const sections: string[] = []
   const usedTags = new Set(ops.flatMap(o => o.tags))
   for (const tag of doc.tags ?? []) {
@@ -73,7 +66,7 @@ function errorsText (validate: ValidateFunction): string {
   return (validate.errors ?? []).map(e => `${e.instancePath || 'params'} ${e.message}`).join('; ')
 }
 
-export type ToolOptions = Required<Omit<LoadOptions, 'profile' | 'profiles' | 'namePrefix' | 'documentUrl' | 'skillBodies' | 'files'>> & { files: FileFetcher | undefined }
+export type ToolOptions = Required<Omit<LoadOptions, 'documentUrl' | 'skillBodies' | 'files'>> & { files: FileFetcher | undefined }
 
 /** A fetch failure's message with its cause: undici reports a failed body stream as "fetch failed". */
 const failureText = (err: any) => err?.cause?.message ? `${err.message} (${err.cause.message})` : (err?.message ?? String(err))
@@ -171,12 +164,6 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
   const fetchFn = options.fetch ?? globalThis.fetch
   const doc = await loadSpec(spec, fetchFn, { lint: options.lint })
   const root: AgentRoot = doc['x-agent'] ?? {}
-  const declared = Object.keys(root.profiles ?? {})
-  const profiles = options.profiles ?? (options.profile ? [options.profile] : [defaultProfile(doc)])
-  if (!profiles.length) throw new Error('profiles must name at least one profile')
-  for (const p of profiles) {
-    if (declared.length && !declared.includes(p)) throw new Error(`unknown profile "${p}" (declared: ${declared.join(', ')})`)
-  }
   const baseUrl = options.baseUrl ?? doc.servers?.[0]?.url
   if (!baseUrl) throw new Error('no base URL: pass options.baseUrl or declare servers[0] in the document')
   const o = {
@@ -189,7 +176,7 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
     lint: options.lint ?? 'error',
     files: createFileFetcher(options.files)
   }
-  const ops = resolveOperations(doc, profiles, { namePrefix: options.namePrefix })
+  const ops = resolveOperations(doc)
   const editorOps = ops.filter(op => op.agent.editor)
   const plainOps = ops.filter(op => !op.agent.editor)
   const built = plainOps.flatMap(op => makeTool(op, o) ?? [])
@@ -219,9 +206,8 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
   // Relative skill links resolve against the document's URL, else its server URL taken as a
   // directory: `…/api/v1` + `agents/skills/x.md` is `…/api/v1/agents/skills/x.md`.
   const skillBase = options.documentUrl ?? (typeof spec === 'string' ? spec : undefined) ?? baseUrl.replace(/\/?$/, '/')
-  const selected = selectProfiles(profiles, expandProfiles(root.profiles))
-  const skills = [...await resolveSkills(root.skills, selected, o.locale, skillBase, options.skillBodies ?? defaultSkillFetcher(fetchFn)), ...editorSkills]
-  const guide = buildInstructions(doc, profiles, ops, o.locale)
+  const skills = [...await resolveSkills(root.skills, o.locale, skillBase, options.skillBodies ?? defaultSkillFetcher(fetchFn)), ...editorSkills]
+  const guide = buildInstructions(doc, ops, o.locale)
   const instructions = [skillEntries(skills), guide].filter(Boolean).join('\n\n')
-  return { profiles, instructions, guideInstructions: guide || undefined, guide, tools, skills }
+  return { instructions, guideInstructions: guide || undefined, guide, tools, skills }
 }

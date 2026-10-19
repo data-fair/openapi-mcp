@@ -6,12 +6,12 @@ import { buildInput, responseFields, isFilePart, FILE_NOTE } from '../src/input.
 import type { AgentOperation } from '../src/types.ts'
 
 const petstore = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8')))
-const ops = resolveOperations(petstore, 'explore')
+const ops = resolveOperations(petstore)
 const listPets = ops.find(o => o.operationId === 'listPets')!
 const getPet = ops.find(o => o.operationId === 'getPet')!
-const createPet = resolveOperations(petstore, 'edit')[0]
+const createPet = ops.find(o => o.operationId === 'createPet')!
 const views = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/views.json', import.meta.url), 'utf8')))
-const [updateThing, publishThing] = resolveOperations(views, 'manage')
+const [updateThing, publishThing] = resolveOperations(views)
 
 describe('buildInput', () => {
   it('renames, excludes, applies overrides and drops fixed params', () => {
@@ -147,16 +147,16 @@ describe('buildInput — bodyFields', () => {
   })
   it('fails on a property the body does not declare', () => {
     const op = { ...publishThing, agent: { ...publishThing.agent, bodyFields: ['publicationSites', 'nope'] } }
-    assert.throws(() => buildInput(op, 'en'), /t_publish_thing: bodyFields names properties the request body does not declare: nope/)
+    assert.throws(() => buildInput(op, 'en'), /publish_thing: bodyFields names properties the request body does not declare: nope/)
   })
   it('fails on a body that is not an object with properties', () => {
     const op = { ...publishThing, requestBody: { kind: 'json' as const, schema: { type: 'array', items: { type: 'string' } }, required: true } }
-    assert.throws(() => buildInput(op, 'en'), /t_publish_thing: bodyFields needs an object request body with properties/)
+    assert.throws(() => buildInput(op, 'en'), /publish_thing: bodyFields needs an object request body with properties/)
   })
 })
 
 const filesDoc = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/files.json', import.meta.url), 'utf8')))
-const fileOps = resolveOperations(filesDoc, 'edit')
+const fileOps = resolveOperations(filesDoc)
 const createDataset = fileOps.find(o => o.operationId === 'createDataset')!
 const bulkLines = fileOps.find(o => o.operationId === 'bulkLines')!
 

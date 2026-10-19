@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { loadSpec, inlineRefs, resolveOperations, resolveOperationById, snakeCase, defaultProfile, resolveBody } from '../src/spec.ts'
+import { loadSpec, inlineRefs, resolveOperations, resolveOperationById, snakeCase, resolveBody } from '../src/spec.ts'
 
 const petstore = JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8'))
 const views = JSON.parse(await readFile(new URL('./fixtures/views.json', import.meta.url), 'utf8'))
@@ -43,47 +43,27 @@ describe('loadSpec', () => {
 
 describe('resolveOperations', () => {
   const doc = inlineRefs(structuredClone(petstore))
-  it('defaults to the first declared profile', () => {
-    assert.equal(defaultProfile(doc), 'explore')
-    assert.equal(defaultProfile({}), 'default')
+  it('resolves every annotated operation, named by x-agent or snake_case operationId', () => {
+    assert.deepEqual(resolveOperations(doc).map(o => o.toolName), ['list_pets', 'create_pet', 'get_pet'])
   })
-  it('selects opted-in operations for a profile, with tag inheritance', () => {
-    const names = resolveOperations(doc, 'explore').map(o => o.toolName)
-    assert.deepEqual(names, ['pets_list_pets', 'pets_get_pet'])
-    assert.deepEqual(resolveOperations(doc, 'edit').map(o => o.toolName), ['pets_create_pet'])
-  })
-  it('selects a set of profiles, each operation once, honouring includes', () => {
-    const d = inlineRefs({
-      ...petstore,
-      'x-agent': { ...petstore['x-agent'], profiles: { explore: {}, edit: { includes: ['explore'] } } }
-    })
-    const both = resolveOperations(d, ['explore', 'edit']).map(o => o.toolName)
-    assert.deepEqual(both, ['pets_list_pets', 'pets_create_pet', 'pets_get_pet'])
-    const viaInclude = resolveOperations(d, ['edit']).map(o => o.toolName)
-    assert.deepEqual(viaInclude, ['pets_list_pets', 'pets_create_pet', 'pets_get_pet'])
-  })
-  it('lets the caller override the name prefix — a legacy route serving unprefixed names', () => {
-    assert.deepEqual(resolveOperations(doc, 'explore', { namePrefix: '' }).map(o => o.toolName), ['list_pets', 'get_pet'])
-    assert.deepEqual(resolveOperations(doc, 'explore', { namePrefix: 'legacy_' }).map(o => o.toolName), ['legacy_list_pets', 'legacy_get_pet'])
-  })
-  it('never includes an operation without x-agent, even with profile true', () => {
-    assert.ok(!resolveOperations(doc, 'explore').some(o => o.operationId === 'deletePet'))
+  it('never includes an operation without x-agent', () => {
+    assert.ok(!resolveOperations(doc).some(o => o.operationId === 'deletePet'))
   })
   it('merges path-level and operation-level parameters and x-agent overrides', () => {
-    const op = resolveOperations(doc, 'explore').find(o => o.operationId === 'listPets')!
+    const op = resolveOperations(doc).find(o => o.operationId === 'listPets')!
     const size = op.params.find(p => p.name === 'size')!
     assert.deepEqual(size.agent, { maximum: 100, default: 10 })
     const q = op.params.find(p => p.name === 'q')!
     assert.equal(q.agent.name, 'query')
-    const get = resolveOperations(doc, 'explore').find(o => o.operationId === 'getPet')!
+    const get = resolveOperations(doc).find(o => o.operationId === 'getPet')!
     assert.equal(get.params[0].in, 'path')
     assert.equal(get.params[0].agent.name, 'id')
   })
   it('captures response schema and media types', () => {
-    const get = resolveOperations(doc, 'explore').find(o => o.operationId === 'getPet')!
+    const get = resolveOperations(doc).find(o => o.operationId === 'getPet')!
     assert.deepEqual(get.responseMediaTypes, ['text/markdown', 'application/json'])
     assert.equal(get.responseSchema?.type, 'object')
-    const create = resolveOperations(doc, 'edit')[0]
+    const create = resolveOperations(doc).find(o => o.operationId === 'createPet')!
     assert.equal(create.requestBody?.required, true)
   })
   it('throws when two operations resolve to the same tool name', () => {
@@ -91,7 +71,7 @@ describe('resolveOperations', () => {
     dupeDoc.paths['/pets/{petId}/twin'] = {
       get: { operationId: 'getPetTwin', 'x-agent': { name: 'list_pets' }, responses: {} }
     }
-    assert.throws(() => resolveOperations(inlineRefs(dupeDoc), 'explore'), /duplicate tool names: pets_list_pets/)
+    assert.throws(() => resolveOperations(inlineRefs(dupeDoc)), /duplicate tool names: list_pets/)
   })
 })
 
@@ -126,23 +106,22 @@ describe('resolveOperationById', () => {
 
 describe('operation views', () => {
   const doc = inlineRefs(structuredClone(views))
-  it('resolves one operation per selected view, in view order', () => {
-    assert.deepEqual(resolveOperations(doc, 'write').map(o => o.toolName), ['t_update_thing'])
-    const both = resolveOperations(doc, 'manage')
-    assert.deepEqual(both.map(o => o.toolName), ['t_update_thing', 't_publish_thing'])
+  it('resolves one operation per view, in view order', () => {
+    const both = resolveOperations(doc)
+    assert.deepEqual(both.map(o => o.toolName), ['update_thing', 'publish_thing'])
     assert.deepEqual(both.map(o => o.operationId), ['patchThing', 'patchThing'])
     assert.deepEqual(both.map(o => o.agent.bodyFields), [['title', 'description'], ['publicationSites']])
     assert.deepEqual(both[1].agent.annotations, { idempotentHint: true })
   })
   it('resolves the raw operation for an editor reference, ignoring the views', () => {
     const op = resolveOperationById(doc, 'patchThing')!
-    assert.equal(op.toolName, 't_patch_thing')
-    assert.deepEqual(op.agent, { profiles: true })
+    assert.equal(op.toolName, 'patch_thing')
+    assert.deepEqual(op.agent, {})
   })
 })
 
 describe('loadSpec — bodyFields checked on every view', () => {
-  it('refuses a misspelled field on a view no profile set has selected yet', async () => {
+  it('refuses a misspelled field on any view', async () => {
     const doc = structuredClone(views)
     doc.paths['/things/{id}'].patch['x-agent'][1].bodyFields = ['publicationSite']
     await assert.rejects(loadSpec(doc, fetch), /patch\/1: bodyFields names properties the request body does not declare: publicationSite/)

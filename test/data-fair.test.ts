@@ -19,7 +19,7 @@ const KNOWN_GAPS: Record<string, { missing?: string[], extra?: string[] }> = {
   calculate_metric: { missing: ['dateMatch'], extra: ['q'] }
 }
 
-describe('data-fair explore profile', () => {
+describe('data-fair exploration tools', () => {
   it('produces the six exploration tools', async () => {
     const ts = await load(doc, { fetch })
     assert.deepEqual(ts.tools.map(t => t.name).sort(), ['aggregate_data', 'calculate_metric', 'describe_dataset', 'get_field_values', 'list_datasets', 'search_data'])

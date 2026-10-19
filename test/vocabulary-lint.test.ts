@@ -94,7 +94,7 @@ describe('load — lint option', () => {
         get: {
           operationId: 'listThings',
           parameters: [{ in: 'query', name: 'sort', schema: { type: 'array', items: { type: 'string' } } }],
-          'x-agent': { profiles: true, params: { sort: { description } } },
+          'x-agent': { params: { sort: { description } } },
           responses: { 200: { description: 'ok', content: { 'application/json': { schema: { type: 'object', properties: { id: { type: 'string' } } } } } } }
         }
       }

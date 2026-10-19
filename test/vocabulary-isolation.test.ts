@@ -2,7 +2,6 @@ import { describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { load } from '../src/load.ts'
 import { loadSpec } from '../src/spec.ts'
-import { createComposer } from '../src/compose.ts'
 
 const op = (id: string, agent: unknown, extra: Record<string, unknown> = {}) => ({
   operationId: id,
@@ -112,25 +111,7 @@ describe('an operation annotation this version rejects', () => {
   it('a document-level error still fails the document, whatever the level', async () => {
     for (const lint of ['warn', 'off'] as const) {
       await assert.rejects(load(docWith({}, { bogus: 1 }), { lint, fetch: fetchFn }), /x-agent invalid at \//)
-      await assert.rejects(load(docWith({}, { profiles: 3 }), { lint, fetch: fetchFn }), /x-agent invalid at \//)
+      await assert.rejects(load(docWith({}, { namePrefix: 'x_' }), { lint, fetch: fetchFn }), /x-agent invalid at \//)
     }
-  })
-  it('the composer keeps the service ok and serves its other tools', async () => {
-    const index = { version: 1 as const, services: [{ id: 'svc', openapi: 'https://svc.test/openapi.json' }] }
-    const fetchStub = (async (input: RequestInfo | URL) => {
-      const url = String(input instanceof Request ? input.url : input)
-      return new Response(JSON.stringify(url.endsWith('openapi.json') ? unknownKey() : {}), { headers: { 'content-type': 'application/json' } })
-    }) as typeof fetch
-    let c: any
-    const w = await warnings(async () => {
-      const composer = await createComposer(index, { fetch: fetchStub, lint: 'warn' })
-      c = await composer.compose(['default'])
-    })
-    assert.deepEqual(c.services.map((s: any) => [s.id, s.status, s.tools]), [['svc', 'ok', 1]])
-    assert.deepEqual(names(c.toolSet), ['good'])
-    assert.equal(w.length, 1)
-    const strict = await createComposer(index, { fetch: fetchStub })
-    const sc = await strict.compose(['default'])
-    assert.equal(sc.services[0].status, 'error')
   })
 })

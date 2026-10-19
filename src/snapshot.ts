@@ -1,7 +1,6 @@
 import type { JsonSchema, ToolAnnotations, ToolSet } from './types.ts'
 
 export interface ToolSetSnapshot {
-  profiles: string[]
   tools: { name: string, description: string, inputSchema: JsonSchema, annotations: ToolAnnotations }[]
   skills: { id: string, name: string, description: string, digest: string }[]
 }
@@ -14,7 +13,6 @@ export interface ToolSetSnapshot {
  */
 export function toolSetSnapshot (toolSet: ToolSet): ToolSetSnapshot {
   const snapshot = {
-    profiles: [...toolSet.profiles],
     tools: toolSet.tools.map(t => ({ name: t.name, description: t.description, inputSchema: structuredClone(t.inputSchema), annotations: { ...t.annotations } })),
     skills: toolSet.skills.map(s => ({ id: s.id, name: s.name, description: s.description, digest: s.digest }))
   }

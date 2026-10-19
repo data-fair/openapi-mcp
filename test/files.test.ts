@@ -212,7 +212,6 @@ describe('file inputs, end to end', () => {
     const doc = {
       openapi: '3.1.0',
       info: { title: 't', version: '1' },
-      'x-agent': { profiles: { edit: { title: 'Edit' } } },
       paths: { '/two': { post: { operationId: 'two', 'x-agent': { name: 'two' }, requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['a', 'b'], properties: { a: part, b: part } } } } }, responses: { 201: { description: 'ok' } } } } }
     }
     const ts = await load(doc, { baseUrl: apiBase, files: { urlPrefixes: [`${src}/files/`] } })
@@ -228,7 +227,6 @@ describe('file inputs, end to end', () => {
     const doc = {
       openapi: '3.1.0',
       info: { title: 't', version: '1' },
-      'x-agent': { profiles: { edit: { title: 'Edit' } } },
       paths: { '/two': { post: { operationId: 'two', 'x-agent': { name: 'two' }, requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['a', 'b'], properties: { a: part, b: part } } } } }, responses: { 201: { description: 'ok' } } } } }
     }
     const ts = await load(doc, { baseUrl: apiBase, files: { urlPrefixes: [`${src}/files/`] } })
@@ -248,7 +246,6 @@ describe('file inputs, end to end', () => {
     const doc = {
       openapi: '3.1.0',
       info: { title: 't', version: '1' },
-      'x-agent': { profiles: { edit: { title: 'Edit' } } },
       paths: { '/two': { post: { operationId: 'two', 'x-agent': { name: 'two' }, requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['a', 'b'], properties: { a: part, b: part } } } } }, responses: { 201: { description: 'ok' } } } } }
     }
     const ts = await load(doc, { baseUrl: apiBase, files: { urlPrefixes: [`${src}/files/`] } })
