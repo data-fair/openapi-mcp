@@ -109,6 +109,13 @@ source chosen per request — `createMcpHttpHandler((request) => …, info)` —
 or a live document; publish change notifications yourself with `handler.notify.toolsChanged()`
 in that case.
 
+A document assembled from several services carries schemas written for each of them. `load`
+inlines every `$ref` the document resolves itself: `#/…` against the nearest embedded schema
+resource (a schema with a `$id`) and then the document root, `<uri>#/…` against a schema of the
+document declaring that `$id`. A ref it cannot resolve — a URL or file it does not embed, a missing
+target, an anchor — reads as `{}` (any value) and is listed on the console (unless `lint: 'off'`);
+it never fails the document, so one service's schema detail cannot take every tool down.
+
 ## Scopes
 
 Each tool carries the security of its operation as `tool.security`: the OpenAPI alternatives, the

@@ -257,7 +257,8 @@ const { instructions, tools, skills } = await load(docOrUrl, {
 })
 ```
 
-`load` inlines local `$ref`s (cycles become `{}`), validates the vocabulary, resolves the
+`load` inlines the `$ref`s the document resolves itself (cycles, and refs it cannot resolve, become
+`{}`; see the README, "One document"), validates the vocabulary, resolves the
 operations — every one carrying `x-agent`, one tool per view — and returns provider-agnostic
 tools plus the document's `skills`:
 

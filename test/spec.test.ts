@@ -22,8 +22,35 @@ describe('inlineRefs', () => {
     const doc = inlineRefs({ components: { schemas: { node: { type: 'object', properties: { child: { $ref: '#/components/schemas/node' } } } } } })
     assert.deepEqual(doc.components.schemas.node.properties.child, {})
   })
-  it('throws on external refs', () => {
-    assert.throws(() => inlineRefs({ a: { $ref: 'other.json#/x' } }), /external \$ref/)
+  it('reads a ref it cannot resolve as {} and reports it, never throws', () => {
+    const seen: string[] = []
+    const doc = inlineRefs({ a: { $ref: 'other.json#/x', description: 'kept' }, b: { $ref: '#/missing/target' }, c: { $ref: '#anchor' } }, (ref, at) => { seen.push(`${at} ${ref}`) })
+    assert.deepEqual(doc, { a: { description: 'kept' }, b: {}, c: {} })
+    assert.deepEqual(seen, ['/a other.json#/x', '/b #/missing/target', '/c #anchor'])
+  })
+  it('resolves #/ refs inside an embedded $id resource against that resource first', () => {
+    const doc = inlineRefs({
+      components: { schemas: { name: { type: 'string' } } },
+      user: {
+        $id: 'https://example.com/user',
+        type: 'object',
+        properties: { org: { $ref: '#/$defs/org' }, name: { $ref: '#/components/schemas/name' } },
+        $defs: { org: { type: 'object', properties: { id: { type: 'string' } } } }
+      }
+    })
+    assert.equal(doc.user.properties.org.properties.id.type, 'string')
+    // not in the resource: OpenAPI's own components, from the document root
+    assert.equal(doc.user.properties.name.type, 'string')
+  })
+  it('resolves a ref to a $id embedded elsewhere in the document, with its own $defs', () => {
+    const doc = inlineRefs({
+      paths: {
+        a: { $id: 'https://example.com/partial', $defs: { modifier: { type: 'object', properties: { by: { $ref: '#/$defs/who' } } }, who: { type: 'string' } } },
+        b: { $id: 'https://example.com/b', properties: { created: { $ref: 'https://example.com/partial#/$defs/modifier' }, partner: { $ref: 'partial' } } }
+      }
+    })
+    assert.equal(doc.paths.b.properties.created.properties.by.type, 'string')
+    assert.equal(doc.paths.b.properties.partner.$id, 'https://example.com/partial')
   })
 })
 
@@ -33,6 +60,39 @@ describe('loadSpec', () => {
     const doc = await loadSpec('https://pets.example/openapi.json', fetchFn)
     assert.equal(doc.info.title, 'Pets')
     assert.equal(doc.paths['/pets'].post.requestBody.content['application/json'].schema.type, 'object')
+  })
+  it('loads a document whose schemas point outside it, tools intact', async (t) => {
+    const warn = t.mock.method(console, 'warn', () => {})
+    const doc = structuredClone(petstore)
+    doc.paths['/elsewhere'] = {
+      get: {
+        operationId: 'elsewhere',
+        responses: {
+          200: {
+            content: {
+              'application/json': {
+                schema: {
+                  $id: 'https://example.com/user',
+                  type: 'object',
+                  properties: {
+                    created: { $ref: 'https://example.com/partial#/$defs/modifier' },
+                    sessions: { type: 'array', items: { $ref: '#/$defs/session' } }
+                  },
+                  $defs: { session: { type: 'object' } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    const loaded = await loadSpec(doc, fetch, { lint: 'error' })
+    const schema = loaded.paths['/elsewhere'].get.responses[200].content['application/json'].schema
+    assert.deepEqual(schema.properties.created, {})
+    assert.deepEqual(schema.properties.sessions.items, { type: 'object' })
+    assert.deepEqual(resolveOperations(loaded).map(o => o.toolName), ['list_pets', 'create_pet', 'get_pet'])
+    assert.equal(warn.mock.callCount(), 1)
+    assert.match(warn.mock.calls[0].arguments[0], /1 \$ref\(s\).*\n.*https:\/\/example\.com\/partial#\/\$defs\/modifier/)
   })
   it('rejects an invalid x-agent', async () => {
     const bad = structuredClone(petstore)

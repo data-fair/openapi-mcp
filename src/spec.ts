@@ -14,39 +14,103 @@ export function snakeCase (s: string): string {
     .toLowerCase()
 }
 
-/** Resolve a local JSON pointer like #/components/schemas/pet against the document. */
-function pointer (doc: JsonSchema, ref: string): unknown {
-  if (!ref.startsWith('#/')) throw new Error(`external $ref not supported: ${ref}`)
-  return ref.slice(2).split('/').map(s => s.replace(/~1/g, '/').replace(/~0/g, '~')).reduce<any>((acc, key) => {
-    if (acc === undefined || acc === null) throw new Error(`unresolvable $ref: ${ref}`)
-    return acc[key]
-  }, doc)
+/** Follow a JSON pointer fragment ("/a/b", already without "#") inside a node; undefined when a step is missing. */
+function follow (node: unknown, fragment: string): unknown {
+  if (fragment === '') return node
+  if (!fragment.startsWith('/')) return undefined // a plain-name anchor: not supported
+  let acc: any = node
+  for (const step of fragment.slice(1).split('/')) {
+    const key = decodeURIComponent(step).replace(/~1/g, '/').replace(/~0/g, '~')
+    if (acc === undefined || acc === null || typeof acc !== 'object' || !Object.hasOwn(acc, key)) return undefined
+    acc = acc[key]
+  }
+  return acc
 }
 
 /**
- * Inline every local $ref. A ref whose target is already an ancestor of the current node
- * (reached either by structural nesting or by a previous $ref on this branch) is a cycle and
- * becomes {}; the same ref reached twice on different branches is inlined twice (schemas are
- * small enough, and tools need self-contained schemas).
+ * Called for a $ref that cannot be resolved inside the document: it is replaced by {} (any value),
+ * never a failure. A document assembled from several services must not lose every tool because
+ * one schema points somewhere this library does not fetch.
  */
-export function inlineRefs (doc: JsonSchema): JsonSchema {
-  const walk = (node: unknown, ancestors: object[]): unknown => {
-    if (Array.isArray(node)) return node.map(n => walk(n, ancestors))
+export type UnresolvedRef = (ref: string, at: string) => void
+
+/**
+ * Inline every $ref the document can resolve itself.
+ *
+ * - `#/…` resolves against the nearest enclosing schema resource (a schema with a string `$id`),
+ *   as JSON Schema says, and against the document root when that resource does not have it
+ *   (OpenAPI's `#/components/…` from inside an embedded resource).
+ * - `<uri>#/…` resolves when some schema of the document declares `$id: <uri>` (absolute, or relative
+ *   to the enclosing resource's `$id`).
+ * - Anything else (a file or URL the document does not embed, a missing target, an anchor) becomes
+ *   {} and is reported to `onUnresolved`.
+ *
+ * A ref whose target is already an ancestor of the current node (reached either by structural
+ * nesting or by a previous $ref on this branch) is a cycle and becomes {}; the same ref reached
+ * twice on different branches is inlined twice (schemas are small enough, and tools need
+ * self-contained schemas).
+ */
+export function inlineRefs (doc: JsonSchema, onUnresolved: UnresolvedRef = () => {}): JsonSchema {
+  // Every embedded schema resource (a schema with a string $id) by its absolute id, and the
+  // resource each node belongs to. Ids are recorded as resources are met, so a relative $id is
+  // read against its parent's absolute one.
+  const ids = new WeakMap<object, string>()
+  const byId = new Map<string, object>()
+  const resourceOf = new WeakMap<object, object>()
+  const absoluteId = (id: string, base: string | undefined) => {
+    let out = id
+    try { out = new URL(id, base).href } catch { /* not a URL, or no base: kept as written */ }
+    return out.replace(/#$/, '')
+  }
+  const index = (node: unknown, resource: object) => {
+    if (!node || typeof node !== 'object' || resourceOf.has(node)) return
+    const obj = node as JsonSchema
+    if (!Array.isArray(obj) && obj !== doc && typeof obj.$id === 'string') {
+      const id = absoluteId(obj.$id, ids.get(resource))
+      ids.set(obj, id)
+      if (!byId.has(id)) byId.set(id, obj)
+      resource = obj
+    }
+    resourceOf.set(obj, resource)
+    for (const v of Object.values(obj)) index(v, resource)
+  }
+  index(doc, doc)
+
+  const resolve = (ref: string, resource: object): unknown => {
+    const hash = ref.indexOf('#')
+    const uri = hash === -1 ? ref : ref.slice(0, hash)
+    const fragment = hash === -1 ? '' : ref.slice(hash + 1)
+    if (uri === '') {
+      const local = resource !== doc ? follow(resource, fragment) : undefined
+      return local !== undefined ? local : follow(doc, fragment)
+    }
+    const target = byId.get(absoluteId(uri, ids.get(resource)))
+    return target === undefined ? undefined : follow(target, fragment)
+  }
+
+  const walk = (node: unknown, ancestors: object[], resource: object, at: string): unknown => {
+    if (Array.isArray(node)) return node.map((n, i) => walk(n, ancestors, resource, `${at}/${i}`))
     if (!node || typeof node !== 'object') return node
     const obj = node as JsonSchema
+    if (ids.has(obj)) resource = obj
     if (typeof obj.$ref === 'string') {
-      const target = pointer(doc, obj.$ref)
-      if (target && typeof target === 'object' && ancestors.includes(target as object)) return {}
       const { $ref, ...siblings } = obj
+      const target = resolve($ref, resource)
+      if (target === undefined) {
+        onUnresolved($ref, at)
+        return walk(siblings, ancestors, resource, at)
+      }
+      if (target && typeof target === 'object' && ancestors.includes(target as object)) return {}
       const nextAncestors = target && typeof target === 'object' ? [...ancestors, target as object] : ancestors
-      const resolved = walk(target, nextAncestors) as JsonSchema
-      return { ...resolved, ...walk(siblings, ancestors) as JsonSchema }
+      const targetResource = target && typeof target === 'object' ? (resourceOf.get(target as object) ?? doc) : resource
+      const resolved = walk(target, nextAncestors, targetResource, at) as JsonSchema
+      return { ...resolved, ...walk(siblings, ancestors, resource, at) as JsonSchema }
     }
     const out: JsonSchema = {}
-    for (const [k, v] of Object.entries(obj)) out[k] = walk(v, [...ancestors, obj])
+    for (const [k, v] of Object.entries(obj)) out[k] = walk(v, [...ancestors, obj], resource, `${at}/${k.replace(/~/g, '~0').replace(/\//g, '~1')}`)
     return out
   }
-  return walk(doc, []) as JsonSchema
+  return walk(doc, [], doc, '') as JsonSchema
 }
 
 export interface LoadSpecOptions {
@@ -55,6 +119,8 @@ export interface LoadSpecOptions {
    * document. 'warn' and 'off' leave that operation's tools out and load the rest ('warn' says
    * which on the console): ignoring a key a server does not know could change a tool's meaning.
    * Findings outside one operation (root, tags, shared schemas) fail the document whatever the level.
+   * A $ref the document cannot resolve itself never fails it: it reads as {} (see inlineRefs),
+   * and is listed on the console unless 'off'.
    */
   lint?: 'error' | 'warn' | 'off'
 }
@@ -80,7 +146,11 @@ export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetc
       }
     : undefined
   validateVocabulary(doc, onOperation)
-  const inlined = inlineRefs(doc)
+  const unresolved: string[] = []
+  const inlined = inlineRefs(doc, (ref, at) => { unresolved.push(`  ${at}: ${ref}`) })
+  if (unresolved.length && options.lint !== 'off') {
+    console.warn(`openapi-mcp: ${unresolved.length} $ref(s) the document does not resolve itself, read as {} (any value):\n${unresolved.join('\n')}`)
+  }
   checkAnnotations(inlined, onOperation, key => leftOut.has(key))
   // The annotation is what makes an operation a tool: without it the operation contributes none
   // of its views, and the document is otherwise untouched (inlined is a copy).
