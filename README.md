@@ -17,13 +17,15 @@ npm install @data-fair/openapi-mcp
 import { load } from '@data-fair/openapi-mcp'
 import { createMcpServer } from '@data-fair/openapi-mcp/adapters/mcp'
 
-const toolSet = await load('https://example.com/openapi.json', { profiles: ['explore'] })
+const toolSet = await load('https://example.com/openapi.json')
 const server = createMcpServer(toolSet, { name: 'my-api', version: '1.0.0' })
 // server.connect(transport) with any @modelcontextprotocol/sdk transport
 ```
 
-`load` returns `{ profiles, instructions, tools, skills }` — provider-agnostic tools, each with an
-input schema, a description, MCP annotations and an `execute(params)` that returns
+One document in, one tool set out: every operation carrying `x-agent` is a tool, named
+`x-agent.name`, else the snake_case of its `operationId`. `load` returns
+`{ instructions, tools, skills }` — provider-agnostic tools, each with an
+input schema, a description, MCP annotations, its `security` and an `execute(params)` that returns
 `{ text, structuredContent?, resourceLink?, isError? }` and never throws. `toMcpServer(toolSet, server)`
 registers them on an existing SDK `Server` if you already have one.
 
@@ -33,10 +35,8 @@ The package also installs an `openapi-mcp` binary that reads its configuration f
 
 | Env var             | Required | Default | Description                                                                      |
 | ------------------- | -------- | ------- | -------------------------------------------------------------------------------- |
-| `INDEX_URL`         | one of   |         | URL of a deployment index listing service-level OpenAPI documents                |
-| `OPENAPI_URL`       | one of   |         | URL of a single OpenAPI document                                                 |
-| `PROFILES`          | no       |         | Comma-separated profile set; the default profile otherwise                       |
-| `REFRESH_INTERVAL`  | no       | `300`   | Seconds between conditional re-fetches of the index and documents; `0` disables  |
+| `OPENAPI_URL`       | yes      |         | URL of the OpenAPI document                                                      |
+| `REFRESH_INTERVAL`  | no       | `300`   | Seconds between conditional re-fetches of the document and its skill bodies; `0` disables |
 | `LINT`              | no       | `error` | `error`, `warn` or `off` — see Annotation lint                                   |
 | `LOCALE`            | no       | `en`    | Locale used to resolve localized text                                            |
 | `BASE_URL`          | no       |         | Overrides `servers[0].url` from the document                                     |
@@ -49,8 +49,9 @@ The package also installs an `openapi-mcp` binary that reads its configuration f
 | `FILE_MAX_SIZE`     | no       | `104857600` | Largest file a file input accepts, in bytes                                   |
 | `FILE_TIMEOUT`      | no       | `300`   | Seconds to fetch a file input, first request to last byte                         |
 
-In HTTP mode a request's `?profiles=explore,edit` selects the set for that request. HTTP
-mode here is single-identity and stateless: it is for development. A deployed server that
+`INDEX_URL`, `PROFILES` and `PROFILE` were removed in 0.7.0: the binary refuses to start when
+one is set (`unknown variable …`) rather than serve another surface than the one asked for.
+HTTP mode here is single-identity and stateless: it is for development. A deployed server that
 serves several callers forwards each caller's identity per call through the adapter's
 context hook — that is `data-fair/mcp` v2, not this binary.
 
@@ -61,7 +62,7 @@ Identity comes from the environment; the binary implements nothing for it:
 ```sh
 NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:7331 \
 NODE_EXTRA_CA_CERTS=~/.config/nhi-proxy/koumoul.com/ca.crt \
-INDEX_URL=https://koumoul.com/data-fair/api/v1/agents/index.json PROFILES=explore,edit openapi-mcp
+OPENAPI_URL=https://koumoul.com/data-fair/api/v1/platform/api-docs.json openapi-mcp
 ```
 
 `API_KEY_HEADER` + `API_KEY` are a single-credential convenience for standalone use. Anything richer (OAuth, multiple headers, per-request auth) is done in code with the library's `fetch` option.
@@ -80,55 +81,67 @@ Example MCP client configuration:
 }
 ```
 
-## Composing a deployment
+## One document
 
-An index lists a deployment's service-level documents; `createComposer` merges them into
-one tool set per profile set, over one document cache:
+A deployment publishes one document; a server serves it as one live tool set.
+`createLiveDocument` loads a URL and keeps what it fetched with its validators, so a refresh is
+a conditional GET of the document and of its linked skill bodies:
 
 ```ts
-import { createComposer } from '@data-fair/openapi-mcp'
+import { createLiveDocument } from '@data-fair/openapi-mcp'
 import { createMcpHttpHandler } from '@data-fair/openapi-mcp/adapters/mcp'
 
-const composer = await createComposer('https://host/data-fair/api/v1/agents/index.json', { locale: 'fr' })
-composer.profiles()                       // every declared profile, expanded, with the index's wording
-const c = await composer.compose(['explore', 'edit'])
-c.toolSet.tools                           // each operation once, index order then document order
-c.services                                // [{ id, status: 'ok' | 'skipped' | 'error', tools, reason? }]
-setInterval(() => composer.refresh(), 300_000)   // conditional GETs; the library runs no timer
+const doc = await createLiveDocument('https://host/data-fair/api/v1/platform/api-docs.json', { locale: 'fr' })
+doc.toolSet                                     // the current tool set, replaced when a refresh changes it
+doc.onChange(toolSet => { /* … */ })            // after a refresh that changed it
+setInterval(() => doc.refresh(), 300_000)       // the library runs no timer
+doc.error                                       // why the last refresh failed; the previous tool set is kept
 
-const handler = createMcpHttpHandler(composer, { name: 'my-server', version: '1.0.0' }, {
+const handler = createMcpHttpHandler(doc, { name: 'my-server', version: '1.0.0' }, {
   context: (request) => ({ headers: { cookie: request?.headers.get('cookie') ?? '' }, identity: request?.headers.get('cookie') ?? undefined })
 })
 ```
 
-The index is the one document this library dictates:
+Only the first load throws. A later refresh that fails — the document unreachable, or no longer
+accepted — keeps serving the last good tool set and says why in `error`. A handler given a live
+document notifies its clients when the tool set changes. `createMcpHttpHandler` also takes a
+source chosen per request — `createMcpHttpHandler((request) => …, info)` — returning a tool set
+or a live document; publish change notifications yourself with `handler.notify.toolsChanged()`
+in that case.
 
-```json
-{
-  "version": 1,
-  "services": [{ "id": "data-fair", "openapi": "https://host/data-fair/api/v1/api-docs.json" }],
-  "profiles": { "full": { "title": "Full", "includes": ["explore", "edit"] } },
-  "skills": [{ "name": "publishing-workflow", "description": "…", "profiles": ["edit"] }]
-}
+## Scopes
+
+Each tool carries the security of its operation as `tool.security`: the OpenAPI alternatives, the
+document's root `security` applied when the operation declares none, `undefined` when neither
+does. `toolsForScopes(toolSet, scopes)` is the part of a tool set a token with these OAuth scopes
+can use:
+
+```ts
+import { toolsForScopes } from '@data-fair/openapi-mcp'
+
+const scoped = toolsForScopes(doc.toolSet, ['datasets:read', 'applications:read'])
 ```
 
-A failing service is excluded and reported; only a bad index throws. Tool names must be
-unique across services (`namePrefix` is how); on a collision the later service is excluded.
-A request naming a profile no service declares is an error, not an empty set.
+A tool is kept when one alternative is met: an `oauth2` requirement whose scopes the token holds
+every one of (exact membership: list each scope an operation accepts, umbrella included, as an
+alternative of its own), or a public one (`{}`, or `security: []`). An operation with no security
+at all is not public here: it is left out. `scopes` undefined is an unscoped session, and keeps
+every tool. Skills whose `tools` were all left out go with them; the instructions are rebuilt.
 
-The index's `profiles` are the deployment's vocabulary. A service declaring a profile the index
-does not declare keeps serving, and its status carries a warning
-(`warnings: ['declares profiles absent from the index: …']`) — a typo in a profile name would
-otherwise create a profile no consumer can present.
+One operation can serve several tiers. A view's `security` narrows its operation's for that tool:
 
-A skill body that cannot be read is reported the same way: `warnings: ['skill <name>: HTTP 404 (<url>)']`.
+```yaml
+patch:
+  operationId: patchDataset
+  security: [{ apiKey: [] }, { oauth2: [datasets:write] }, { oauth2: [datasets:admin] }, { oauth2: [datasets] }]
+  x-agent:
+    - { name: update_dataset, bodyFields: [title, description] }
+    - { name: publish_dataset, bodyFields: [publicationSites], security: [{ apiKey: [] }, { oauth2: [datasets:admin] }, { oauth2: [datasets] }] }
+```
 
-A compatibility route composes a subset of services under an overridden prefix, e.g.
-`composer.compose(['explore'], { services: ['data-fair'], namePrefix: '' })` to serve the
-names a caller already has. `createMcpHttpHandler` also takes a source chosen per request —
-`createMcpHttpHandler((request) => …, info)` — for one handler serving several such routes;
-publish change notifications yourself with `handler.notify.toolsChanged()`, since there is no
-single live source to subscribe to.
+A `datasets:write` token is offered `update_dataset` and not `publish_dataset`, which the API would
+refuse it. An entry can only drop alternatives: one the operation does not declare is refused
+(`publish_dataset: x-agent security alternative {"oauth2":["datasets:read"]} is not in the operation's security`).
 
 ## Identity per call
 
@@ -151,9 +164,27 @@ carries them in its frontmatter as `metadata.tools` (space-separated), so a host
 whose tools it filtered out without reading its body.
 
 A body is inline (`body`) or linked (`href`, a markdown file next to the document). `load()` reads
-linked bodies with its `fetch`; a composer caches them with conditional requests and revalidates
+linked bodies with its `fetch`; a live document caches them with conditional requests and revalidates
 them on `refresh()`. A body that cannot be read keeps the skill listed: its resource answers the
-error, the service status carries a warning, and the skills manifest leaves it out.
+error, the binary prints a warning, and the skills manifest leaves it out.
+
+### Upgrading to 0.7.0
+
+One document in, one tool set out.
+
+- Removed: profiles (`load`'s `profile` and `profiles` options, `x-agent.profiles` at the root, on
+  tags, operations and skills), `namePrefix` (root annotation and option), the composer
+  (`createComposer`, `compose`, `ProfileInfo`, `ServiceStatus`) and the deployment index. The
+  vocabulary refuses `profiles` and `namePrefix` wherever they appear.
+- A tool is named `x-agent.name ?? snake_case(operationId)`, nothing prepended. A deployment of
+  several services merges them into one document, whose entries carry their final names.
+- Who sees a tool is now the token's business: tools carry their `security`, an entry may narrow
+  it, `toolsForScopes` filters (see Scopes). Goldens gain each tool's `security`.
+- The binary: `OPENAPI_URL` is required, and `INDEX_URL`, `PROFILES` and `PROFILE` stop it with
+  `unknown variable …`. `OPENAPI_URL` alone is now refreshed every `REFRESH_INTERVAL` (300 s by
+  default; `0` restores the old load-once behaviour), where before only an index was.
+- `createLiveDocument(url, options)` replaces the composer for one URL: `toolSet`, `error`,
+  `refresh()`, `onChange()`. The MCP adapter takes a tool set or a live document.
 
 ### Upgrading to 0.4.0
 
@@ -165,9 +196,10 @@ and golden snapshots gain each skill's `digest`.
 ## Per-service golden
 
 `toolSetSnapshot(toolSet)` is the agent-facing surface as plain data. A service's CI loads
-its own document with `lint: 'error'` for every declared profile and diffs the snapshot
-against a committed golden, so a change to a tool's name, description or schema is a
-reviewable diff in the pull request that caused it.
+its own document with `lint: 'error'` and diffs the snapshot against a committed golden, so a
+change to a tool's name, description, schema or security is a reviewable diff in the pull
+request that caused it. The tool names `toolsForScopes` keeps for each scope set worth
+checking make a short second golden.
 
 ## Editor tool groups
 
@@ -181,7 +213,6 @@ document when it is valid.
 put:
   operationId: updateLine
   x-agent:
-    profiles: [write]
     name: dataset_line
     editor:
       schemaOperation: readSchema

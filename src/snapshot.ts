@@ -1,19 +1,19 @@
-import type { JsonSchema, ToolAnnotations, ToolSet } from './types.ts'
+import type { JsonSchema, SecurityRequirement, ToolAnnotations, ToolSet } from './types.ts'
 
 export interface ToolSetSnapshot {
-  tools: { name: string, description: string, inputSchema: JsonSchema, annotations: ToolAnnotations }[]
+  tools: { name: string, description: string, inputSchema: JsonSchema, annotations: ToolAnnotations, security?: SecurityRequirement[] }[]
   skills: { id: string, name: string, description: string, digest: string }[]
 }
 
 /**
  * The agent-facing surface of a tool set as plain data, for a committed golden: a service's
- * CI diffs it so an unintended change to a tool's name, description or schema is a
+ * CI diffs it so an unintended change to a tool's name, description, schema or security is a
  * reviewable diff in the pull request that caused it. A golden file is what `JSON.stringify`
  * writes, so the snapshot is the JSON round-trip of the view below — no `undefined` survives.
  */
 export function toolSetSnapshot (toolSet: ToolSet): ToolSetSnapshot {
   const snapshot = {
-    tools: toolSet.tools.map(t => ({ name: t.name, description: t.description, inputSchema: structuredClone(t.inputSchema), annotations: { ...t.annotations } })),
+    tools: toolSet.tools.map(t => ({ name: t.name, description: t.description, inputSchema: structuredClone(t.inputSchema), annotations: { ...t.annotations }, security: structuredClone(t.security) })),
     skills: toolSet.skills.map(s => ({ id: s.id, name: s.name, description: s.description, digest: s.digest }))
   }
   return JSON.parse(JSON.stringify(snapshot))

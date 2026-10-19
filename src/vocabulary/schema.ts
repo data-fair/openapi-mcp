@@ -19,6 +19,11 @@ const annotations: JsonSchema = {
   properties: { readOnlyHint: { type: 'boolean' }, destructiveHint: { type: 'boolean' }, idempotentHint: { type: 'boolean' }, openWorldHint: { type: 'boolean' } }
 }
 
+const security: JsonSchema = {
+  type: 'array',
+  items: { type: 'object', additionalProperties: { type: 'array', items: { type: 'string' } } }
+}
+
 export const paramOverrideSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -104,7 +109,8 @@ export const operationSchema: JsonSchema = {
           }
         }
       ]
-    }
+    },
+    security
   }
 }
 

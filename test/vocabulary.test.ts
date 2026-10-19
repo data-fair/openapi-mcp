@@ -63,6 +63,17 @@ describe('validateVocabulary', () => {
     d.paths['/things'].get['x-agent'] = { name: 'list_things', profiles: true }
     assert.throws(() => validateVocabulary(d), /x-agent invalid at \/paths\/~1things\/get: .*profiles/)
   })
+  it('accepts an operation security of requirement objects, and refuses another shape', () => {
+    const withSecurity = (security: unknown) => {
+      const d: any = doc({})
+      d.paths['/things'].get['x-agent'] = { name: 'list_things', security }
+      return d
+    }
+    assert.doesNotThrow(() => validateVocabulary(withSecurity([{ apiKey: [] }, { oauth2: ['things:read'] }, {}])))
+    assert.doesNotThrow(() => validateVocabulary(withSecurity([])))
+    assert.throws(() => validateVocabulary(withSecurity({ oauth2: ['things:read'] })), /x-agent invalid at \/paths\/~1things\/get: .*security/)
+    assert.throws(() => validateVocabulary(withSecurity([{ oauth2: 'things:read' }])), /x-agent invalid at \/paths\/~1things\/get: .*security/)
+  })
   it('rejects a skill name outside the Agent Skills format', () => {
     assert.throws(() => validateVocabulary(doc({ 'x-agent': { skills: [{ name: 'Workflow', description: 'd' }] } })), /x-agent invalid at \/: \/skills\/0\/name must match pattern/)
     assert.doesNotThrow(() => validateVocabulary(doc({ 'x-agent': { skills: [{ name: 'publishing-workflow', description: 'd' }] } })))

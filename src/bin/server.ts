@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createServer } from 'node:http'
+import { readFileSync } from 'node:fs'
 import { serveStdio } from '@modelcontextprotocol/server/stdio'
 import type { Server } from '@modelcontextprotocol/server'
 import { toNodeHandler } from '@modelcontextprotocol/node'
@@ -74,7 +75,9 @@ if (refreshMs > 0) {
 }
 // A broken skill link does not stop the server: the skill answers its error when read.
 for (const s of (await resolveToolSet(source)).skills) if (s.error) console.error(`skill ${s.name}: warning — ${s.error}`)
-const info = { name: 'openapi-mcp', version: '0.2.0' }
+// package.json sits two levels up from both src/bin and dist/bin, and ships with the package.
+const { version } = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
+const info = { name: 'openapi-mcp', version }
 const describe = async () => {
   const ts = await resolveToolSet(source)
   return `${ts.tools.length} tools, ${ts.skills.length} skills`

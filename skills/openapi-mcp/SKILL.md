@@ -3,12 +3,12 @@ name: openapi-mcp
 description: >
   Use when writing, reviewing or debugging `x-agent` annotations in an OpenAPI 3.x
   document for @data-fair/openapi-mcp: choosing which operations become MCP tools, naming
-  them, profiles and skills/instructions, parameter overrides, response projections,
+  them, scopes (security narrowing) and skills/instructions, parameter overrides, response projections,
   compact request bodies, and json-layout editor tool groups over a write operation.
   Triggers include: "annotate this OpenAPI with x-agent", "expose this API as MCP tools",
   "make this spec agent-readable", an annotation lint error about a description
   contradicting its schema, a request body too large to put in a tool definition, a
-  document that validates but produces no tools, a tool appearing in the wrong profile,
+  document that validates but produces no tools, a tool offered to the wrong scopes,
   or wanting an agent to edit a document field by field through a form instead of
   submitting a raw request body.
 ---
@@ -18,7 +18,7 @@ description: >
 `@data-fair/openapi-mcp` turns an OpenAPI 3.x document into MCP tools. Nothing is
 generated from the document's generic shape: an operation becomes a tool **only if it
 carries an `x-agent` annotation**. The annotation is the entire product surface — what a
-tool is called, what an agent sees, which profile exposes it, how input is validated and
+tool is called, what an agent sees, which scopes reach it, how input is validated and
 how output is rendered all come from it. Everything else in the document stays for humans.
 
 The full reference lives in the project's [`docs/x-agent.md`](https://github.com/data-fair/openapi-mcp/blob/main/docs/x-agent.md).
@@ -41,9 +41,9 @@ a missing feature.
 
 | Where | What it controls |
 | --- | --- |
-| Document root | `namePrefix`, `profiles`, `skills` (`name`, short `description`, body in `body` or linked by `href`) |
-| `tags[]` entry | default `profiles`, `skill` for the tag's operations |
-| Operation (`paths.<p>.<method>`) | opt-in, `name`, `title`, `description`, `examples`, `annotations`, `params`, `fixed`, `body`, `bodyFields`, `bodyRequired`, `response`, `editor` — or an array of such views |
+| Document root | `skills` (`name`, short `description`, body in `body` or linked by `href`) |
+| `tags[]` entry | `skill` for the tag's operations |
+| Operation (`paths.<p>.<method>`) | opt-in, `name`, `title`, `description`, `examples`, `annotations`, `params`, `fixed`, `body`, `bodyFields`, `bodyRequired`, `response`, `editor`, `security` — or an array of such views |
 | Parameter definition | the same override object as `params.<name>`, usable from a shared `$ref` |
 | Response schema property | `hint`, `exclude` |
 
@@ -65,7 +65,6 @@ Every agent-facing string is a plain string or a locale map (`{ en: …, fr: …
        get:
          operationId: readLines
          x-agent:
-           profiles: [explore]
            name: search_data
            description: Retrieve rows matching filters/text. Not for statistics — use aggregate_data.
    ```
@@ -76,19 +75,12 @@ Every agent-facing string is a plain string or a locale map (`{ en: …, fr: …
    what the tool is **not** for when a sibling tool is close — this is the single highest
    leverage sentence in an annotation.
 
-3. **Gate it with profiles.** Add the operation to a profile (`profiles: [explore]`) and
-   declare the profile set at the root, first entry being the default:
-
-   ```yaml
-   x-agent:
-     profiles:
-       explore: { title: Explore, description: Read-only tools }
-       write: { title: Edit, description: Editing tools }
-   ```
-
-   A tag's `x-agent.profiles` is the default for operations carrying that tag. An operation
-   visible in the wrong profile is almost always a missing or misspelled label here, not a
-   load bug.
+3. **Declare its security.** Who is offered a tool follows the operation's OpenAPI `security`
+   (the root `security` when it declares none): `toolsForScopes(toolSet, scopes)` keeps a tool
+   when an `oauth2` alternative's scopes are all in the token's, or an alternative is public
+   (`{}`, `security: []`). Membership is exact: list every accepted scope, umbrella included, as
+   its own alternative. An operation with no security anywhere is offered to no scoped token.
+   A tool offered to the wrong scopes is almost always a missing or extra alternative here.
 
 4. **Tune the parameters** where the API's names or constraints don't suit an agent:
 
@@ -138,14 +130,14 @@ Every agent-facing string is a plain string or a locale map (`{ en: …, fr: …
 8. **Verify.** Nothing replaces actually loading the document:
 
    ```ts
-   import { load } from '@data-fair/openapi-mcp'
-   const { tools, instructions } = await load(doc, { profile: 'explore', lint: 'warn' })
-   console.log(tools.map(t => `${t.name}: ${t.description.split('\n')[0]}`).join('\n'))
+   import { load, toolsForScopes } from '@data-fair/openapi-mcp'
+   const toolSet = await load(doc, { lint: 'warn' })
+   console.log(toolSet.tools.map(t => `${t.name}: ${t.description.split('\n')[0]}`).join('\n'))
+   console.log(toolsForScopes(toolSet, ['datasets:read']).tools.map(t => t.name))
    ```
 
-   Check the tool list, the names, the descriptions and the profile each appears in. Run it
-   with each profile. For a document served over HTTP, the bundled binary does the same:
-   `OPENAPI_URL=… PROFILE=explore npx openapi-mcp`.
+   Check the tool list, the names, the descriptions and which scope sets reach each tool.
+   For a document served over HTTP, the bundled binary does the same: `OPENAPI_URL=… npx openapi-mcp`.
 
 ## The rule that bites: descriptions must agree with their schema
 
@@ -169,13 +161,18 @@ descriptions (from the OpenAPI document itself) are never linted.
 When the same operation does things of different criticality depending on its payload — a PATCH
 that edits a description but also changes where a resource is published — annotate it with an
 array of views instead of one object. Each view is a tool with its own `name` (required,
-unique in the array), `profiles`, `annotations` and `bodyFields` allow-list:
+unique in the array), `annotations`, `bodyFields` allow-list and `security`:
 
 ```yaml
+security: [{ apiKey: [] }, { oauth2: [datasets:write] }, { oauth2: [datasets:admin] }]
 x-agent:
-  - { name: update_dataset, profiles: [write_datasets], bodyFields: [title, description] }
-  - { name: publish_dataset, profiles: [manage_datasets], bodyFields: [publicationSites] }
+  - { name: update_dataset, bodyFields: [title, description] }
+  - { name: publish_dataset, bodyFields: [publicationSites], security: [{ apiKey: [] }, { oauth2: [datasets:admin] }] }
 ```
+
+A view's `security` narrows the operation's for that tool, so a token the API would refuse is
+not offered it. It can only drop alternatives: one the operation does not declare refuses the
+document (`publish_dataset: x-agent security alternative … is not in the operation's security`).
 
 Prefer `bodyFields` (an allow-list) over trusting an agent to leave fields alone: a property
 outside the list is refused before the request leaves, and a property added to the API later
@@ -194,7 +191,6 @@ the write operation's path parameters.
 put:
   operationId: updateLine
   x-agent:
-    profiles: [write]
     name: dataset_line
     title: { en: Edit a dataset record }
     editor:
@@ -229,22 +225,26 @@ Full guide: [`docs/editor-tool-groups.md`](https://github.com/data-fair/openapi-
 Every annotated service commits a golden of its tool surface and diffs it on each run:
 
 ```ts
-import { load, toolSetSnapshot } from '@data-fair/openapi-mcp'
+import { load, toolSetSnapshot, toolsForScopes } from '@data-fair/openapi-mcp'
 const doc = buildApiDocs('https://example.test')          // the service's own generator
-for (const profile of Object.keys(doc['x-agent'].profiles)) {
-  const snapshot = toolSetSnapshot(await load(doc, { profiles: [profile], lint: 'error' }))
-  assert.deepEqual(snapshot, JSON.parse(readFileSync(`test/golden/agent-tools.${profile}.json`, 'utf8')))
+const toolSet = await load(doc, { lint: 'error' })
+assert.deepEqual(toolSetSnapshot(toolSet), JSON.parse(readFileSync('test/golden/agent-tools.json', 'utf8')))
+// { "datasets:read": ["describe_dataset", …], "datasets:write": […] }: who is offered what
+const byScopes = JSON.parse(readFileSync('test/golden/agent-tools.scopes.json', 'utf8'))
+for (const [scopes, names] of Object.entries(byScopes)) {
+  assert.deepEqual(toolsForScopes(toolSet, scopes.split(' ')).tools.map(t => t.name), names)
 }
 ```
 
 `lint: 'error'` refuses a description that contradicts its schema; the golden turns a renamed
-tool, a widened schema or a dropped parameter into a diff the reviewer sees.
+tool, a widened schema, a dropped parameter or a changed security into a diff the reviewer sees.
 
 ## Common failure modes
 
 | Symptom | Cause |
 | --- | --- |
-| Document validates, no tools | `x-agent` missing, or the profile requested does not include the operation (check tag inheritance) |
+| Document validates, no tools | `x-agent` missing, or the scopes requested reach none of the operations' security alternatives |
+| A scoped token is offered nothing for an operation | The operation (and the root) declares no `security`: fail closed |
 | `x-agent invalid at /paths/…` with an unknown field | Typo, or a key used at the wrong scope (e.g. `params` on the root) |
 | Tool name is `some_operation_id` | No `name`, and the operationId is not agent-friendly |
 | Lint error: scalar example for an array | Description shows `"x"` where the schema is an array — use `["x"]` |
@@ -259,9 +259,8 @@ tool, a widened schema or a dropped parameter into a diff the reviewer sees.
 
 ## Reference
 
-- Profiles: an operation's `profiles` is a set; a root profile may `includes` others
-  (`edit: { includes: [edit_datasets] }`); a cycle or an undeclared name refuses the document.
-  Stack-wide names: `explore`, `edit`, `admin`.
+- `profiles` and `namePrefix` were removed in 0.7.0 and are refused; a tool's name is
+  `x-agent.name ?? snake_case(operationId)` and its audience is its security.
 - Skill names follow the Agent Skills format: `^[a-z0-9]+(-[a-z0-9]+)*$`, at most 64
   characters (`workflow`, `publishing-workflow` — never `Workflow`).
 - Vocabulary reference: `docs/x-agent.md` in the project repo (or the npm page).

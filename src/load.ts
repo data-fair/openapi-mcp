@@ -95,6 +95,7 @@ function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDes
     outputSchema: o.structuredContent && !fileResponse ? op.responseSchema : undefined,
     annotations: { readOnlyHint: op.method === 'GET' || op.method === 'HEAD', destructiveHint: op.method === 'DELETE', ...(op.agent.annotations ?? {}) },
     examples: op.agent.examples,
+    security: op.security,
     async execute (rawParams, ctx): Promise<ToolResult> {
       const params = structuredClone(rawParams ?? {})
       if (!validate(params)) return { isError: true, text: `Invalid parameters: ${errorsText(validate)}` }

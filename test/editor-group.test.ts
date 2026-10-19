@@ -50,6 +50,14 @@ describe('editor tool group', () => {
     ].sort())
   })
 
+  it('every tool of the group carries the operation\'s security', async () => {
+    const security = [{ oauth2: ['datasets:write'] }]
+    const secured = structuredClone(doc) as any
+    secured.paths['/datasets/{id}/lines/{lineId}'].put.security = security
+    const { tools } = await load(secured, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    for (const tool of tools) assert.deepEqual(tool.security, security, tool.name)
+  })
+
   it('makes no HTTP request while building the tools', async () => {
     calls.length = 0
     await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })

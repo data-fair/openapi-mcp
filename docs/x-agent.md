@@ -26,8 +26,8 @@ The default locale is `en`.
 
 | Place | Controls |
 | --- | --- |
-| Document root | tool name prefix, profile list, global instructions |
-| `tags[]` entry | default profiles and an instruction section for tagged operations |
+| Document root | skills |
+| `tags[]` entry | an instruction section for tagged operations |
 | Path item method (`get`, `put`, …) | whether the operation is a tool, and everything about it |
 | Parameter definition | per-parameter overrides, shareable with an `$ref` |
 | Schema property | `hint` and `exclude` on response properties |
@@ -36,47 +36,23 @@ The default locale is `en`.
 
 ```yaml
 x-agent:
-  namePrefix: datafair_
-  profiles:
-    explore: { title: Explore, description: Read-only tools }
-    write_datasets: { title: Edit datasets }
-    write: { title: Edit, description: Editing tools, includes: [write_datasets] }
   skills:
     - name: workflow
       description: How to explore datasets. Use it before searching or aggregating data.
       href: agents/skills/workflow.md
-      profiles: [explore]
       tools: [describe_dataset, search_data]
 ```
 
-- **`namePrefix`** — prepended to every generated tool name (pattern `^[a-z0-9_]*$`).
-- **`profiles`** — a non-empty map. The **first declared profile is the default** when
-  `load` is called without `profiles`. Requesting a profile the root does not declare is an
-  error. `includes` names other declared profiles: requesting this one also selects their
-  operations. Expanded transitively; a cycle or an undeclared name refuses the document.
 - **`skills`** — skills in the Agent Skills sense. `description` (localized, at most 1024
   characters) says what the skill is for and when to use it: it is always shown, in the MCP
   `instructions`. The body is read on demand as the `skill://…/SKILL.md` resource: inline in
   `body`, or in a markdown file linked by `href` (localized; relative to the URL the document was
   fetched from, or to `servers[0].url` for a document passed as an object). `href` and `body` are
   exclusive; with neither, the description is the body. A linked file's frontmatter is ignored.
-  `profiles` filters, `tools` adds a `Tools: …` line. The name follows the Agent Skills format
+  `tools` adds a `Tools: …` line, and hides the skill when a filter (`toolsForScopes`) left none
+  of them. The name follows the Agent Skills format
   (`^[a-z0-9]+(-[a-z0-9]+)*$`, at most 64 characters) and becomes the last segment of
   `skill://…/<name>/SKILL.md`.
-
-## Recommended profile names
-
-A consumer asks every service of a deployment for the same profile names, so the same name
-should mean the same thing everywhere:
-
-- `explore` — read-only: listing, describing, querying.
-- `edit` — everything `explore` has, plus the writes an ordinary user of the service
-  performs. Per-resource subsets (`edit_datasets`, `edit_applications`) are declared and
-  `edit` `includes` them.
-- `admin` — operations reserved to administrators.
-
-A service that has nothing for a name simply does not declare it; a consumer requesting it
-gets that service's contribution to the other names in the set. Convention, not validation.
 
 ## Tags
 
@@ -84,12 +60,9 @@ gets that service's contribution to the other names in the set. Convention, not 
 tags:
   - name: Datasets
     x-agent:
-      profiles: [explore]
       skill: List and describe datasets before searching their lines.
 ```
 
-- **`profiles`** — the default for operations carrying this tag, used when the operation
-  does not set its own. The first tag with a `profiles` value wins.
 - **`skill`** — an instruction section, emitted when at least one resolved operation
   carries the tag.
 
@@ -100,7 +73,6 @@ operation is not exposed at all.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `profiles` | `string[]` or `true` | Inherited from the tag, then `true` by default. `true` means every profile. |
 | `name` | string | Tool name, pattern `^[a-z0-9_]+$`. Default: snake_case `operationId`. |
 | `title` | localized | Tool title. |
 | `description` | localized | Tool description. Falls back to `summary`, then `description`, then `operationId`. |
@@ -113,12 +85,17 @@ operation is not exposed at all.
 | `bodyRequired` | string[] | Body properties this tool requires, on top of the schema's `required`. See [Request bodies](#request-bodies). |
 | `response` | object | Projection and rendering of the response. |
 | `editor` | `true` or object | Expose json-layout form tools instead of a one-shot tool. See [editor tool groups](./editor-tool-groups.md). |
+| `security` | security requirement[] | Narrows the operation's security for this tool. See [Security](#security). |
+
+`profiles` and `namePrefix` were removed in 0.7.0 and are refused wherever they appear: a
+document lists every tool once, under its final name, and who sees which tool is decided by
+the caller's scopes.
 
 ### Views: several tools from one operation
 
 `x-agent` on an operation may be an array. Each element is a **view** — a complete operation
-annotation producing a tool of its own, with its own profiles, description, annotations,
-parameters and body fields. Use it when one endpoint does things of different criticality
+annotation producing a tool of its own, with its own description, annotations, parameters,
+body fields and security. Use it when one endpoint does things of different criticality
 depending on its payload, typically a PATCH editing content and governance fields:
 
 ```yaml
@@ -126,17 +103,43 @@ patch:
   operationId: patchDataset
   x-agent:
     - name: update_dataset
-      profiles: [write_datasets]
       bodyFields: [title, description, keywords]
     - name: publish_dataset
-      profiles: [manage_datasets]
       bodyFields: [publicationSites]
 ```
 
-Every view needs a `name`, unique within the array — views of one operation are often
-selected together (a profile including another), so a missing or repeated name is refused at
-load with the view's JSON path. `editor.readOperation` and `editor.schemaOperation` name the
+Every view needs a `name`, unique within the array — the views of one operation are tools of
+one set, so a missing or repeated name is refused at load with the view's JSON path. `editor.readOperation` and `editor.schemaOperation` name the
 raw operation and ignore its views.
+
+### Security
+
+A tool carries the security of its operation as `Tool.security`: the operation's `security`,
+else the document's root `security`, else none (`undefined`). `toolsForScopes(toolSet, scopes)`
+keeps the tools a token's OAuth scopes reach — an alternative that is public (`{}`, or
+`security: []`), or an `oauth2` requirement whose scopes the token holds every one of. Membership
+is exact, so an operation lists every scope it accepts, umbrella included, as an alternative of
+its own. A tool without any security is left out (fail closed); `scopes` undefined keeps every
+tool.
+
+An entry's `security`, the same shape as OpenAPI's, replaces the operation's for that tool. It
+can only narrow: every alternative must be one the operation's effective security declares
+(compared regardless of key and scope order). A view whose body only an administrator may send
+drops the weaker alternatives, and a token that would get 403 is not offered the tool:
+
+```yaml
+patch:
+  operationId: patchDataset
+  security: [{ apiKey: [] }, { oauth2: [datasets:write] }, { oauth2: [datasets:admin] }, { oauth2: [datasets] }]
+  x-agent:
+    - { name: update_dataset, bodyFields: [title, description] }
+    - { name: publish_dataset, bodyFields: [publicationSites], security: [{ apiKey: [] }, { oauth2: [datasets:admin] }, { oauth2: [datasets] }] }
+```
+
+An alternative the operation does not declare refuses the document —
+`publish_dataset: x-agent security alternative {"oauth2":["datasets:read"]} is not in the operation's security`
+— or, under `lint: 'warn'` or `'off'`, leaves the operation out like any refused annotation.
+Security only selects tools: the API still authorizes every call.
 
 ### Parameter overrides
 
@@ -186,8 +189,7 @@ instead of a round trip.
 the `flat`/`compact` choice, so the merged properties, the compact listing and the local
 validation all agree, and any other property is refused before a request is sent. It needs a
 JSON or multipart request body that is an object with declared properties, and every listed name must be
-one of them; both are checked when the document loads, on every view whatever profiles are
-requested. It does not combine with `editor`: a form group edits the whole document, so the
+one of them; both are checked when the document loads, on every view. It does not combine with `editor`: a form group edits the whole document, so the
 two together are refused. An allow-list rather than a deny-list: a property added to the API
 later is offered by no tool until an annotation places it.
 
@@ -237,9 +239,7 @@ Projection order when rendering: explicit `fields` from the caller, then
 ```ts
 import { load } from '@data-fair/openapi-mcp'
 
-const { profiles, instructions, tools, skills } = await load(docOrUrl, {
-  profiles: ['explore', 'edit'], // default: the first profile declared at the root; `profile` is one-element sugar
-  namePrefix: undefined, // replaces the root namePrefix ('' strips it) — for compatibility routes
+const { instructions, tools, skills } = await load(docOrUrl, {
   fetch: myFetch,       // default: globalThis.fetch; carries credentials
   locale: 'en',         // default: 'en'
   baseUrl: 'https://api.example.com/v1', // default: servers[0].url
@@ -256,9 +256,8 @@ const { profiles, instructions, tools, skills } = await load(docOrUrl, {
 ```
 
 `load` inlines local `$ref`s (cycles become `{}`), validates the vocabulary, resolves the
-operations for the profile set — an operation in any requested profile, after `includes`
-expansion, is selected once — and returns provider-agnostic tools plus the text-only
-`skills` the set selects:
+operations — every one carrying `x-agent`, one tool per view — and returns provider-agnostic
+tools plus the document's `skills`:
 
 ```ts
 interface Tool {
@@ -269,6 +268,7 @@ interface Tool {
   outputSchema?: JsonSchema
   annotations: ToolAnnotations
   examples?: Record<string, unknown>[]
+  security?: SecurityRequirement[] // Record<string, string[]>[]; see Security
   execute (params: Record<string, unknown>, ctx?: CallContext): Promise<{ text: string, structuredContent?: unknown, resourceLink?: { uri: string, name: string, mimeType?: string }, isError?: boolean }>
 }
 
@@ -479,8 +479,8 @@ still requires servers to be upgraded first, even under `warn`.
 
 Leaving the operation out is fail-closed on purpose: ignoring an unknown key could change what
 the tool means (an ignored `response.file` would download a file as text; an ignored
-`bodyRequired` would offer an upload tool without its file). The service stays `ok` in a
-composition and serves its other tools. Authoring and CI must run with `lint: 'error'` to catch
+`bodyRequired` would offer an upload tool without its file). The document keeps serving its
+other tools. Authoring and CI must run with `lint: 'error'` to catch
 mistakes. Servers older than this behaviour (up to 0.4.0) still drop the whole service on such
 a key, so deploy openapi-mcp before publishing documents that use new keys.
 

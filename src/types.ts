@@ -8,6 +8,9 @@ export interface ToolAnnotations {
   openWorldHint?: boolean
 }
 
+/** An OpenAPI security requirement: scheme name → scopes. `{}` is the public alternative. */
+export type SecurityRequirement = Record<string, string[]>
+
 export interface AgentParamOverride {
   name?: string
   description?: Localized
@@ -61,6 +64,12 @@ export interface AgentOperation {
   bodyRequired?: string[]
   response?: AgentResponse
   editor?: true | AgentEditor
+  /**
+   * The tool's security, narrowing the operation's: each alternative must be one the
+   * operation (or the document root) declares. For a view whose purpose needs more than
+   * the operation's weakest alternative, so a token that cannot use it is not offered it.
+   */
+  security?: SecurityRequirement[]
 }
 
 /**
@@ -149,6 +158,8 @@ export interface ResolvedOperation {
   agent: AgentOperation
   /** final tool name (x-agent name, else snake_case operationId) */
   toolName: string
+  /** effective security: the x-agent entry's, else the operation's, else the document's; absent when none declares one */
+  security?: SecurityRequirement[]
 }
 
 /** An MCP `resource_link`: a file the client fetches itself (MCP 2026-07-28, tool results). */
@@ -189,6 +200,8 @@ export interface Tool {
   outputSchema?: JsonSchema
   annotations: ToolAnnotations
   examples?: Record<string, unknown>[]
+  /** the security of the operation behind the tool (see ResolvedOperation.security) */
+  security?: SecurityRequirement[]
   execute (params: Record<string, unknown>, ctx?: CallContext): Promise<ToolResult>
 }
 

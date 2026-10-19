@@ -28,4 +28,30 @@ describe('toolSetSnapshot', () => {
     const snapshot = toolSetSnapshot(await load(doc))
     assert.deepEqual(snapshot, JSON.parse(JSON.stringify(snapshot)))
   })
+
+  it('carries each tool\'s effective security', async () => {
+    const entrySecurity = [{ apiKey: [] }, { oauth2: ['items:admin'] }]
+    const snapshot = toolSetSnapshot(await load({
+      openapi: '3.1.0',
+      info: { title: 'Items', version: '1' },
+      servers: [{ url: 'https://items.test/api' }],
+      security: [{ apiKey: [] }],
+      paths: {
+        '/items/{id}': {
+          patch: {
+            operationId: 'patchItem',
+            parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+            security: [{ apiKey: [] }, { oauth2: ['items:write'] }, { oauth2: ['items:admin'] }],
+            'x-agent': [{ name: 'update_item' }, { name: 'publish_item', security: entrySecurity }],
+            responses: { 200: { description: 'ok' } }
+          }
+        },
+        '/items': { get: { operationId: 'listItems', 'x-agent': {}, responses: { 200: { description: 'ok' } } } }
+      }
+    }))
+    const security = Object.fromEntries(snapshot.tools.map(t => [t.name, t.security]))
+    assert.deepEqual(security.publish_item, entrySecurity)
+    assert.deepEqual(security.update_item, [{ apiKey: [] }, { oauth2: ['items:write'] }, { oauth2: ['items:admin'] }])
+    assert.deepEqual(security.list_items, [{ apiKey: [] }])
+  })
 })

@@ -31,7 +31,6 @@ builds read tools does not need them installed.
 ```yaml
 # PUT /datasets/{id}/lines/{lineId}
 x-agent:
-  profiles: [write]
   name: dataset_line
   title: { en: Edit a dataset record, fr: Éditer un enregistrement }
   editor:
@@ -43,7 +42,6 @@ x-agent:
 ```yaml
 # POST /datasets/{id}/lines
 x-agent:
-  profiles: [write]
   name: dataset_new_line
   title: { en: Add a dataset record, fr: Ajouter un enregistrement }
   editor:
@@ -85,7 +83,9 @@ operation's `x-agent.name` plus `_` plus the package's verb:
 | `<name>_saveForm` | Persist the document through the write operation. Refuses while invalid. |
 | `<name>_reloadForm` | Reload from the source, discarding local changes. |
 
-Tool descriptions come from the package, so they track its behaviour.
+Tool descriptions come from the package, so they track its behaviour. Every tool of the
+group carries the write operation's security (or the annotation's narrowed `security`), so
+`toolsForScopes` keeps or drops the group as a whole.
 
 ## Sessions
 
@@ -137,7 +137,7 @@ layout.
 import { load } from '@data-fair/openapi-mcp'
 
 // The document must carry the editor annotation (see above).
-const { tools } = await load(doc, { profile: 'write' })
+const { tools } = await load(doc)
 const describe = tools.find(t => t.name === 'dataset_line_describeState')!
 const set = tools.find(t => t.name === 'dataset_line_setFieldValue')!
 const save = tools.find(t => t.name === 'dataset_line_saveForm')!

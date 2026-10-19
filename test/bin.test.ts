@@ -45,6 +45,8 @@ describe('standalone server', () => {
     })
     const client = new Client({ name: 'test', version: '0.0.0' })
     await client.connect(transport)
+    const { version: packageVersion } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+    assert.deepEqual(client.getServerVersion(), { name: 'openapi-mcp', version: packageVersion })
     const { tools } = await client.listTools()
     assert.deepEqual(tools.map(t => t.name), ['list_pets', 'create_pet', 'get_pet'])
     const res: any = await client.callTool({ name: 'list_pets', arguments: { response_format: 'detailed' } })

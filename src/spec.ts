@@ -1,7 +1,7 @@
 import { validateVocabulary, type OperationFinding } from './vocabulary/validate.ts'
 import { buildInput, assertFileResponseHeaders } from './input.ts'
 import { resolveEditorOperations } from './editor/operations.ts'
-import type { JsonSchema, AgentOperation, AgentOperationAnnotation, AgentParamOverride, AgentRoot, ResolvedBody, ResolvedOperation, ResolvedParam } from './types.ts'
+import type { JsonSchema, AgentOperation, AgentOperationAnnotation, AgentParamOverride, AgentRoot, ResolvedBody, ResolvedOperation, ResolvedParam, SecurityRequirement } from './types.ts'
 
 const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']
 
@@ -103,6 +103,9 @@ export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetc
   return inlined
 }
 
+/** A requirement in a canonical form: schemes and their scopes sorted, so order never makes two differ. */
+const canonical = (requirement: SecurityRequirement) => JSON.stringify(Object.keys(requirement).sort().map(k => [k, [...requirement[k]].sort()]))
+
 const esc = (s: string) => s.replace(/~/g, '~0').replace(/\//g, '~1')
 
 const isJsonMedia = (t: string) => t === 'application/json' || /^application\/[^;]+\+json$/.test(t)
@@ -154,6 +157,16 @@ function checkOperationAnnotation (path: string, method: string, item: any, anno
   const views = Array.isArray(annotation) ? annotation : [annotation]
   views.forEach((view, i) => {
     const at = `/paths/${esc(path)}/${method}${Array.isArray(annotation) ? `/${i}` : ''}`
+    if (view.security) {
+      // An entry narrows its operation's security, never widens it: an alternative of its own
+      // would offer the tool to tokens the operation does not declare it accepts.
+      const declared = new Set(((operation.security ?? doc.security ?? []) as SecurityRequirement[]).map(canonical))
+      const added = view.security.find(alternative => !declared.has(canonical(alternative)))
+      if (added) {
+        const name = view.name ?? (typeof operation.operationId === 'string' ? snakeCase(operation.operationId) : at)
+        throw new Error(`${name}: x-agent security alternative ${JSON.stringify(added)} is not in the operation's security`)
+      }
+    }
     if (view.body === 'compact' && body && body.kind !== 'json') {
       throw new Error(`x-agent invalid at ${at}: body: compact needs a JSON request body (this one is ${body.kind === 'multipart' ? 'multipart/form-data' : body.mediaTypes!.join(', ')})`)
     }
@@ -174,7 +187,7 @@ function checkOperationAnnotation (path: string, method: string, item: any, anno
   if (!structural) return
   for (const agent of views) {
     if (!operation.operationId) throw new Error(`operation ${method.toUpperCase()} ${path} has x-agent but no operationId`)
-    const op = resolveOne(path, item, method, operation, agent)
+    const op = resolveOne(path, item, method, operation, agent, doc.security)
     if (agent.editor) resolveEditorOperations(op, doc)
     else assertFileResponseHeaders(op, buildInput(op, 'en').bindings)
   }
@@ -194,7 +207,7 @@ function mergeParam (raw: JsonSchema, override: AgentParamOverride | undefined):
   }
 }
 
-function resolveOne (path: string, item: any, method: string, op: any, agent: AgentOperation): ResolvedOperation {
+function resolveOne (path: string, item: any, method: string, op: any, agent: AgentOperation, rootSecurity: SecurityRequirement[] | undefined): ResolvedOperation {
   const tags: string[] = op.tags ?? []
   // path-level params first, operation-level override by (in, name)
   const rawParams = new Map<string, JsonSchema>()
@@ -220,7 +233,8 @@ function resolveOne (path: string, item: any, method: string, op: any, agent: Ag
     responseMediaTypes: Object.keys(okContent),
     // a copy: a caller adjusting a resolved operation must not edit the document's annotation
     agent: { ...agent },
-    toolName: agent.name ?? snakeCase(op.operationId)
+    toolName: agent.name ?? snakeCase(op.operationId),
+    security: agent.security ?? op.security ?? rootSecurity
   }
 }
 
@@ -235,7 +249,7 @@ export function resolveOperations (doc: JsonSchema): ResolvedOperation[] {
       // Each view of an operation is a tool of its own.
       for (const agent of Array.isArray(annotation) ? annotation : [annotation]) {
         if (!op.operationId) throw new Error(`operation ${method.toUpperCase()} ${path} has x-agent but no operationId`)
-        out.push(resolveOne(path, item, method, op, agent))
+        out.push(resolveOne(path, item, method, op, agent, doc.security))
       }
     }
   }
@@ -257,7 +271,7 @@ export function resolveOperationById (doc: JsonSchema, operationId: string): Res
       // An editor reads or compiles the raw operation; views are tools, not data sources.
       const annotation: AgentOperationAnnotation | undefined = op['x-agent']
       const agent: AgentOperation = annotation && !Array.isArray(annotation) ? annotation : {}
-      return resolveOne(path, item, method, op, agent)
+      return resolveOne(path, item, method, op, agent, doc.security)
     }
   }
   return undefined

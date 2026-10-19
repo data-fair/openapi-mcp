@@ -53,7 +53,7 @@ export async function buildEditorTools (op: ResolvedOperation, ctx: EditorContex
   const skill: string = bootstrap.getSkill()
   bootstrap.close()
 
-  const tools = descriptors.map(descriptor => bridgeTool(descriptor, pathParams, async (pathValues, callCtx) => {
+  const bridged = descriptors.map(descriptor => bridgeTool(descriptor, pathParams, async (pathValues, callCtx) => {
     // One session per caller and record: two users editing the same record must not share
     // one. Without an identity the process is one caller (stdio) and sessions are global.
     const key = `${callCtx?.identity ?? ''}:${op.toolName}:${pathParams.map(p => String(pathValues[p.name])).join(':')}`
@@ -66,5 +66,7 @@ export async function buildEditorTools (op: ResolvedOperation, ctx: EditorContex
     if (!tool) throw new Error(`the session has no tool named "${descriptor.name}"`)
     return tool
   }))
+  // Every tool of the group drives the one operation, so each carries its security.
+  const tools = bridged.map(tool => ({ ...tool, security: op.security }))
   return { tools, skill }
 }
