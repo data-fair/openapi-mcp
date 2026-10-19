@@ -151,7 +151,7 @@ async function main () {
     const arms: ArmSpec[] = []
     if (!onlyArm || onlyArm === 'A') arms.push(armA(PORTAL_URL))
     if (!onlyArm || onlyArm === 'B') arms.push(armB(fixture.url, fixture.hash))
-    if (!onlyArm || onlyArm === 'C') arms.push(armC(fixture.indexUrl, fixture.hash))
+    if (!onlyArm || onlyArm === 'C') arms.push(armC(fixture.url, fixture.hash))
 
     const discovered: Record<string, { toolNames: string[], definitionBytes: number, instructionsBytes: number }> = {}
     const allowed: Record<string, string[]> = {}

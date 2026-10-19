@@ -27,7 +27,7 @@ export interface LoadOptions {
   baseUrl?: string
   /** the URL the document was fetched from, for relative skill links; set automatically when `spec` is a URL */
   documentUrl?: string
-  /** how linked skill bodies are read; the composer passes its cache, the default fetches with `fetch` */
+  /** how linked skill bodies are read; a live document passes its conditional cache, the default fetches with `fetch` */
   skillBodies?: SkillBodyFetcher
   structuredContent?: boolean
   maxStringLength?: number

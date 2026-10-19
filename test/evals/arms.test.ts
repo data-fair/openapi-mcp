@@ -22,29 +22,27 @@ describe('armA', () => {
 })
 
 describe('armB', () => {
-  it('runs this repo\'s binary against the given spec URL on the explore profile', () => {
+  it('runs this repo\'s binary against the given spec URL, loaded once', () => {
     const b = armB('http://127.0.0.1:1234/openapi.json', 'abc123def456')
     assert.equal(b.name, 'B')
     assert.match(b.config.args[0], /src\/bin\/server\.ts$/)
-    assert.equal(b.config.env.PROFILES, 'explore')
-    assert.equal(b.config.env.OPENAPI_URL, 'http://127.0.0.1:1234/openapi.json')
-    assert.equal(b.provenance.fixtureHash, 'abc123def456')
-    assert.equal(b.provenance.profile, 'explore')
+    assert.deepEqual(b.config.env, { OPENAPI_URL: 'http://127.0.0.1:1234/openapi.json', REFRESH_INTERVAL: '0' })
+    assert.deepEqual(b.provenance, { fixtureHash: 'abc123def456' })
   })
 })
 
 describe('armC', () => {
-  it('runs the binary over an index with the explore profile', () => {
-    const c = armC('http://127.0.0.1:1/index.json', 'abc123')
+  it('runs the binary over the same spec URL as a live document', () => {
+    const c = armC('http://127.0.0.1:1/openapi.json', 'abc123')
     assert.equal(c.name, 'C')
     assert.equal(c.serverName, 'datafair')
-    assert.deepEqual(c.config.env, { INDEX_URL: 'http://127.0.0.1:1/index.json', PROFILES: 'explore', REFRESH_INTERVAL: '0' })
-    assert.deepEqual(c.provenance, { fixtureHash: 'abc123', profiles: 'explore', composed: 'true' })
+    assert.deepEqual(c.config.env, { OPENAPI_URL: 'http://127.0.0.1:1/openapi.json', REFRESH_INTERVAL: '300' })
+    assert.deepEqual(c.provenance, { fixtureHash: 'abc123', live: 'true' })
   })
 })
 
 describe('discoverTools', () => {
-  it('lists arm B\'s six explore tools, prefixes them, and sizes the definitions', async () => {
+  it('lists arm B\'s six tools, prefixes them, and sizes the definitions', async () => {
     const srv = await startFixtureServer()
     try {
       const d = await discoverTools(armB(srv.url, srv.hash))
@@ -61,10 +59,10 @@ describe('discoverTools', () => {
     }
   })
 
-  it('lists the same six tools through arm C, composed over the fixture index', async () => {
+  it('lists the same tools through arm C, served as a live document', async () => {
     const srv = await startFixtureServer()
     try {
-      const d = await discoverTools(armC(srv.indexUrl, srv.hash))
+      const d = await discoverTools(armC(srv.url, srv.hash))
       assert.deepEqual(d.toolNames.sort(), ['aggregate_data', 'calculate_metric', 'describe_dataset', 'get_field_values', 'list_datasets', 'search_data'])
       assert.equal(d.allowedTools.length, 6)
     } finally {

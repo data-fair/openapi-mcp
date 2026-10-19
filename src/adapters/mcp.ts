@@ -3,46 +3,29 @@ import {
   type ServerOptions, type McpServerFactory, type McpHttpHandler, type CreateMcpHandlerOptions, type CacheHint
 } from '@modelcontextprotocol/server'
 import { renderSkillFile, skillUri, type SkillFile } from '../skills.ts'
-import type { Composer, Composition } from '../compose.ts'
+import type { LiveDocument } from '../live.ts'
 import type { CallContext, ToolSet } from '../types.ts'
 
-export type ToolSource = ToolSet | Composition | Composer
+export type ToolSource = ToolSet | LiveDocument
 /** Chooses the source per request; stdio and the version-negotiation probe pass `undefined`. */
 export type ToolSourceFn = (request: Request | undefined) => ToolSource | Promise<ToolSource>
 
 export interface McpAdapterOptions {
   /** derive the per-call context from the HTTP request; absent on stdio, where identity is the environment */
   context?: (request: Request | undefined) => CallContext | undefined
-  /** the profile set when the request carries none (`?profiles=` absent, or stdio) */
-  profiles?: string[]
-  /** how often the caller refreshes the composition; advertised as `ttlMs` on cacheable results */
+  /** how often the caller refreshes the live document; advertised as `ttlMs` on cacheable results */
   refreshMs?: number
 }
 
 export const SKILLS_EXTENSION = 'io.modelcontextprotocol/skills'
 const DEFAULT_REFRESH_MS = 300_000
 
-const isComposer = (s: ToolSource): s is Composer => typeof (s as Composer).compose === 'function'
-const isComposition = (s: ToolSource): s is Composition => !isComposer(s) && typeof (s as Composition).onChange === 'function'
+const isLive = (s: ToolSource): s is LiveDocument => typeof (s as LiveDocument).onChange === 'function'
 const isSourceFn = (s: ToolSource | ToolSourceFn): s is ToolSourceFn => typeof s === 'function'
 
-/** The `profiles` query parameter as a set, or undefined when absent. */
-export function requestProfiles (request: Request | undefined): string[] | undefined {
-  const raw = request ? new URL(request.url).searchParams.get('profiles') : null
-  if (!raw) return undefined
-  return raw.split(',').map(s => s.trim()).filter(Boolean)
-}
-
-export async function resolveToolSet (source: ToolSource, profiles?: string[]): Promise<ToolSet> {
-  if (isComposer(source)) {
-    // A typo must not silently serve an empty set: a name nothing declares is a request error.
-    const known = new Set(source.profiles().map(p => p.name))
-    const unknown = (profiles ?? []).filter(p => !known.has(p))
-    if (unknown.length) throw new Error(`unknown profile "${unknown[0]}" (declared: ${[...known].join(', ')})`)
-    return (await source.compose(profiles)).toolSet
-  }
-  if (isComposition(source)) return source.toolSet
-  return source
+/** The tool set a source serves now. */
+export async function resolveToolSet (source: ToolSource): Promise<ToolSet> {
+  return isLive(source) ? source.toolSet : source
 }
 
 /**
@@ -135,10 +118,10 @@ export function toMcpServer (toolSet: ToolSet, server: Server, options: { ctx?: 
   })
 }
 
-/** One server for one caller: the request's profile set and context, or the options' defaults. */
+/** One server for one caller: the request's source and context, or the options' defaults. */
 export async function createMcpServer (source: ToolSource | ToolSourceFn, info: { name: string, version: string }, options: McpAdapterOptions & { request?: Request } = {}): Promise<Server> {
   const resolved = isSourceFn(source) ? await source(options.request) : source
-  const toolSet = await resolveToolSet(resolved, requestProfiles(options.request) ?? options.profiles)
+  const toolSet = await resolveToolSet(resolved)
   const refreshMs = options.refreshMs ?? DEFAULT_REFRESH_MS
   const server = new Server(info, serverOptions(toolSet, refreshMs, { skillsAware: await clientDeclaresSkills(options.request) }))
   toMcpServer(toolSet, server, { ctx: options.context?.(options.request), refreshMs })
@@ -152,10 +135,10 @@ export function mcpServerFactory (source: ToolSource | ToolSourceFn, info: { nam
 
 /** An HTTP handler serving both protocol eras, publishing change notifications from a live source. */
 export function createMcpHttpHandler (source: ToolSource | ToolSourceFn, info: { name: string, version: string }, options: McpAdapterOptions & CreateMcpHandlerOptions = {}): McpHttpHandler {
-  const { context, profiles, refreshMs, ...handlerOptions } = options
-  const handler = createMcpHandler(mcpServerFactory(source, info, { context, profiles, refreshMs }), handlerOptions)
+  const { context, refreshMs, ...handlerOptions } = options
+  const handler = createMcpHandler(mcpServerFactory(source, info, { context, refreshMs }), handlerOptions)
   // A function source decides per request; whoever owns it publishes changes through handler.notify.
-  if (!isSourceFn(source) && (isComposer(source) || isComposition(source))) {
+  if (!isSourceFn(source) && isLive(source)) {
     source.onChange(() => { handler.notify.toolsChanged(); handler.notify.resourcesChanged() })
   }
   return handler

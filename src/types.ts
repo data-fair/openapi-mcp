@@ -194,7 +194,7 @@ export interface Tool {
 
 /** A resolved skill, ready to be served as a `skill://` resource and listed in instructions. */
 export interface Skill {
-  /** `<skill-name>` for a single document, `<service-id>/<skill-name>` once composed */
+  /** the skill's `name`: what its `skill://<id>/SKILL.md` resource is served at */
   id: string
   name: string
   /** what the skill is for and when to use it — the SKILL.md frontmatter description */
@@ -213,7 +213,7 @@ export type SkillBodyFetcher = (url: string) => Promise<{ text: string } | { err
 
 export interface ToolSet {
   instructions: string
-  /** the document's own sections (tag guides), without skill entries — what a composer nests under the service heading */
+  /** the document's own sections (tag guides), without skill entries */
   guide?: string
   /** `instructions` without the skill entries: what a client listing skills itself (SEP-2640) is sent. */
   guideInstructions?: string
