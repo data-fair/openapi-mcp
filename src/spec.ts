@@ -151,22 +151,43 @@ function checkAnnotations (doc: JsonSchema, onOperation?: (finding: OperationFin
   }
 }
 
+const isSecurity = (value: unknown): value is SecurityRequirement[] => Array.isArray(value) && value.every(requirement =>
+  requirement !== null && typeof requirement === 'object' && !Array.isArray(requirement) &&
+  Object.values(requirement).every(scopes => Array.isArray(scopes) && scopes.every(scope => typeof scope === 'string')))
+
+/** Public: no alternative at all, or an empty one. */
+const isPublic = (security: SecurityRequirement[]) => security.length === 0 || security.some(requirement => Object.keys(requirement).length === 0)
+
+/**
+ * The security a view's tool carries, checked: well formed (a filter reading it must never
+ * throw), and an entry's own only narrowing the operation's. An alternative of the entry's own
+ * would offer the tool to tokens the operation does not declare it accepts; an empty entry list
+ * would make a secured operation's tool public.
+ */
+function checkSecurity (path: string, method: string, operation: any, view: AgentOperation, doc: JsonSchema, at: string) {
+  const name = view.name ?? (typeof operation.operationId === 'string' ? snakeCase(operation.operationId) : at)
+  const declared: unknown = operation.security ?? doc.security
+  if (declared !== undefined && !isSecurity(declared)) {
+    throw new Error(`${name}: the security of ${method.toUpperCase()} ${path} is not a list of requirements (scheme name → scope list)`)
+  }
+  if (view.security === undefined) return
+  if (!isSecurity(view.security)) throw new Error(`x-agent invalid at ${at}: security must be a list of requirements (scheme name → scope list)`)
+  const alternatives = declared ?? []
+  if (view.security.length === 0 && !isPublic(alternatives)) {
+    throw new Error(`${name}: x-agent security [] makes the tool public, the operation's security is not`)
+  }
+  const known = new Set(alternatives.map(canonical))
+  const added = view.security.find(alternative => !known.has(canonical(alternative)))
+  if (added) throw new Error(`${name}: x-agent security alternative ${JSON.stringify(added)} is not in the operation's security`)
+}
+
 function checkOperationAnnotation (path: string, method: string, item: any, annotation: AgentOperationAnnotation, doc: JsonSchema, structural: boolean) {
   const operation = item[method]
   const body = resolveBody(operation.requestBody)
   const views = Array.isArray(annotation) ? annotation : [annotation]
   views.forEach((view, i) => {
     const at = `/paths/${esc(path)}/${method}${Array.isArray(annotation) ? `/${i}` : ''}`
-    if (view.security) {
-      // An entry narrows its operation's security, never widens it: an alternative of its own
-      // would offer the tool to tokens the operation does not declare it accepts.
-      const declared = new Set(((operation.security ?? doc.security ?? []) as SecurityRequirement[]).map(canonical))
-      const added = view.security.find(alternative => !declared.has(canonical(alternative)))
-      if (added) {
-        const name = view.name ?? (typeof operation.operationId === 'string' ? snakeCase(operation.operationId) : at)
-        throw new Error(`${name}: x-agent security alternative ${JSON.stringify(added)} is not in the operation's security`)
-      }
-    }
+    checkSecurity(path, method, operation, view, doc, at)
     if (view.body === 'compact' && body && body.kind !== 'json') {
       throw new Error(`x-agent invalid at ${at}: body: compact needs a JSON request body (this one is ${body.kind === 'multipart' ? 'multipart/form-data' : body.mediaTypes!.join(', ')})`)
     }
@@ -249,6 +270,8 @@ export function resolveOperations (doc: JsonSchema): ResolvedOperation[] {
       // Each view of an operation is a tool of its own.
       for (const agent of Array.isArray(annotation) ? annotation : [annotation]) {
         if (!op.operationId) throw new Error(`operation ${method.toUpperCase()} ${path} has x-agent but no operationId`)
+        // Checked here too: a caller may resolve a document that never went through loadSpec.
+        checkSecurity(path, method, op, agent, doc, `/paths/${esc(path)}/${method}`)
         out.push(resolveOne(path, item, method, op, agent, doc.security))
       }
     }

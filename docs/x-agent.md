@@ -119,13 +119,15 @@ else the document's root `security`, else none (`undefined`). `toolsForScopes(to
 keeps the tools a token's OAuth scopes reach — an alternative that is public (`{}`, or
 `security: []`), or an `oauth2` requirement whose scopes the token holds every one of. Membership
 is exact, so an operation lists every scope it accepts, umbrella included, as an alternative of
-its own. A tool without any security is left out (fail closed); `scopes` undefined keeps every
-tool.
+its own. Only the scheme named `oauth2` grants (another name fails closed), and `{ oauth2: [] }`
+is met by any scoped token. A tool without any security is left out (fail closed); `scopes`
+undefined keeps every tool.
 
 An entry's `security`, the same shape as OpenAPI's, replaces the operation's for that tool. It
 can only narrow: every alternative must be one the operation's effective security declares
-(compared regardless of key and scope order). A view whose body only an administrator may send
-drops the weaker alternatives, and a token that would get 403 is not offered the tool:
+(compared regardless of key and scope order), and `security: []` is accepted only on an operation
+already public. A view whose body only an administrator may send drops the weaker alternatives,
+and a token that would get 403 is not offered the tool:
 
 ```yaml
 patch:

@@ -125,8 +125,11 @@ const scoped = toolsForScopes(doc.toolSet, ['datasets:read', 'applications:read'
 A tool is kept when one alternative is met: an `oauth2` requirement whose scopes the token holds
 every one of (exact membership: list each scope an operation accepts, umbrella included, as an
 alternative of its own), or a public one (`{}`, or `security: []`). An operation with no security
-at all is not public here: it is left out. `scopes` undefined is an unscoped session, and keeps
-every tool. Skills whose `tools` were all left out go with them; the instructions are rebuilt.
+at all is not public here: it is left out. Only a scheme named `oauth2` grants: an alternative
+under another name (`apiKey`, a cookie, an `openIdConnect` scheme) never keeps a tool for a scoped
+token. `{ oauth2: [] }` asks for no scope, so any scoped token meets it, even one with an empty
+list. `scopes` undefined is an unscoped session, and keeps every tool. A security that is not a
+list of requirements (scheme name → scope list) is refused at load, like a bad annotation. Skills whose `tools` were all left out go with them; the instructions are rebuilt.
 
 One operation can serve several tiers. A view's `security` narrows its operation's for that tool:
 
@@ -141,7 +144,8 @@ patch:
 
 A `datasets:write` token is offered `update_dataset` and not `publish_dataset`, which the API would
 refuse it. An entry can only drop alternatives: one the operation does not declare is refused
-(`publish_dataset: x-agent security alternative {"oauth2":["datasets:read"]} is not in the operation's security`).
+(`publish_dataset: x-agent security alternative {"oauth2":["datasets:read"]} is not in the operation's security`),
+and so is an entry `security: []` on an operation that is not public itself.
 
 ## Identity per call
 

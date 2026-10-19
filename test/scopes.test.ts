@@ -2,6 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { load } from '../src/load.ts'
 import { toolsForScopes } from '../src/scopes.ts'
+import { resolveOperations } from '../src/spec.ts'
 
 const fetchFn = (async () => new Response('{}', { headers: { 'content-type': 'application/json' } })) as typeof fetch
 const idParam = { in: 'path', name: 'id', required: true, schema: { type: 'string' } }
@@ -92,6 +93,56 @@ describe('toolsForScopes', () => {
     const ts = await load(doc([{ oauth2: ['items:read'] }]), { fetch: fetchFn, lint: 'warn' })
     assert.deepEqual(names(ts), ['bare_read', 'public_read'])
     assert.match(String(warn.mock.calls[0].arguments[0]), /PATCH \/items\/\{id\}: publish_item: x-agent security alternative/)
+  })
+  it('an entry cannot make a secured operation public', async () => {
+    await assert.rejects(load(doc([]), { fetch: fetchFn }), {
+      message: 'publish_item: x-agent security [] makes the tool public, the operation\'s security is not'
+    })
+    await assert.rejects(load(doc([{}]), { fetch: fetchFn }), {
+      message: 'publish_item: x-agent security alternative {} is not in the operation\'s security'
+    })
+  })
+  it('a lenient load leaves out an operation whose entry would make it public', async (t) => {
+    const warn = t.mock.method(console, 'warn', () => {})
+    const ts = await load(doc([]), { fetch: fetchFn, lint: 'warn' })
+    assert.deepEqual(names(ts), ['bare_read', 'public_read'])
+    assert.deepEqual(names(toolsForScopes(ts, [])), ['public_read'])
+    assert.match(String(warn.mock.calls[0].arguments[0]), /publish_item: x-agent security \[\] makes the tool public/)
+  })
+  it('an entry may say public when the operation is', async () => {
+    const d: any = doc()
+    d.paths['/public'].get['x-agent'] = { name: 'public_read', security: [] }
+    d.paths['/bare'].get.security = [{ oauth2: ['items:read'] }, {}]
+    d.paths['/bare'].get['x-agent'] = { name: 'bare_read', security: [{}] }
+    const ts = await load(d, { fetch: fetchFn })
+    assert.deepEqual(names(toolsForScopes(ts, [])), ['bare_read', 'public_read'])
+  })
+  it('resolveOperations applies the same check to a document that skipped loadSpec', () => {
+    assert.throws(() => resolveOperations(doc([])), /publish_item: x-agent security \[\] makes the tool public/)
+    assert.throws(() => resolveOperations(doc([{ oauth2: ['items:read'] }])), /publish_item: x-agent security alternative \{"oauth2":\["items:read"\]\} is not in the operation's security/)
+  })
+  it('a malformed operation security is refused at load, never in the filter', async (t) => {
+    const d: any = doc()
+    d.paths['/bare'].get.security = [{ oauth2: 'items:read' }]
+    await assert.rejects(load(d, { fetch: fetchFn }), {
+      message: 'bare_read: the security of GET /bare is not a list of requirements (scheme name → scope list)'
+    })
+    const warn = t.mock.method(console, 'warn', () => {})
+    const ts = await load(d, { fetch: fetchFn, lint: 'warn' })
+    assert.deepEqual(names(toolsForScopes(ts, ['items:read'])), ['public_read'])
+    assert.equal(warn.mock.callCount(), 1)
+  })
+  it('an oauth2 requirement with no scopes is met by any scoped token', async () => {
+    const d: any = doc()
+    d.paths['/bare'].get.security = [{ oauth2: [] }]
+    const ts = await load(d, { fetch: fetchFn })
+    assert.equal(names(toolsForScopes(ts, [])).includes('bare_read'), true)
+  })
+  it('only the oauth2 scheme grants: another scheme name fails closed', async () => {
+    const d: any = doc()
+    d.paths['/bare'].get.security = [{ openId: ['items:read'] }, { apiKey: [] }]
+    const ts = await load(d, { fetch: fetchFn })
+    assert.equal(names(toolsForScopes(ts, ['items:read'])).includes('bare_read'), false)
   })
   it('narrowing compares alternatives regardless of key and scope order', async () => {
     const d: any = doc([{ oauth2: ['b', 'a'] }])
