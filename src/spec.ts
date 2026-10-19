@@ -172,11 +172,11 @@ function checkSecurity (path: string, method: string, operation: any, view: Agen
   }
   if (view.security === undefined) return
   if (!isSecurity(view.security)) throw new Error(`x-agent invalid at ${at}: security must be a list of requirements (scheme name → scope list)`)
-  const alternatives = declared ?? []
-  if (view.security.length === 0 && !isPublic(alternatives)) {
+  // No security anywhere is not public: it fails closed, and an entry must not open it.
+  if (view.security.length === 0 && !(declared !== undefined && isPublic(declared))) {
     throw new Error(`${name}: x-agent security [] makes the tool public, the operation's security is not`)
   }
-  const known = new Set(alternatives.map(canonical))
+  const known = new Set((declared ?? []).map(canonical))
   const added = view.security.find(alternative => !known.has(canonical(alternative)))
   if (added) throw new Error(`${name}: x-agent security alternative ${JSON.stringify(added)} is not in the operation's security`)
 }
@@ -268,12 +268,13 @@ export function resolveOperations (doc: JsonSchema): ResolvedOperation[] {
       if (!op || op['x-agent'] === undefined) continue
       const annotation: AgentOperationAnnotation = op['x-agent']
       // Each view of an operation is a tool of its own.
-      for (const agent of Array.isArray(annotation) ? annotation : [annotation]) {
+      const views = Array.isArray(annotation) ? annotation : [annotation]
+      views.forEach((agent, i) => {
         if (!op.operationId) throw new Error(`operation ${method.toUpperCase()} ${path} has x-agent but no operationId`)
         // Checked here too: a caller may resolve a document that never went through loadSpec.
-        checkSecurity(path, method, op, agent, doc, `/paths/${esc(path)}/${method}`)
+        checkSecurity(path, method, op, agent, doc, `/paths/${esc(path)}/${method}${Array.isArray(annotation) ? `/${i}` : ''}`)
         out.push(resolveOne(path, item, method, op, agent, doc.security))
-      }
+      })
     }
   }
   const dupes = out.map(o => o.toolName).filter((n, i, a) => a.indexOf(n) !== i)

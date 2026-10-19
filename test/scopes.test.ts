@@ -109,6 +109,23 @@ describe('toolsForScopes', () => {
     assert.deepEqual(names(toolsForScopes(ts, [])), ['public_read'])
     assert.match(String(warn.mock.calls[0].arguments[0]), /publish_item: x-agent security \[\] makes the tool public/)
   })
+  it('an entry cannot open an operation that declares no security anywhere', async (t) => {
+    const d: any = doc()
+    d.paths['/bare'].get['x-agent'] = { name: 'bare_read', security: [] }
+    await assert.rejects(load(d, { fetch: fetchFn }), {
+      message: 'bare_read: x-agent security [] makes the tool public, the operation\'s security is not'
+    })
+    const warn = t.mock.method(console, 'warn', () => {})
+    const ts = await load(d, { fetch: fetchFn, lint: 'warn' })
+    assert.deepEqual(names(ts), ['public_read', 'publish_item', 'update_item'])
+    assert.deepEqual(names(toolsForScopes(ts, [])), ['public_read'])
+    assert.match(String(warn.mock.calls[0].arguments[0]), /GET \/bare: bare_read: x-agent security \[\] makes the tool public/)
+  })
+  it('resolveOperations names the view of an array annotation', () => {
+    const d: any = doc()
+    d.paths['/items/{id}'].patch['x-agent'][1].security = { oauth2: ['items:admin'] }
+    assert.throws(() => resolveOperations(d), /x-agent invalid at \/paths\/~1items~1\{id\}\/patch\/1: security must be a list/)
+  })
   it('an entry may say public when the operation is', async () => {
     const d: any = doc()
     d.paths['/public'].get['x-agent'] = { name: 'public_read', security: [] }
