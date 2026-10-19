@@ -167,20 +167,55 @@ describe('createLiveDocument', () => {
     assert.equal(s.hits[SKILL], hits)
   })
 
-  it('recovers a skill body after a transient failure, even when the file did not change', async () => {
+  it('keeps serving the last good skill body when its revalidation fails, and sets error', async () => {
     const s = stack()
     s.set(DOC, withLinkedSkill('skills/workflow.md'))
     s.setText(SKILL, 'The body.')
     const live = await createLiveDocument(DOC, { fetch: s.fetchFn })
-    const skill = () => live.toolSet.skills.find(x => x.id === 'workflow')!
+    const first = live.toolSet
+    let notified = 0
+    live.onChange(() => notified++)
     s.failing.set(SKILL, 503)
-    assert.equal(await live.refresh(), true)
+    assert.equal(await live.refresh(), false)
+    assert.equal(live.toolSet, first, 'the same object')
+    assert.equal(live.toolSet.skills[0].body, 'The body.')
+    assert.equal(live.toolSet.skills[0].error, undefined)
+    assert.equal(live.error, `failed to revalidate skill body ${SKILL}: HTTP 503`)
+    assert.equal(notified, 0)
+    // the failure passes: the body kept its validators, a 304 clears the error
+    s.failing.delete(SKILL)
+    assert.equal(await live.refresh(), false)
+    assert.equal(s.requests.at(-1)!.headers.get('if-none-match'), '"2"')
+    assert.equal(live.error, undefined)
+    assert.equal(live.toolSet, first)
+  })
+
+  it('recovers a skill body that failed from the start, even when the file did not change', async () => {
+    const s = stack()
+    s.set(DOC, withLinkedSkill('skills/workflow.md'))
+    s.setText(SKILL, 'The body.')
+    s.failing.set(SKILL, 503)
+    const live = await createLiveDocument(DOC, { fetch: s.fetchFn })
+    const skill = () => live.toolSet.skills.find(x => x.id === 'workflow')!
     assert.match(skill().error!, /HTTP 503/)
-    assert.equal(live.error, undefined, 'a broken body is the skill\'s error, not the document\'s')
+    assert.equal(await live.refresh(), false, 'still failing: nothing changed')
+    assert.equal(live.error, undefined, 'a body that never answered is the skill\'s error, not the document\'s')
     s.failing.delete(SKILL)
     assert.equal(await live.refresh(), true)
     assert.equal(skill().body, 'The body.')
     assert.equal(skill().error, undefined)
+  })
+
+  it('a throwing listener neither fails the refresh nor silences the others', async () => {
+    const s = stack()
+    s.set(DOC, petstore)
+    const live = await createLiveDocument(DOC, { fetch: s.fetchFn })
+    let notified = 0
+    live.onChange(() => { throw new Error('listener bug') })
+    live.onChange(() => notified++)
+    s.set(DOC, vetstore)
+    assert.equal(await live.refresh(), true)
+    assert.equal(notified, 1)
   })
 
   it('reports an unreachable body on its skill and still serves the document', async () => {

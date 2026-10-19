@@ -28,39 +28,37 @@ interface Cached<T> {
 const JSON_ACCEPT = 'application/json'
 const SKILL_ACCEPT = 'text/markdown, text/plain;q=0.9, */*;q=0.1'
 
-/** Revalidate one resource. Returns whether its value changed (a 304 never does; a new failure does). */
+/**
+ * Revalidate one resource. Returns whether its value changed: a 304 never does, and neither does a
+ * failure: the last good value and its validators are kept, `error` says why it is not current.
+ */
 async function fetchConditional<T> (entry: Cached<T>, fetchFn: typeof fetch, accept: string, read: (res: Response) => Promise<T>): Promise<boolean> {
   const headers: Record<string, string> = { accept }
   if (entry.etag) headers['if-none-match'] = entry.etag
   if (entry.lastModified) headers['if-modified-since'] = entry.lastModified
-  const had = entry.value !== undefined
   let res: Response
   try {
     res = await fetchFn(entry.url, { headers })
   } catch (err: any) {
     entry.error = `fetch failed: ${err?.message ?? err}`
-    entry.value = undefined
-    // without a value, a 304 on the next revalidation could never restore it
-    entry.etag = entry.lastModified = undefined
-    return had
+    return false
   }
-  if (res.status === 304) return false
+  if (res.status === 304) { entry.error = undefined; return false }
   if (!res.ok) {
     entry.error = `HTTP ${res.status}`
-    entry.value = undefined
-    entry.etag = entry.lastModified = undefined
-    return had
+    return false
   }
-  entry.etag = res.headers.get('etag') ?? undefined
-  entry.lastModified = res.headers.get('last-modified') ?? undefined
+  let value: T
   try {
-    entry.value = await read(res)
-    entry.error = undefined
+    value = await read(res)
   } catch (err: any) {
     entry.error = err?.message ?? String(err)
-    entry.value = undefined
-    entry.etag = entry.lastModified = undefined
+    return false
   }
+  entry.value = value
+  entry.error = undefined
+  entry.etag = res.headers.get('etag') ?? undefined
+  entry.lastModified = res.headers.get('last-modified') ?? undefined
   return true
 }
 
@@ -113,6 +111,8 @@ export async function createLiveDocument (url: string, options: LoadOptions = {}
   let error: string | undefined
   const listeners = new Set<(toolSet: ToolSet) => void>()
 
+  // whether the last rebuild threw: retried on the next refresh even when nothing answered differently
+  let buildFailed = false
   const revalidate = async (): Promise<boolean> => {
     let changed = await fetchConditional(docEntry, fetchFn, JSON_ACCEPT, res => res.json())
     if (docEntry.error) {
@@ -120,27 +120,39 @@ export async function createLiveDocument (url: string, options: LoadOptions = {}
       debug('%s', error)
       return false
     }
-    if (docEntry.value) doc = docEntry.value
+    doc = docEntry.value!
+    // A body that answered before and fails now keeps serving its last good text; one that never
+    // answered is its skill's own error, retried here until it does.
+    const failures: string[] = []
     for (const { entry } of skillCache.values()) {
       if (await fetchConditional(entry, fetchFn, SKILL_ACCEPT, readText)) changed = true
+      if (entry.error && entry.value !== undefined) failures.push(`failed to revalidate skill body ${entry.url}: ${entry.error}`)
     }
-    // nothing answered differently, and the last build succeeded: the set cannot have changed
-    if (!changed && !error) return false
+    if (failures.length) debug('%s', failures.join('; '))
+    if (!changed && !buildFailed) {
+      error = failures.join('; ') || undefined
+      return false
+    }
     let next: ToolSet
     try {
       next = await build(doc)
     } catch (err: any) {
-      error = err?.message ?? String(err)
+      buildFailed = true
+      error = [err?.message ?? String(err), ...failures].join('; ')
       debug('rebuild of %s failed: %s', url, error)
       return false
     }
-    error = undefined
+    buildFailed = false
+    error = failures.join('; ') || undefined
     const nextSnapshot = fingerprint(next)
     // new bytes saying the same thing (a new ETag, a recovered document) are not a change
     if (nextSnapshot === snapshot) return false
     toolSet = next
     snapshot = nextSnapshot
-    for (const cb of listeners) cb(toolSet)
+    for (const cb of listeners) {
+      // one failing listener neither fails the refresh, which already happened, nor silences the others
+      try { cb(toolSet) } catch (err: any) { debug('onChange listener failed: %s', err?.message ?? err) }
+    }
     return true
   }
 
