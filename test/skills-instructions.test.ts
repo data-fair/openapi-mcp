@@ -3,13 +3,13 @@ import assert from 'node:assert/strict'
 import { renderSkillFile } from '../src/skills.ts'
 import { serverOptions, clientDeclaresSkills } from '../src/adapters/server.ts'
 
-const skill = { name: 'workflow', description: 'How to explore', body: 'Read the schema first.', digest: 'x', tools: ['list_datasets', 'get_schema'] }
+const skill = { name: 'workflow', description: 'How to explore', body: 'Read the schema first.', digest: 'x', tools: ['list_collections', 'get_schema'] }
 
 describe('skill frontmatter', () => {
   it('a skill naming tools carries them in its frontmatter metadata', () => {
     const file = renderSkillFile(skill as any)
-    assert.deepEqual(file.frontmatter, { name: 'workflow', description: 'How to explore', metadata: { tools: 'list_datasets get_schema' } })
-    assert.match(file.text, /^---\nname: workflow\ndescription: "How to explore"\nmetadata:\n {2}tools: "list_datasets get_schema"\n---\n/)
+    assert.deepEqual(file.frontmatter, { name: 'workflow', description: 'How to explore', metadata: { tools: 'list_collections get_schema' } })
+    assert.match(file.text, /^---\nname: workflow\ndescription: "How to explore"\nmetadata:\n {2}tools: "list_collections get_schema"\n---\n/)
   })
 
   it('a skill naming no tools has no metadata', () => {

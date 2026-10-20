@@ -182,8 +182,19 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
   const editorOps = ops.filter(op => op.agent.editor)
   const plainOps = ops.filter(op => !op.agent.editor)
   const toolsByOp = new Map<ResolvedOperation, string[]>()
+  // A tool that cannot be built is a finding of its operation, like an invalid annotation.
+  const failed = (op: ResolvedOperation, err: any) => {
+    const message = `${op.toolName}: ${err?.message ?? err}`
+    if (o.lint === 'error') throw new Error(message)
+    if (o.lint === 'warn') console.warn(`openapi-mcp: ${op.method} ${op.path} left out of the tool set: ${message}`)
+  }
   const built = plainOps.flatMap(op => {
-    const tool = makeTool(op, o)
+    let tool: ReturnType<typeof makeTool>
+    try {
+      tool = makeTool(op, o)
+    } catch (err) {
+      failed(op, err)
+    }
     if (tool) toolsByOp.set(op, [tool.name])
     return tool ?? []
   })
@@ -200,13 +211,16 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
 
   // authoredDescriptions is scaffolding for the lint, not part of the public Tool.
   const tools: Tool[] = built.map(({ authoredDescriptions, ...tool }) => tool)
-  // The group's text comes from the package, so the guide names the tools rather than
-  // repeating the descriptions an agent already reads on each one. Each group also publishes
-  // its json-layout fill-form skill as a real MCP skill: how to drive the tools, and the
-  // schema's x-agent-guide when the schema is declared.
+  // Each editor group publishes its json-layout fill-form skill.
   const editorSkills: Skill[] = []
   for (const op of editorOps) {
-    const group = await buildEditorTools(op, { doc, baseUrl, fetch: contextualFetch(fetchFn), locale: o.locale, prepareSchema: options.prepareEditorSchema ?? (schema => schema) })
+    let group: Awaited<ReturnType<typeof buildEditorTools>>
+    try {
+      group = await buildEditorTools(op, { doc, baseUrl, fetch: contextualFetch(fetchFn), locale: o.locale, prepareSchema: options.prepareEditorSchema ?? (schema => schema) })
+    } catch (err) {
+      failed(op, err)
+      continue
+    }
     tools.push(...group.tools)
     toolsByOp.set(op, group.tools.map(t => t.name))
     editorSkills.push(editorSkill(op, group.skill, group.tools.map(t => t.name), o.locale))
@@ -214,6 +228,13 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
   // Relative skill links resolve against the document's URL, else its server URL taken as a
   // directory: `…/api/v1` + `agents/skills/x.md` is `…/api/v1/agents/skills/x.md`.
   const skillBase = options.documentUrl ?? (typeof spec === 'string' ? spec : undefined) ?? baseUrl.replace(/\/?$/, '/')
-  const skills = [...await resolveSkills(root.skills, o.locale, skillBase, options.skillBodies ?? defaultSkillFetcher(fetchFn)), ...editorSkills]
+  // A skill lists only the tools this load built, and one whose tools were all left out goes too.
+  const names = new Set(tools.map(t => t.name))
+  const rootSkills = (root.skills ?? []).flatMap(skill => {
+    if (!skill.tools?.length) return [skill]
+    const kept = skill.tools.filter(t => names.has(t))
+    return kept.length ? [{ ...skill, tools: kept }] : []
+  })
+  const skills = [...await resolveSkills(rootSkills, o.locale, skillBase, options.skillBodies ?? defaultSkillFetcher(fetchFn)), ...editorSkills]
   return { tools, skills, guides: buildGuides(doc, toolsByOp, o.locale) }
 }

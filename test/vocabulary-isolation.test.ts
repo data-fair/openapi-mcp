@@ -65,6 +65,21 @@ describe('an operation whose tool cannot be built', () => {
     assert.deepEqual(ts.skills[0].tools, ['good'])
     assert.ok(!instructions(ts).includes('bad'))
   })
+  it('a skill whose tools were all left out goes with them, not offered to every token', async () => {
+    const d: any = docWith({ get: op('bad', { name: 'bad', futureKey: true }) }, { skills: [{ name: 'sk', description: 'd', body: 'b', tools: ['bad'] }, { name: 'any', description: 'd' }] })
+    const ts = await load(d, { lint: 'off', fetch: fetchFn })
+    assert.deepEqual(ts.skills.map(s => s.name), ['any'])
+  })
+  it('a tool that cannot be built is left out under warn, and named under error', async () => {
+    const body = { required: true, content: { 'application/json': { schema: { type: 'object', properties: { a: { type: 'string' } }, required: true } } } }
+    const d = docWith({ post: op('bad', { name: 'bad' }, { requestBody: body }) }, { skills: [{ name: 'sk', description: 'd', tools: ['bad'] }] })
+    let ts: any
+    const w = await warnings(async () => { ts = await load(d, { lint: 'warn', fetch: fetchFn }) })
+    assert.deepEqual(names(ts), ['good'])
+    assert.deepEqual(ts.skills, [])
+    assert.match(w.join('\n'), /POST \/bad left out of the tool set: bad: /)
+    await assert.rejects(load(d, { fetch: fetchFn }), /^Error: bad: /)
+  })
   it('an unannotated operation with a finding strips no same-named tool and is worded apart', async () => {
     const d: any = docWith({ get: { operationId: 'good', parameters: [{ name: 'p', in: 'query', schema: { type: 'string' }, 'x-agent': { futureKey: true } }], responses: {} } }, { skills: [{ name: 'sk', description: 'd', body: 'b', tools: ['good'] }] })
     let ts: any

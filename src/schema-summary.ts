@@ -5,7 +5,7 @@
  */
 import type { JsonSchema } from './types.ts'
 
-export interface SummaryOptions {
+interface SummaryOptions {
   /** levels of nested objects listed before collapsing to `object` (default 0: nesting is what costs) */
   maxDepth?: number
   /** Descriptions longer than this are truncated; they are a hint, not the documentation. */

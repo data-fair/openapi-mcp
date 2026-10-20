@@ -17,8 +17,8 @@ describe('summariseSchema — property lines', () => {
     assert.equal(out, 'm?: "avg"|"sum"')
   })
   it('keeps a short description on the line', () => {
-    const out = summariseSchema({ type: 'object', properties: { title: { type: 'string', description: 'Dataset title' } } })
-    assert.equal(out, 'title?: string — Dataset title')
+    const out = summariseSchema({ type: 'object', properties: { title: { type: 'string', description: 'Collection title' } } })
+    assert.equal(out, 'title?: string — Collection title')
   })
   it('truncates a long description', () => {
     const out = summariseSchema({ type: 'object', properties: { d: { type: 'string', description: 'x'.repeat(200) } } })

@@ -73,8 +73,8 @@ const memoryFile = (name: string, text: string, contentType?: string): FileSourc
 
 describe('buildRequest — files', () => {
   it('encodes the bound files and fields as multipart with their exact length', async () => {
-    const op = fileOps.find(o => o.operationId === 'createDataset')!
-    const { bindings } = buildInput(op, 'en')
+    const op = fileOps.find(o => o.operationId === 'createCollection')!
+    const { bindings } = buildInput(op, 'en', { files: { maxSize: 1000 } })
     const req = buildRequest(op, bindings, { file: 'https://s3.test/r.csv', title: 'T', draft: false }, base, { file: memoryFile('r.csv', 'a,b', 'text/csv') })
     const bytes = await req.arrayBuffer()
     assert.equal(req.headers.get('content-length'), String(bytes.byteLength))
@@ -84,17 +84,17 @@ describe('buildRequest — files', () => {
     assert.equal((form.get('file') as File).name, 'r.csv')
   })
   it('types a file part by its source, else by the first accepted type', async () => {
-    const op = fileOps.find(o => o.operationId === 'createDataset')!
-    const { bindings } = buildInput(op, 'en')
+    const op = fileOps.find(o => o.operationId === 'createCollection')!
+    const { bindings } = buildInput(op, 'en', { files: { maxSize: 1000 } })
     const req = buildRequest(op, bindings, { file: 'https://s3.test/r.csv' }, base, { file: memoryFile('r.csv', 'a,b') })
     const form = await new Response(await req.arrayBuffer(), { headers: { 'content-type': req.headers.get('content-type')! } }).formData()
     assert.equal((form.get('file') as File).type, 'text/csv')
   })
   it('sends a raw file body typed by the source when the operation declares that type', async () => {
     const op = fileOps.find(o => o.operationId === 'bulkLines')!
-    const { bindings } = buildInput(op, 'en')
+    const { bindings } = buildInput(op, 'en', { files: { maxSize: 1000 } })
     const req = buildRequest(op, bindings, { id: 'd1', file: 'https://s3.test/l.ndjson' }, base, { file: memoryFile('l.ndjson', '{"a":1}\n', 'application/x-ndjson; charset=utf-8') })
-    assert.equal(req.url, 'https://pets.example/api/datasets/d1/_bulk_lines')
+    assert.equal(req.url, 'https://pets.example/api/collections/d1/_bulk_items')
     assert.equal(req.headers.get('content-type'), 'application/x-ndjson')
     assert.equal(req.headers.get('content-length'), '8')
     assert.equal(await req.text(), '{"a":1}\n')

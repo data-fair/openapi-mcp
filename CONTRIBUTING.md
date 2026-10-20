@@ -16,6 +16,7 @@ src/
   input.ts      input schemas
   request.ts    requests
   render.ts     responses as markdown
+  schema-summary.ts  compact body listings
   files.ts      file inputs from the file store
   multipart.ts  upload bodies with an exact length
   file-link.ts  file outputs as links
@@ -23,6 +24,7 @@ src/
   scopes.ts     toolsForScopes
   snapshot.ts   toolSetSnapshot
   context.ts    per-call context
+  localize.ts   localized text
   editor/       json-layout form groups
   adapters/     mcp.ts (public), server.ts: the MCP server of a tool set
   bin/          the standalone server

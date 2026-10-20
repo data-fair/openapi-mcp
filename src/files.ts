@@ -23,7 +23,7 @@ export interface FileFetcher {
   open (url: string, signal?: AbortSignal): Promise<FileSource>
 }
 
-export const FILE_DEFAULTS = { maxSize: 100 * 1024 * 1024, timeout: 300_000 } as const
+const FILE_DEFAULTS = { maxSize: 100 * 1024 * 1024, timeout: 300_000 } as const
 
 /** A configured prefix in the form URLs are compared in: http(s) only, never with credentials. */
 function normalizePrefix (prefix: string): string {

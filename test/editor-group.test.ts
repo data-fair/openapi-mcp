@@ -7,11 +7,11 @@ const doc = {
   openapi: '3.1.0',
   info: { title: 't', version: '1' },
   paths: {
-    '/datasets/{id}/schema': {
+    '/collections/{id}/schema': {
       parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
       get: { operationId: 'readSchema', parameters: [{ name: 'mimeType', in: 'query', schema: { type: 'string' } }], responses: { 200: { description: 'ok' } } }
     },
-    '/datasets/{id}/lines/{lineId}': {
+    '/collections/{id}/lines/{lineId}': {
       parameters: [
         { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
         { name: 'lineId', in: 'path', required: true, schema: { type: 'string' } }
@@ -22,7 +22,7 @@ const doc = {
         requestBody: { content: { 'application/json': { schema: { type: 'object' } } } },
         responses: { 200: { description: 'ok' } },
         'x-agent': {
-          name: 'dataset_line',
+          name: 'item',
           title: { en: 'Edit a record' },
           editor: { schemaOperation: 'readSchema', schemaParams: { mimeType: 'application/schema+json' }, readOperation: 'readLine' }
         }
@@ -45,16 +45,16 @@ describe('editor tool group', () => {
   it('produces eight tools named after the operation', async () => {
     const { tools } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
     assert.deepEqual(tools.map(t => t.name).sort(), [
-      'dataset_line_describeState', 'dataset_line_editArray', 'dataset_line_getData',
-      'dataset_line_getFieldSuggestions', 'dataset_line_reloadForm', 'dataset_line_saveForm',
-      'dataset_line_setData', 'dataset_line_setFieldValue'
+      'item_describeState', 'item_editArray', 'item_getData',
+      'item_getFieldSuggestions', 'item_reloadForm', 'item_saveForm',
+      'item_setData', 'item_setFieldValue'
     ].sort())
   })
 
   it('every tool of the group carries the operation\'s security', async () => {
-    const security = [{ oauth2: ['datasets:write'] }]
+    const security = [{ oauth2: ['collections:write'] }]
     const secured = structuredClone(doc) as any
-    secured.paths['/datasets/{id}/lines/{lineId}'].put.security = security
+    secured.paths['/collections/{id}/lines/{lineId}'].put.security = security
     const { tools } = await load(secured, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
     for (const tool of tools) assert.deepEqual(tool.security, security, tool.name)
   })
@@ -75,24 +75,24 @@ describe('editor tool group', () => {
 
   it('opens a session on first call and describes the fetched schema', async () => {
     const { tools } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
-    const describe = tools.find(t => t.name === 'dataset_line_describeState')!
-    const result = await describe.execute({ id: 'communes', lineId: 'abc' })
+    const describe = tools.find(t => t.name === 'item_describeState')!
+    const result = await describe.execute({ id: 'cities', lineId: 'abc' })
     assert.equal(result.isError, undefined)
     assert.match(result.text, /Nom/)
   })
 
   it('resumes the same session for the same record', async () => {
     const { tools } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
-    const set = tools.find(t => t.name === 'dataset_line_setFieldValue')!
-    const get = tools.find(t => t.name === 'dataset_line_getData')!
-    await set.execute({ id: 'communes', lineId: 'abc', path: '/nom', value: 'Brest' })
-    const result = await get.execute({ id: 'communes', lineId: 'abc' })
+    const set = tools.find(t => t.name === 'item_setFieldValue')!
+    const get = tools.find(t => t.name === 'item_getData')!
+    await set.execute({ id: 'cities', lineId: 'abc', path: '/nom', value: 'Brest' })
+    const result = await get.execute({ id: 'cities', lineId: 'abc' })
     assert.match(result.text, /Brest/)
   })
 
   it('appends the group guide to the instructions', async () => {
     const toolSet = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
-    assert.match(instructions(toolSet), /dataset_line/)
+    assert.match(instructions(toolSet), /item/)
   })
 
   it('publishes the operation title in every tool description', async () => {
@@ -105,8 +105,8 @@ describe('editor tool group', () => {
 
   it('partitions sessions by identity and sends each call with its own headers', async () => {
     const { tools } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
-    const set = tools.find(t => t.name === 'dataset_line_setFieldValue')!
-    const get = tools.find(t => t.name === 'dataset_line_getData')!
+    const set = tools.find(t => t.name === 'item_setFieldValue')!
+    const get = tools.find(t => t.name === 'item_getData')!
     calls.length = 0
     await set.execute({ id: 'ds', lineId: 'l1', path: '/nom', value: 'Brest' }, { identity: 'alice', headers: { cookie: 'who=alice' } })
     const bob = await get.execute({ id: 'ds', lineId: 'l1' }, { identity: 'bob', headers: { cookie: 'who=bob' } })
@@ -163,9 +163,9 @@ describe('editor group skill', () => {
 
   it('publishes a generic skill when the schema is only known per record', async () => {
     const { skills } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
-    const skill = skills.find(s => s.name === 'dataset-line')
+    const skill = skills.find(s => s.name === 'item')
     assert.ok(skill)
-    assert.match(skill.body, /dataset_line_describeState/)
+    assert.match(skill.body, /item_describeState/)
     assert.doesNotMatch(skill.body, /## About this/)
   })
 })

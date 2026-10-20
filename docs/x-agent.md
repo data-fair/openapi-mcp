@@ -34,12 +34,12 @@ x-agent:
       tools: [update_article, publish_article]
 ```
 
-`skills` are Agent Skills. `description` (localized, at most 1024 characters) is always shown, in
-the MCP instructions. The body is read on demand as `skill://<name>/SKILL.md`: inline in `body`,
+`skills` are Agent Skills. `description` (localized, at most 1024 characters) is always shown: in
+the MCP instructions, or in `skills/list` for a client that lists skills itself. The body is read on demand as `skill://<name>/SKILL.md`: inline in `body`,
 or a markdown file linked by `href` (localized; relative to the URL the document was fetched from,
 or to `servers[0].url`). `href` and `body` exclude each other; with neither, the description is
-the body, and a linked file's frontmatter is ignored. `tools` adds a `Tools:` line, and a filter
-(`toolsForScopes`) drops the skill when it keeps none of them. `name` follows the Agent Skills
+the body, and a linked file's frontmatter is ignored. `tools` adds a `Tools:` line; a skill keeps
+only the tools that were built, and goes when none was (or when `toolsForScopes` keeps none). `name` follows the Agent Skills
 format: `^[a-z0-9]+(-[a-z0-9]+)*$`, at most 64 characters.
 
 ## Tags
@@ -62,7 +62,7 @@ The presence of `x-agent` on an operation is what makes it a tool.
 | --- | --- | --- |
 | `name` | string | Tool name, `^[a-z0-9_]+$`. Default: snake_case `operationId`. |
 | `title` | localized | Tool title. |
-| `description` | localized | Tool description. Default: `summary`, then `description`, then `operationId`. |
+| `description` | localized | Tool description. Default: `summary` and `description`, else `operationId`. |
 | `examples` | object[] | Input examples, passed through. |
 | `annotations` | object | MCP hints: `readOnlyHint` (default for GET and HEAD), `destructiveHint` (default for DELETE), `idempotentHint`, `openWorldHint`. |
 | `params` | map | [Parameter overrides](#parameter-overrides), by API parameter name. |
@@ -158,15 +158,15 @@ response:
 
 | Field | Effect |
 | --- | --- |
-| `rows` | Pointer to the array of rows (`^/[^/]+$`), rendered as a markdown table. |
+| `rows` | Top-level key of the array of rows, as a pointer (`/results`), rendered as a markdown table. |
 | `concise` | Fields of the default `response_format: concise`. |
 | `detailed` | `true` (every field) or a field list, for `response_format: detailed`. With `concise`, generates the `response_format` parameter. |
 | `selectParam` | The API's own projection parameter: a `fields` parameter is generated, its enum read from the response schema, which must declare properties. |
-| `hints` | Pointer to a list of strings the API returns as advice, shown as `> Hint:` lines after the rest. |
+| `hints` | Pointer, through object keys, to a list of strings the API returns as advice, shown as `> Hint:` lines after the rest. |
 | `file` | `true`: the response is a file, returned as a link. GET only, alone. See [File outputs](#file-outputs). |
 
 A response is projected on the caller's `fields`, else its `response_format`, else `concise`, else
-nothing. Strings are truncated (`maxStringLength`), except URLs. An operation whose 2xx response
+nothing. Strings are truncated (`maxStringLength`), except URLs and lists of URLs. An operation whose 2xx response
 offers `text/markdown` is asked for it, and the body is passed through as is.
 
 ### Schema properties

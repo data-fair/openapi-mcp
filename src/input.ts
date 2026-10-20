@@ -13,12 +13,15 @@ export interface Binding {
   accept?: string[]
 }
 
-/** Walk a JSON pointer inside a schema: "/results" → schema.properties.results; array steps go through items. */
+/** The object keys of a JSON pointer, unescaped. */
+export const pointerKeys = (pointer: string) => pointer.split('/').filter(Boolean).map(s => s.replace(/~1/g, '/').replace(/~0/g, '~'))
+
+/** Walk a JSON pointer of object keys inside a schema: "/results" → schema.properties.results. */
 export function schemaAt (schema: JsonSchema | undefined, pointer: string | undefined): JsonSchema | undefined {
   if (!schema) return undefined
   if (!pointer) return schema
   let node: JsonSchema | undefined = schema
-  for (const key of pointer.split('/').filter(Boolean)) {
+  for (const key of pointerKeys(pointer)) {
     node = node?.properties?.[key]
     if (!node) return undefined
   }

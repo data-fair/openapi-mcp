@@ -1,5 +1,5 @@
 import { localize } from './localize.ts'
-import { schemaAt, responseFields } from './input.ts'
+import { schemaAt, responseFields, pointerKeys } from './input.ts'
 import type { AgentResponse, JsonSchema } from './types.ts'
 
 export interface RenderOptions {
@@ -25,8 +25,9 @@ function truncate (s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '…' : s
 }
 
-/** A truncated URL is useless: a link (a next page, a file) is shown whole. */
+/** A truncated URL is useless: a link (a next page, a file), or a list of links, is shown whole. */
 const isUrl = (v: unknown) => typeof v === 'string' && /^https?:\/\/\S+$/.test(v)
+const isLink = (v: unknown) => isUrl(v) || (Array.isArray(v) && v.length > 0 && v.every(isUrl))
 
 function cell (v: unknown, max: number): string {
   if (v === null || v === undefined) return ''
@@ -35,7 +36,7 @@ function cell (v: unknown, max: number): string {
   else if (isObject(v)) s = JSON.stringify(v)
   else s = String(v)
   const flat = s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
-  return isUrl(v) ? flat : truncate(flat, max)
+  return isLink(v) ? flat : truncate(flat, max)
 }
 
 function hintOf (schema: JsonSchema | undefined, locale: string): string | undefined {
@@ -99,11 +100,9 @@ function kv (value: unknown, schema: JsonSchema | undefined, o: RenderOptions, m
   return lines
 }
 
-const steps = (pointer: string) => pointer.split('/').filter(Boolean)
-
-/** The value at a JSON pointer, and a copy of `value` without it (an emptied parent object goes too). */
-function extract (value: Record<string, unknown>, pointer: string): { found: unknown, rest: Record<string, unknown> } {
-  const [key, ...more] = steps(pointer)
+/** The value at a JSON pointer of object keys, and a copy of `value` without it (an emptied parent object goes too). */
+function extract (value: Record<string, unknown>, pointer: string | string[]): { found: unknown, rest: Record<string, unknown> } {
+  const [key, ...more] = typeof pointer === 'string' ? pointerKeys(pointer) : pointer
   if (!(key in value)) return { found: undefined, rest: value }
   const rest = { ...value }
   if (!more.length) {
@@ -112,7 +111,7 @@ function extract (value: Record<string, unknown>, pointer: string): { found: unk
   }
   const child = value[key]
   if (!isObject(child)) return { found: undefined, rest: value }
-  const inner = extract(child, '/' + more.join('/'))
+  const inner = extract(child, more)
   if (Object.keys(inner.rest).length) rest[key] = inner.rest
   else delete rest[key]
   return { found: inner.found, rest }
@@ -154,7 +153,7 @@ export function render (body: unknown, o: RenderOptions): string {
   }
   if (hints?.length) {
     out.push('')
-    for (const h of hints) out.push(`> Hint: ${h}`)
+    for (const h of hints) out.push(`> Hint: ${typeof h === 'string' ? h : JSON.stringify(h)}`)
   }
   return out.join('\n')
 }

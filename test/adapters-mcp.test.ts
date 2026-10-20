@@ -184,18 +184,18 @@ describe('mcp adapter — files', () => {
   it('sends a resource_link after the text block', async () => {
     upstream.length = 0
     const { client } = await inMemory(await load(files, { fetch: fetchFn }))
-    const res: any = await client.callTool({ name: 'export_lines', arguments: { id: 'rge' } })
-    const uri = 'https://files.example/api/datasets/rge/lines?format=csv'
+    const res: any = await client.callTool({ name: 'export_lines', arguments: { id: 'c1' } })
+    const uri = 'https://files.example/api/collections/c1/lines?format=csv'
     assert.deepEqual(res.content, [
-      { type: 'text', text: `File rge-lines.csv (text/csv), not downloaded by this tool: ${uri}` },
-      { type: 'resource_link', uri, name: 'rge-lines.csv', mimeType: 'text/csv' }
+      { type: 'text', text: `File c1-lines.csv (text/csv), not downloaded by this tool: ${uri}` },
+      { type: 'resource_link', uri, name: 'c1-lines.csv', mimeType: 'text/csv' }
     ])
     assert.equal(upstream.some(r => r.url.includes('/lines')), false)
   })
   it('lists file inputs with their x-mcp-file marker when a file store is configured', async () => {
     const { client } = await inMemory(await load(files, { fetch: fetchFn, files: { urlPrefixes: ['https://s3.test/bucket/'] } }))
     const { tools } = await client.listTools()
-    const create = tools.find(t => t.name === 'create_dataset')!
+    const create = tools.find(t => t.name === 'create_collection')!
     assert.deepEqual((create.inputSchema.properties as any).file['x-mcp-file'], { accept: ['text/csv', 'application/vnd.ms-excel'], maxSize: 104857600 })
   })
 })

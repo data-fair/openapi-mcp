@@ -48,7 +48,7 @@
     "lint": "eslint .",
     "lint-fix": "eslint --fix .",
     "check-types": "tsc",
-    "test": "NODE_ENV=test node --test --test-force-exit 'test/**/*.test.ts'",
+    "test": "NODE_ENV=test node --test 'test/**/*.test.ts'",
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "prepublishOnly": "npm run build",
     "quality": "npm run lint && npm run check-types && npm run test"

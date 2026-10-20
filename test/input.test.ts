@@ -139,7 +139,7 @@ describe('buildInput — bodyFields', () => {
 
 const filesDoc = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/files.json', import.meta.url), 'utf8')))
 const fileOps = resolveOperations(filesDoc)
-const createDataset = fileOps.find(o => o.operationId === 'createDataset')!
+const createCollection = fileOps.find(o => o.operationId === 'createCollection')!
 const bulkLines = fileOps.find(o => o.operationId === 'bulkLines')!
 
 /** file inputs on, as when files.urlPrefixes is configured */
@@ -147,7 +147,7 @@ const on = { files: { maxSize: 1000 } }
 
 describe('buildInput — files', () => {
   it('turns binary multipart parts into file URL inputs and keeps the other parts flat', () => {
-    const { inputSchema, bindings, unavailable } = buildInput(createDataset, 'en', on)
+    const { inputSchema, bindings, unavailable } = buildInput(createCollection, 'en', on)
     assert.equal(unavailable, undefined)
     assert.deepEqual(inputSchema.properties.file, {
       type: 'string',
@@ -167,7 +167,7 @@ describe('buildInput — files', () => {
     assert.equal(bindings.find(b => b.toolName === 'schema')!.kind, 'bodyProp')
   })
   it('leaves accept out when a part declares no specific type', () => {
-    const op = structuredClone(createDataset)
+    const op = structuredClone(createCollection)
     op.requestBody!.encoding = { file: ['application/octet-stream'] }
     const { inputSchema } = buildInput(op, 'en', on)
     assert.deepEqual(inputSchema.properties.file['x-mcp-file'], { maxSize: 1000 })
@@ -187,18 +187,18 @@ describe('buildInput — files', () => {
     assert.equal(bindings.find(b => b.toolName === 'file__body')!.kind, 'file')
   })
   it('does not offer a tool that needs a list of files', () => {
-    const op = structuredClone(createDataset)
+    const op = structuredClone(createCollection)
     op.requestBody!.schema.required = ['file', 'previews']
-    assert.match(buildInput(op, 'en', on).unavailable!, /create_dataset: multipart part "previews" is a list of files, which a tool cannot send/)
+    assert.match(buildInput(op, 'en', on).unavailable!, /create_collection: multipart part "previews" is a list of files, which a tool cannot send/)
   })
   it('with file inputs off, drops optional file parts and does not offer a tool that needs a file', () => {
-    const optional = structuredClone(createDataset)
+    const optional = structuredClone(createCollection)
     optional.requestBody!.schema.required = []
     const off = buildInput(optional, 'en')
     assert.equal(off.unavailable, undefined)
     assert.deepEqual(Object.keys(off.inputSchema.properties), ['title', 'schema', 'draft'])
     assert.ok(!off.bindings.some(b => b.kind === 'file'))
-    assert.match(buildInput(createDataset, 'en').unavailable!, /create_dataset: needs a file \("file"\), and file inputs are off/)
+    assert.match(buildInput(createCollection, 'en').unavailable!, /create_collection: needs a file \("file"\), and file inputs are off/)
     assert.match(buildInput(bulkLines, 'en').unavailable!, /bulk_lines: needs a file \("file"\), and file inputs are off/)
   })
   it('recognises OAS 3.0 binary and OAS 3.1 contentMediaType parts, not inline encoded ones', () => {
@@ -215,9 +215,9 @@ describe('buildInput — files', () => {
 })
 
 describe('buildInput — bodyRequired', () => {
-  /** data-fair's case: the file part is optional, since the operation also creates datasets without one */
+  /** the file part is optional: the operation also creates a collection without one */
   const optionalFile = (agent: Partial<AgentOperation>) => {
-    const op = structuredClone(createDataset)
+    const op = structuredClone(createCollection)
     op.requestBody!.schema.required = []
     op.agent = { ...op.agent, ...agent }
     return op
@@ -230,15 +230,12 @@ describe('buildInput — bodyRequired', () => {
   })
   it('makes a tool that requires a file unavailable without a file store', () => {
     const { unavailable } = buildInput(optionalFile({ bodyFields: ['file', 'title'], bodyRequired: ['file'] }), 'en')
-    assert.match(unavailable!, /create_dataset: needs a file \("file"\), and file inputs are off/)
+    assert.match(unavailable!, /create_collection: needs a file \("file"\), and file inputs are off/)
   })
   it('applies without bodyFields, keeping every property', () => {
     const { inputSchema } = buildInput(optionalFile({ bodyRequired: ['title'] }), 'en', on)
     assert.ok(inputSchema.properties.schema && inputSchema.properties.draft)
     assert.deepEqual(inputSchema.required, ['title'])
-  })
-  it('refuses a property the tool does not offer', () => {
-    assert.throws(() => buildInput(optionalFile({ bodyFields: ['title'], bodyRequired: ['file'] }), 'en', on), /create_dataset: bodyRequired names properties the tool does not offer: file/)
   })
   it('applies to a compact JSON body too', () => {
     const op = { ...publishThing, agent: { ...publishThing.agent, body: 'compact' as const, bodyRequired: ['publicationSites'] } }

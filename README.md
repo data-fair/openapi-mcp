@@ -25,7 +25,12 @@ const toolSet = await load('https://example.com/openapi.json', { locale: 'en' })
 const handler = createMcpHttpHandler(
   (request) => toolsForScopes(toolSet, scopesOf(request)),
   { name: 'my-api', version: '1.0.0' },
-  { context: (request) => ({ headers: { authorization: request?.headers.get('authorization') ?? '' } }) }
+  {
+    context: (request) => {
+      const authorization = request?.headers.get('authorization')
+      return authorization ? { headers: { authorization } } : undefined
+    }
+  }
 )
 ```
 

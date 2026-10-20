@@ -7,11 +7,11 @@ const doc = {
   openapi: '3.1.0',
   info: { title: 't', version: '1' },
   paths: {
-    '/datasets/{id}/schema': {
+    '/collections/{id}/schema': {
       parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
       get: { operationId: 'readSchema', parameters: [{ name: 'mimeType', in: 'query', schema: { type: 'string' } }], responses: { 200: { description: 'ok' } } }
     },
-    '/datasets/{id}/lines/{lineId}': {
+    '/collections/{id}/lines/{lineId}': {
       parameters: [
         { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
         { name: 'lineId', in: 'path', required: true, schema: { type: 'string' } }
@@ -21,7 +21,7 @@ const doc = {
         operationId: 'updateLine',
         requestBody: { content: { 'application/json': { schema: { type: 'object' } } } },
         responses: { 200: { description: 'ok' } },
-        'x-agent': { name: 'dataset_line', editor: { schemaOperation: 'readSchema', schemaParams: { mimeType: 'application/schema+json' }, readOperation: 'readLine' } }
+        'x-agent': { name: 'item', editor: { schemaOperation: 'readSchema', schemaParams: { mimeType: 'application/schema+json' }, readOperation: 'readLine' } }
       }
     },
     '/other/{otherId}/thing': {
@@ -70,14 +70,14 @@ describe('resolveEditorOperations', () => {
 
 describe('editorRequest', () => {
   it('places path params and fixed query values', () => {
-    const req = editorRequest(resolveOperationById(doc, 'readSchema')!, { id: 'communes' }, { mimeType: 'application/schema+json' }, undefined, 'https://api.test/v1')
+    const req = editorRequest(resolveOperationById(doc, 'readSchema')!, { id: 'cities' }, { mimeType: 'application/schema+json' }, undefined, 'https://api.test/v1')
     assert.equal(req.method, 'GET')
-    assert.equal(new URL(req.url).pathname, '/v1/datasets/communes/schema')
+    assert.equal(new URL(req.url).pathname, '/v1/collections/cities/schema')
     assert.equal(new URL(req.url).searchParams.get('mimeType'), 'application/schema+json')
   })
 
   it('sends a JSON body on the write operation', async () => {
-    const req = editorRequest(writeOp(), { id: 'communes', lineId: 'abc' }, {}, { nom: 'Rennes' }, 'https://api.test/v1')
+    const req = editorRequest(writeOp(), { id: 'cities', lineId: 'abc' }, {}, { nom: 'Rennes' }, 'https://api.test/v1')
     assert.equal(req.method, 'PUT')
     assert.equal(req.headers.get('content-type'), 'application/json')
     assert.deepEqual(await req.json(), { nom: 'Rennes' })

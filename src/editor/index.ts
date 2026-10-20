@@ -4,14 +4,12 @@ import { bridgeTool, type FormTool } from './bridge.ts'
 import { localize } from '../localize.ts'
 import type { ResolvedOperation, Tool } from '../types.ts'
 
-export type { EditorContext } from './session-spec.ts'
-
 const STUB_SPEC = {
   load: () => ({}),
   schema: () => ({ type: 'object', properties: {} })
 }
 
-export interface EditorGroup {
+interface EditorGroup {
   tools: Tool[]
   /**
    * The json-layout fill-form skill of the group: how to use its tools and, when the schema

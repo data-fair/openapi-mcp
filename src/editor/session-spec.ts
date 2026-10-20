@@ -12,7 +12,7 @@ export interface EditorContext {
   prepareSchema: (schema: JsonSchema) => JsonSchema | Promise<JsonSchema>
 }
 
-export interface SchemaRegistry {
+interface SchemaRegistry {
   get (ops: EditorOperations, pathParams: Record<string, unknown>, ctx: EditorContext): () => Promise<unknown>
 }
 

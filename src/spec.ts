@@ -1,7 +1,7 @@
 import { validateVocabulary, type OperationFinding } from './vocabulary/validate.ts'
 import { responseFields } from './input.ts'
 import { resolveEditorOperations } from './editor/operations.ts'
-import type { JsonSchema, AgentOperation, AgentOperationAnnotation, AgentParamOverride, AgentRoot, ResolvedBody, ResolvedOperation, ResolvedParam, SecurityRequirement } from './types.ts'
+import type { JsonSchema, AgentOperation, AgentOperationAnnotation, AgentParamOverride, ResolvedBody, ResolvedOperation, ResolvedParam, SecurityRequirement } from './types.ts'
 
 const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']
 
@@ -32,7 +32,10 @@ function follow (node: unknown, fragment: string): unknown {
  * never a failure. A document assembled from several services must not lose every tool because
  * one schema points somewhere this library does not fetch.
  */
-export type UnresolvedRef = (ref: string, at: string) => void
+type UnresolvedRef = (ref: string, at: string) => void
+
+/** A root, operation or x-agent entry `security` list, or anything inside one. */
+const underSecurity = (at: string) => /^(\/paths\/[^/]+\/[^/]+(\/x-agent(\/\d+)?)?)?\/security(\/|$)/.test(at)
 
 /**
  * Inline every $ref the document can resolve itself.
@@ -51,9 +54,6 @@ export type UnresolvedRef = (ref: string, at: string) => void
  * twice on different branches is inlined twice (schemas are small enough, and tools need
  * self-contained schemas).
  */
-/** A root, operation or x-agent entry `security` list, or anything inside one. */
-const underSecurity = (at: string) => /^(\/paths\/[^/]+\/[^/]+(\/x-agent(\/\d+)?)?)?\/security(\/|$)/.test(at)
-
 export function inlineRefs (doc: JsonSchema, onUnresolved: UnresolvedRef = () => {}): JsonSchema {
   // Every embedded schema resource (a schema with a string $id) by its absolute id, and the
   // resource each node belongs to. Ids are recorded as resources are met, so a relative $id is
@@ -118,7 +118,7 @@ export function inlineRefs (doc: JsonSchema, onUnresolved: UnresolvedRef = () =>
   return walk(doc, [], doc, '') as JsonSchema
 }
 
-export interface LoadSpecOptions {
+interface LoadSpecOptions {
   /**
    * What an operation whose x-agent this version rejects does. 'error' (the default) fails the
    * document. 'warn' and 'off' leave that operation's tools out and load the rest ('warn' says
@@ -132,8 +132,7 @@ export interface LoadSpecOptions {
 
 /**
  * The document, fetched when given a URL, its refs inlined and every annotation checked: what
- * building the tools relies on. An operation a lenient load leaves out loses its x-agent, and a
- * skill stops listing its tools.
+ * building the tools relies on. An operation a lenient load leaves out loses its x-agent.
  */
 export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetch, options: LoadSpecOptions = {}): Promise<JsonSchema> {
   let doc: JsonSchema
@@ -172,18 +171,7 @@ export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetc
   }
   // The annotation is what makes an operation a tool: without it the operation contributes none
   // of its views, and the document is otherwise untouched (inlined is a copy).
-  const gone = new Set<string>()
-  for (const { path, method } of leftOut.values()) {
-    const op = inlined.paths[path][method]
-    if (!op['x-agent']) continue // not a tool: nothing to strip from a skill, nothing of its own left out
-    for (const view of views(op['x-agent'])) {
-      const name = view?.name ?? (typeof op.operationId === 'string' ? snakeCase(op.operationId) : undefined)
-      if (name) gone.add(name)
-    }
-    delete op['x-agent']
-  }
-  // A skill must not publish the name of a tool this load left out.
-  if (gone.size) for (const skill of (inlined['x-agent'] as AgentRoot | undefined)?.skills ?? []) if (skill.tools) skill.tools = skill.tools.filter(t => !gone.has(t))
+  for (const { path, method } of leftOut.values()) delete inlined.paths[path][method]['x-agent']
   if (leftOut.size && options.lint === 'warn') {
     const lines = [...leftOut.values()].map(o => `  ${o.method.toUpperCase()} ${o.path}: ${o.reasons.join('; ')}`)
     console.warn(`openapi-mcp: ${leftOut.size} operation(s) left out of the tool set, their annotations are not accepted by this version:\n${lines.join('\n')}`)

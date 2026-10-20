@@ -5,6 +5,6 @@ export { snakeCase } from './spec.ts'
 export { validateVocabulary } from './vocabulary/validate.ts'
 export type { FileLoadOptions } from './files.ts'
 export type {
-  ToolSet, Tool, ToolResult, ToolAnnotations, ResourceLink, CallContext, Skill, Guide, SecurityRequirement, JsonSchema,
+  ToolSet, Tool, ToolResult, ToolAnnotations, ResourceLink, CallContext, Skill, Guide, SkillBodyFetcher, SecurityRequirement, JsonSchema,
   Localized, AgentRoot, AgentSkill, AgentTag, AgentOperation, AgentOperationAnnotation, AgentParamOverride, AgentResponse, AgentEditor, AgentProperty
 } from './types.ts'

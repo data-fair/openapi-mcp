@@ -53,6 +53,15 @@ describe('render', () => {
     assert.equal(render(['a', 'b'], { locale: 'en' }), '- a\n- b')
     assert.equal(render('x'.repeat(20), { locale: 'en', maxStringLength: 5 }), 'xxxxx…')
   })
+  it('reads hints at an escaped pointer, and shows a non-string hint as JSON', () => {
+    const out = render({ a: 1, 'x/y': { tips: ['one', { code: 2 }] } }, { locale: 'en', response: { hints: '/x~1y/tips' } })
+    assert.equal(out, '- **a**: 1\n\n> Hint: one\n> Hint: {"code":2}')
+  })
+  it('never truncates a URL or a list of URLs', () => {
+    const url = 'https://example.test/' + 'x'.repeat(40)
+    assert.equal(render({ next: url, links: [url, url], text: 'y'.repeat(40) }, { locale: 'en', maxStringLength: 10 }),
+      `- **next**: ${url}\n- **links**: ${url}, ${url}\n- **text**: yyyyyyyyyy…`)
+  })
   it('renders arrays of objects without a schema as a table', () => {
     const out = render([{ a: 1, b: 'x' }, { a: 2, b: 'y' }], { locale: 'en' })
     assert.equal(out, '| a | b |\n| --- | --- |\n| 1 | x |\n| 2 | y |')

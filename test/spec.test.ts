@@ -150,7 +150,7 @@ describe('resolveOperationById', () => {
     openapi: '3.1.0',
     info: { title: 't', version: '1' },
     paths: {
-      '/datasets/{id}/schema': {
+      '/collections/{id}/schema': {
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
         get: {
           operationId: 'readSchema',
@@ -165,7 +165,7 @@ describe('resolveOperationById', () => {
     const op = resolveOperationById(doc, 'readSchema')
     assert.equal(op?.operationId, 'readSchema')
     assert.equal(op?.method, 'GET')
-    assert.equal(op?.path, '/datasets/{id}/schema')
+    assert.equal(op?.path, '/collections/{id}/schema')
     assert.deepEqual(op?.params.map(p => `${p.in}:${p.name}`), ['path:id', 'query:mimeType'])
   })
 

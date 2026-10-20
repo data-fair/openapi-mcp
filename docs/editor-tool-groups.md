@@ -68,9 +68,9 @@ one form per caller and document, resumed by any call with the same parameters u
 ## The schema
 
 `load`'s `prepareEditorSchema(schema)` adapts a form schema before json-layout compiles it: a
-declared body or a fetched one, given as a copy. By default the schema is used as is. A schema is
-fetched once per schema operation, path parameters and `schemaParams`, and shared by the sessions
-built on it; its version is a hash of the fetched body, so a changed schema is compiled again.
+declared body or a fetched one, given as a copy. By default the schema is used as is. Sessions with
+the same schema operation, path parameters and `schemaParams` share one schema source: each session
+fetches it when it opens, and the compiled layout is reused while the body's hash is unchanged.
 
 ## Limitations
 
