@@ -2,6 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { load } from '../src/load.ts'
+import { instructions } from '../src/adapters/server.ts'
 
 const petstore = JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8'))
 const views = JSON.parse(await readFile(new URL('./fixtures/views.json', import.meta.url), 'utf8'))
@@ -22,19 +23,19 @@ describe('load', () => {
   it('builds the tool set with instructions', async () => {
     const ts = await load(petstore, { fetch: stub(() => json({})).fetchFn })
     assert.deepEqual(ts.tools.map(t => t.name), ['list_pets', 'create_pet', 'get_pet'])
-    assert.equal(ts.instructions, '## workflow\n\nStart with list_pets, then get_pet.\n\nRead it as the MCP resource skill://workflow/SKILL.md.\n\n## editing\n\nUse create_pet only when asked.\n\nRead it as the MCP resource skill://editing/SKILL.md.\n\n## Pets\n\nPets have an id and a name.')
+    assert.equal(instructions(ts), '## workflow\n\nStart with list_pets, then get_pet.\n\nRead it as the MCP resource skill://workflow/SKILL.md.\n\n## editing\n\nUse create_pet only when asked.\n\nRead it as the MCP resource skill://editing/SKILL.md.\n\n## Pets\n\nPets have an id and a name.')
     const list = ts.tools[0]
     assert.equal(list.description, 'List pets. Use q for text search.')
     assert.deepEqual(list.annotations, { readOnlyHint: true, destructiveHint: false })
     assert.deepEqual(list.examples, [{ query: 'rex', size: 5 }])
     assert.equal(list.outputSchema, undefined)
     assert.equal(ts.tools[1].annotations.readOnlyHint, false)
-    assert.deepEqual(ts.skills.map(s => [s.id, s.description]), [['workflow', 'Start with list_pets, then get_pet.'], ['editing', 'Use create_pet only when asked.']])
+    assert.deepEqual(ts.skills.map(s => [s.name, s.description]), [['workflow', 'Start with list_pets, then get_pet.'], ['editing', 'Use create_pet only when asked.']])
   })
   it('localizes', async () => {
     const ts = await load(petstore, { locale: 'fr', fetch: stub(() => json({})).fetchFn })
     assert.equal(ts.tools[0].description, 'Lister les animaux.')
-    assert.match(ts.instructions, /^## workflow\n\nCommencez par list_pets\./)
+    assert.match(instructions(ts), /^## workflow\n\nCommencez par list_pets\./)
   })
   it('applies the call context to the upstream request', async () => {
     const { fetchFn, calls } = stub(() => json({ total: 0, results: [] }))
@@ -124,7 +125,7 @@ describe('load — one document, no profiles', () => {
   })
   it('all root skills are listed', async () => {
     const toolSet = await load(doc({ skills: [{ name: 'how-to', description: 'How to handle things.' }] }), { fetch: stub(() => json({})).fetchFn })
-    assert.deepEqual(toolSet.skills.map(s => s.id), ['how-to'])
+    assert.deepEqual(toolSet.skills.map(s => s.name), ['how-to'])
   })
 })
 
@@ -175,7 +176,7 @@ describe('load — linked skills', () => {
   it('resolves a relative link under servers[0].url for a document passed as an object', async () => {
     const s = bodies({ 'https://api.test/v1/agents/skills/w.md': '---\nname: w\n---\nThe body.' })
     const ts = await load(skilled([{ name: 'w', description: 'When w.', href: 'agents/skills/w.md' }]), { fetch: s.fetchFn })
-    assert.deepEqual(ts.skills.map(x => [x.id, x.body, x.error]), [['w', 'The body.', undefined]])
+    assert.deepEqual(ts.skills.map(x => [x.name, x.body, x.error]), [['w', 'The body.', undefined]])
   })
 
   it('resolves against the document URL when loaded from a URL, or the documentUrl option', async () => {
@@ -188,8 +189,8 @@ describe('load — linked skills', () => {
   it('lists skills in the instructions without bodies, pointing to their resources', async () => {
     const s = bodies({ 'https://api.test/v1/w.md': 'SECRET BODY' })
     const ts = await load(skilled([{ name: 'w', description: 'When w.', href: 'w.md', tools: ['list_pets'] }]), { fetch: s.fetchFn })
-    assert.equal(ts.instructions, '## w\n\nWhen w.\n\nTools: list_pets\nRead it as the MCP resource skill://w/SKILL.md.\n\n## Pets\n\nPets have an id and a name.')
-    assert.equal(ts.guide, '## Pets\n\nPets have an id and a name.')
+    assert.equal(instructions(ts), '## w\n\nWhen w.\n\nTools: list_pets\nRead it as the MCP resource skill://w/SKILL.md.\n\n## Pets\n\nPets have an id and a name.')
+    assert.deepEqual(ts.guides, [{ name: 'Pets', text: 'Pets have an id and a name.', tools: ['list_pets', 'create_pet', 'get_pet'] }])
     assert.deepEqual(ts.tools.map(t => t.name), ['list_pets', 'create_pet', 'get_pet'])
     assert.equal(ts.skills[0].body, 'SECRET BODY\n\nTools: list_pets')
   })

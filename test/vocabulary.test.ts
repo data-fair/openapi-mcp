@@ -30,7 +30,7 @@ describe('validateVocabulary', () => {
   it('accepts valid root, tag, operation, parameter and property annotations', () => {
     const d: any = doc({
       'x-agent': { skills: [{ name: 'workflow', description: 'Start with list_things.', tools: ['list_things'] }] },
-      tags: [{ name: 'Things', 'x-agent': { skill: 'Things are…' } }]
+      tags: [{ name: 'Things', 'x-agent': { guide: 'Things are…' } }]
     })
     d.paths['/things'].get['x-agent'] = { name: 'list_things', params: { size: { maximum: 50 } }, response: { rows: '/results', concise: ['id'] } }
     d.paths['/things'].get.parameters[0]['x-agent'] = { default: 10 }

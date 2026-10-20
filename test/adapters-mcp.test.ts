@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { load } from '../src/load.ts'
 import type { ToolSet } from '../src/types.ts'
 import { createMcpServer, createMcpHttpHandler } from '../src/adapters/mcp.ts'
+import { instructions } from '../src/adapters/server.ts'
 
 const petstore = JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8'))
 const upstream: Request[] = []
@@ -35,7 +36,7 @@ async function inMemory (given?: ToolSet) {
 describe('mcp adapter over a tool set (in-memory, 2025 era)', () => {
   it('lists tools with schemas, annotations, examples and instructions', async () => {
     const { client, toolSet } = await inMemory()
-    assert.equal(client.getInstructions(), toolSet.instructions)
+    assert.equal(client.getInstructions(), instructions(toolSet))
     const { tools } = await client.listTools()
     assert.deepEqual(tools.map(t => t.name), ['list_pets', 'create_pet', 'get_pet'])
     assert.equal(tools[0].inputSchema.type, 'object')
@@ -129,7 +130,7 @@ describe('mcp adapter over HTTP (both eras)', () => {
     const list = await client.listTools()
     assert.equal(list.ttlMs, 60_000)
     assert.equal(list.cacheScope, 'private')
-    assert.equal(client.getInstructions(), all.instructions)
+    assert.equal(client.getInstructions(), instructions(all))
     await client.close()
   })
   it('hands the request to the context hook and forwards the derived headers upstream', async () => {

@@ -9,11 +9,11 @@ import { fileLink } from './file-link.ts'
 import { render } from './render.ts'
 import { localize } from './localize.ts'
 import { callFetch, contextualFetch } from './context.ts'
-import { resolveSkills, defaultSkillFetcher, editorSkill, skillEntries } from './skills.ts'
+import { resolveSkills, defaultSkillFetcher, editorSkill } from './skills.ts'
 import { lintToolInput, formatFindings, type LintFinding } from './vocabulary/lint.ts'
 import { createFileFetcher, openFiles, closeFiles, type FileFetcher, type FileLoadOptions } from './files.ts'
 import type { FileSource } from './multipart.ts'
-import type { JsonSchema, ResolvedOperation, Skill, SkillBodyFetcher, Tool, ToolResult, ToolSet, AgentRoot, AgentTag } from './types.ts'
+import type { Guide, JsonSchema, ResolvedOperation, Skill, SkillBodyFetcher, Tool, ToolResult, ToolSet, AgentRoot, AgentTag } from './types.ts'
 
 const debug = Debug('openapi-mcp')
 // ajv-formats is a CJS package whose module.exports is reassigned to a callable value; under
@@ -50,16 +50,16 @@ export interface LoadOptions {
 const ajv = new Ajv2020({ strict: false, allErrors: true, useDefaults: true, coerceTypes: false })
 addFormats(ajv)
 
-/** The document's own guide: the skill text of the tags its operations carry. Skills are listed separately, by skillEntries. */
-export function buildInstructions (doc: JsonSchema, ops: ResolvedOperation[], locale: string): string {
-  const sections: string[] = []
-  const usedTags = new Set(ops.flatMap(o => o.tags))
+/** The guides of the tags whose operations became tools, each with those tools. */
+function buildGuides (doc: JsonSchema, toolsByOp: Map<ResolvedOperation, string[]>, locale: string): Guide[] {
+  const guides: Guide[] = []
   for (const tag of doc.tags ?? []) {
     const agent: AgentTag | undefined = tag?.['x-agent']
-    if (!agent?.skill || !usedTags.has(tag.name)) continue
-    sections.push(`## ${tag.name}\n\n${localize(agent.skill, locale)}`)
+    if (!agent?.guide) continue
+    const tools = [...toolsByOp].filter(([op]) => op.tags.includes(tag.name)).flatMap(([, names]) => names)
+    if (tools.length) guides.push({ name: tag.name, text: localize(agent.guide, locale)!.trim(), tools })
   }
-  return sections.join('\n\n')
+  return guides
 }
 
 function errorsText (validate: ValidateFunction): string {
@@ -180,7 +180,12 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
   const ops = resolveOperations(doc)
   const editorOps = ops.filter(op => op.agent.editor)
   const plainOps = ops.filter(op => !op.agent.editor)
-  const built = plainOps.flatMap(op => makeTool(op, o) ?? [])
+  const toolsByOp = new Map<ResolvedOperation, string[]>()
+  const built = plainOps.flatMap(op => {
+    const tool = makeTool(op, o)
+    if (tool) toolsByOp.set(op, [tool.name])
+    return tool ?? []
+  })
 
   if (o.lint !== 'off') {
     const findings: LintFinding[] = built.flatMap(t => lintToolInput(t.name, t.inputSchema, t.authoredDescriptions))
@@ -202,13 +207,12 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
   for (const op of editorOps) {
     const group = await buildEditorTools(op, { doc, baseUrl, fetch: contextualFetch(fetchFn), locale: o.locale })
     tools.push(...group.tools)
+    toolsByOp.set(op, group.tools.map(t => t.name))
     editorSkills.push(editorSkill(op, group.skill, group.tools.map(t => t.name), o.locale))
   }
   // Relative skill links resolve against the document's URL, else its server URL taken as a
   // directory: `…/api/v1` + `agents/skills/x.md` is `…/api/v1/agents/skills/x.md`.
   const skillBase = options.documentUrl ?? (typeof spec === 'string' ? spec : undefined) ?? baseUrl.replace(/\/?$/, '/')
   const skills = [...await resolveSkills(root.skills, o.locale, skillBase, options.skillBodies ?? defaultSkillFetcher(fetchFn)), ...editorSkills]
-  const guide = buildInstructions(doc, ops, o.locale)
-  const instructions = [skillEntries(skills), guide].filter(Boolean).join('\n\n')
-  return { instructions, guideInstructions: guide || undefined, guide, tools, skills }
+  return { tools, skills, guides: buildGuides(doc, toolsByOp, o.locale) }
 }

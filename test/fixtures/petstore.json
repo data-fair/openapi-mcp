@@ -9,7 +9,7 @@
     ]
   },
   "tags": [
-    { "name": "Pets", "x-agent": { "skill": "Pets have an id and a name." } },
+    { "name": "Pets", "x-agent": { "guide": "Pets have an id and a name." } },
     { "name": "Admin" }
   ],
   "components": {

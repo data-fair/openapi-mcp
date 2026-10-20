@@ -77,10 +77,16 @@ describe('toolsForScopes', () => {
       { name: 'general', description: 'About items.' }
     ]), { fetch: fetchFn })
     const filtered = toolsForScopes(ts, ['items:write'])
-    assert.deepEqual(filtered.skills.map(s => s.id), ['editing', 'general'])
-    assert.doesNotMatch(filtered.instructions, /publishing/)
-    assert.match(filtered.instructions, /## editing/)
-    assert.equal(filtered.guideInstructions, ts.guideInstructions)
+    assert.deepEqual(filtered.skills.map(s => s.name), ['editing', 'general'])
+  })
+  it('a guide whose tools are all filtered out is dropped', async () => {
+    const d: any = doc()
+    d.tags = [{ name: 'Publishing', 'x-agent': { guide: 'How to publish.' } }, { name: 'Public', 'x-agent': { guide: 'Anyone.' } }]
+    d.paths['/items/{id}'].patch.tags = ['Publishing']
+    d.paths['/public'].get.tags = ['Public']
+    const ts = await load(d, { fetch: fetchFn })
+    assert.deepEqual(ts.guides.map(g => [g.name, g.tools]), [['Publishing', ['update_item', 'publish_item']], ['Public', ['public_read']]])
+    assert.deepEqual(toolsForScopes(ts, []).guides.map(g => g.name), ['Public'])
   })
   it('widening entry security is refused', async () => {
     const widening = [{ apiKey: [] }, { oauth2: ['items:read'] }]

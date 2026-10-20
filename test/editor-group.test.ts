@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { load } from '../src/load.ts'
+import { instructions } from '../src/adapters/server.ts'
 
 const doc = {
   openapi: '3.1.0',
@@ -90,8 +91,8 @@ describe('editor tool group', () => {
   })
 
   it('appends the group guide to the instructions', async () => {
-    const { instructions } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
-    assert.match(instructions, /dataset_line/)
+    const toolSet = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    assert.match(instructions(toolSet), /dataset_line/)
   })
 
   it('publishes the operation title in every tool description', async () => {
@@ -151,8 +152,8 @@ describe('editor group skill', () => {
   it('publishes the fill-form skill of a declared schema, its agent guide included', async () => {
     calls.length = 0
     const { skills } = await load(declaredDoc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
-    const skill = skills.find(s => s.id === 'portal-config')
-    assert.ok(skill, `an editor group skill is published (have ${skills.map(s => s.id).join(', ')})`)
+    const skill = skills.find(s => s.name === 'portal-config')
+    assert.ok(skill, `an editor group skill is published (have ${skills.map(s => s.name).join(', ')})`)
     assert.match(skill.body, /Social links take an identifier, not a URL\./)
     assert.match(skill.body, /portal_config_describeState/)
     assert.match(skill.body, /portal_config_saveForm/)
@@ -162,7 +163,7 @@ describe('editor group skill', () => {
 
   it('publishes a generic skill when the schema is only known per record', async () => {
     const { skills } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
-    const skill = skills.find(s => s.id === 'dataset-line')
+    const skill = skills.find(s => s.name === 'dataset-line')
     assert.ok(skill)
     assert.match(skill.body, /dataset_line_describeState/)
     assert.doesNotMatch(skill.body, /## About this/)

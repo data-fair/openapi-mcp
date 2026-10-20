@@ -8,7 +8,7 @@ const MAX_DESCRIPTION = 1024
 export const digestOf = (text: string): string => `sha256:${createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex')}`
 
 /** The resource a skill is served at: what instructions entries point to. */
-export const skillUri = (skill: Pick<Skill, 'id'>): string => `skill://${skill.id}/SKILL.md`
+export const skillUri = (skill: Pick<Skill, 'name'>): string => `skill://${skill.name}/SKILL.md`
 
 const withTools = (text: string, tools?: string[]) => tools?.length ? `${text}\n\nTools: ${tools.join(', ')}` : text
 
@@ -66,7 +66,7 @@ export async function resolveSkills (skills: AgentSkill[] | undefined, locale: s
       text = (localize(skill.body, locale) ?? description).trim()
     }
     const body = text === undefined ? '' : withTools(text, skill.tools)
-    out.push({ id: skill.name, name: skill.name, description, body, digest: digestOf(body), tools: skill.tools, ...(error ? { error } : {}) })
+    out.push({ name: skill.name, description, body, digest: digestOf(body), tools: skill.tools, ...(error ? { error } : {}) })
   }
   return out
 }
@@ -89,7 +89,7 @@ export function editorSkill (op: ResolvedOperation, body: string, tools: string[
   const description = (title ? `${title}: how to use the ${op.toolName}_* form tools.` : `How to use the ${op.toolName}_* form tools.`)
     .slice(0, MAX_DESCRIPTION)
   const text = body.trim()
-  return { id: name, name, description, body: text, digest: digestOf(text), tools }
+  return { name, description, body: text, digest: digestOf(text), tools }
 }
 
 export interface SkillFile {

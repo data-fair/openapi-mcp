@@ -1,4 +1,3 @@
-import { skillEntries } from './skills.ts'
 import type { SecurityRequirement, ToolSet } from './types.ts'
 
 /**
@@ -18,15 +17,17 @@ function granted (security: SecurityRequirement[] | undefined, scopes: string[])
 }
 
 /**
- * The part of a tool set a scoped token can use: the tools its scopes grant, and the skills
- * still driving one of them (a skill naming no tools stays). `undefined` is an unscoped
- * session, which keeps the tool set as it is.
+ * The part of a tool set a scoped token can use: the tools its scopes grant, the skills still
+ * driving one of them (a skill naming no tools stays) and the guides of their tags.
+ * `undefined` is an unscoped session, which keeps the tool set as it is.
  */
 export function toolsForScopes (toolSet: ToolSet, scopes: string[] | undefined): ToolSet {
   if (scopes === undefined) return toolSet
   const tools = toolSet.tools.filter(t => granted(t.security, scopes))
   const kept = new Set(tools.map(t => t.name))
-  const skills = toolSet.skills.filter(s => !s.tools?.length || s.tools.some(t => kept.has(t)))
-  const instructions = [skillEntries(skills), toolSet.guide].filter(Boolean).join('\n\n')
-  return { ...toolSet, instructions, tools, skills }
+  return {
+    tools,
+    skills: toolSet.skills.filter(s => !s.tools?.length || s.tools.some(t => kept.has(t))),
+    guides: toolSet.guides.filter(g => g.tools.some(t => kept.has(t)))
+  }
 }

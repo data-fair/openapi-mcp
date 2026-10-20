@@ -67,7 +67,7 @@ export const rootSchema: JsonSchema = {
 export const tagSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  properties: { skill: localized }
+  properties: { guide: localized }
 }
 
 export const operationSchema: JsonSchema = {

@@ -2,6 +2,7 @@ import { describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { load } from '../src/load.ts'
 import { loadSpec } from '../src/spec.ts'
+import { instructions } from '../src/adapters/server.ts'
 
 const op = (id: string, agent: unknown, extra: Record<string, unknown> = {}) => ({
   operationId: id,
@@ -62,7 +63,7 @@ describe('an operation whose tool cannot be built', () => {
     const d: any = docWith({ get: op('bad', { name: 'bad', futureKey: true }) }, { skills: [{ name: 'sk', description: 'd', body: 'b', tools: ['good', 'bad'] }] })
     const ts = await load(d, { lint: 'off', fetch: fetchFn })
     assert.deepEqual(ts.skills[0].tools, ['good'])
-    assert.ok(!ts.instructions.includes('bad'))
+    assert.ok(!instructions(ts).includes('bad'))
   })
   it('an unannotated operation with a finding strips no same-named tool and is worded apart', async () => {
     const d: any = docWith({ get: { operationId: 'good', parameters: [{ name: 'p', in: 'query', schema: { type: 'string' }, 'x-agent': { futureKey: true } }], responses: {} } }, { skills: [{ name: 'sk', description: 'd', body: 'b', tools: ['good'] }] })

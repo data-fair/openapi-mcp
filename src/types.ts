@@ -106,7 +106,7 @@ export interface AgentRoot {
 }
 
 export interface AgentTag {
-  skill?: Localized
+  guide?: Localized
 }
 
 export interface AgentProperty {
@@ -205,10 +205,8 @@ export interface Tool {
   execute (params: Record<string, unknown>, ctx?: CallContext): Promise<ToolResult>
 }
 
-/** A resolved skill, ready to be served as a `skill://` resource and listed in instructions. */
+/** A resolved skill, served as the `skill://<name>/SKILL.md` resource and listed in the instructions. */
 export interface Skill {
-  /** the skill's `name`: what its `skill://<id>/SKILL.md` resource is served at */
-  id: string
   name: string
   /** what the skill is for and when to use it — the SKILL.md frontmatter description */
   description: string
@@ -224,12 +222,16 @@ export interface Skill {
 /** Reads a linked skill body; never throws. */
 export type SkillBodyFetcher = (url: string) => Promise<{ text: string } | { error: string }>
 
+/** A tag's `x-agent.guide`: a section of the instructions, kept while one of its tools is. */
+export interface Guide {
+  /** the tag's name */
+  name: string
+  text: string
+  tools: string[]
+}
+
 export interface ToolSet {
-  instructions: string
-  /** the document's own sections (tag guides), without skill entries */
-  guide?: string
-  /** `instructions` without the skill entries: what a client listing skills itself (SEP-2640) is sent. */
-  guideInstructions?: string
   tools: Tool[]
   skills: Skill[]
+  guides: Guide[]
 }

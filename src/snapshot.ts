@@ -2,7 +2,8 @@ import type { JsonSchema, SecurityRequirement, ToolAnnotations, ToolSet } from '
 
 export interface ToolSetSnapshot {
   tools: { name: string, description: string, inputSchema: JsonSchema, annotations: ToolAnnotations, security?: SecurityRequirement[] }[]
-  skills: { id: string, name: string, description: string, digest: string }[]
+  skills: { name: string, description: string, digest: string }[]
+  guides: { name: string, text: string, tools: string[] }[]
 }
 
 /**
@@ -14,7 +15,8 @@ export interface ToolSetSnapshot {
 export function toolSetSnapshot (toolSet: ToolSet): ToolSetSnapshot {
   const snapshot = {
     tools: toolSet.tools.map(t => ({ name: t.name, description: t.description, inputSchema: structuredClone(t.inputSchema), annotations: { ...t.annotations }, security: structuredClone(t.security) })),
-    skills: toolSet.skills.map(s => ({ id: s.id, name: s.name, description: s.description, digest: s.digest }))
+    skills: toolSet.skills.map(s => ({ name: s.name, description: s.description, digest: s.digest })),
+    guides: toolSet.guides.map(g => ({ name: g.name, text: g.text, tools: [...g.tools] }))
   }
   return JSON.parse(JSON.stringify(snapshot))
 }

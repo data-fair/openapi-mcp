@@ -12,12 +12,13 @@ describe('toolSetSnapshot', () => {
     const a = toolSetSnapshot(await load(petstore))
     const b = toolSetSnapshot(await load(petstore))
     assert.deepEqual(a, b)
-    assert.deepEqual(Object.keys(a), ['tools', 'skills'])
+    assert.deepEqual(Object.keys(a), ['tools', 'skills', 'guides'])
     assert.deepEqual(Object.keys(a.tools[0]), ['name', 'description', 'inputSchema', 'annotations'])
     assert.deepEqual(a.skills, [
-      { id: 'workflow', name: 'workflow', description: 'Start with list_pets, then get_pet.', digest: digestOf('Start with list_pets, then get_pet.') },
-      { id: 'editing', name: 'editing', description: 'Use create_pet only when asked.', digest: digestOf('Use create_pet only when asked.') }
+      { name: 'workflow', description: 'Start with list_pets, then get_pet.', digest: digestOf('Start with list_pets, then get_pet.') },
+      { name: 'editing', description: 'Use create_pet only when asked.', digest: digestOf('Use create_pet only when asked.') }
     ])
+    assert.deepEqual(a.guides, [{ name: 'Pets', text: 'Pets have an id and a name.', tools: ['list_pets', 'create_pet', 'get_pet'] }])
     assert.equal(typeof JSON.stringify(a), 'string')
     assert.equal((a.tools[0] as any).execute, undefined)
   })
