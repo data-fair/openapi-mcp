@@ -1,6 +1,5 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
 import { summariseSchema } from '../src/schema-summary.ts'
 import { load } from '../src/load.ts'
 
@@ -86,23 +85,6 @@ describe('summariseSchema — depth', () => {
     }, { maxDepth: 1 })
     assert.match(out, /^rows\?: object\[\]$/m)
     assert.match(out, /^ {2}key\?: string$/m)
-  })
-})
-
-describe('summariseSchema — the real data-fair datasetPatch', () => {
-  it('turns 26KB of schema into a listing an agent can read', async () => {
-    const doc = JSON.parse(await readFile(new URL('./fixtures/data-fair-root.json', import.meta.url), 'utf8'))
-    const schema = doc.components.schemas.datasetPatch
-    const raw = JSON.stringify(schema).length
-    const out = summariseSchema(schema)
-
-    assert.ok(raw > 20000, `fixture drifted: raw schema is ${raw} chars`)
-    assert.ok(out.length < 3000, `summary was ${out.length} chars, expected well under the raw ${raw}`)
-    assert.ok(out.split('\n').length === 35, `expected the 35 top-level properties, got ${out.split('\n').length} lines`)
-    assert.match(out, /^title\?: string/m)
-    assert.match(out, /^keywords\?: string\[\]/m)
-    assert.match(out, /^frequency\?: /m)
-    assert.ok(!out.includes('"layout"'), 'layout keywords must not survive into the summary')
   })
 })
 

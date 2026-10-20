@@ -34,7 +34,6 @@ src/
   adapters/     mcp.ts — MCP SDK v2, both protocol eras, skills extension
   bin/          standalone MCP server (one document, loaded once)
 test/           fixtures/ (annotated data-fair root doc, golden renders)
-evals/          scenarios.json, harness, baselines/
 docs/           stable documentation (this repo's product docs)
 docs/superpowers/  the process archive: specs, implementation plans, working notes
 ```
@@ -43,31 +42,6 @@ docs/superpowers/  the process archive: specs, implementation plans, working not
 vocabulary reference and the editor tool groups guide. `docs/superpowers/` holds the
 design process — specs, plans, live-check notes — kept for the reasoning, not as product
 documentation.
-
-## Evaluating
-
-An eval harness compares this project's annotation-derived tools against the hand-written
-`data-fair/mcp` tool set on the same scenarios, judged blind to which arm produced each
-transcript. Design and results:
-[`docs/superpowers/specs/2026-09-19-eval-harness-design.md`](docs/superpowers/specs/2026-09-19-eval-harness-design.md).
-
-```bash
-npm run eval:run     # runs every scenario against both arms
-npm run eval:judge    # judges each transcript, blind to arm
-npm run eval:report   # prints the comparison table and totals
-npm run eval           # all three, in order
-```
-
-`OPENAPI_MCP_EVAL_MODEL` (default `haiku`) picks the runner model; `OPENAPI_MCP_EVAL_JUDGE_MODEL`
-(default `sonnet`) picks the judge model. `DATA_FAIR_MCP` points at the sibling
-`data-fair/mcp` checkout used for arm A (default `~/data-fair/mcp`).
-
-This costs money (runner + judge model calls) and hits a live public data-fair instance —
-it is not run in CI. The first full run (22 scenario x arm runs plus 22 judge calls) cost
-about **$1.10** total (runner on `haiku` plus judging on `sonnet`). `eval:judge` has no
-skip-if-already-judged check — it re-judges every transcript in `evals/runs/` on every
-invocation, so re-running it (e.g. after a partial `eval:run`) re-bills all of them, not
-just the new ones. See `evals/baselines/2026-09-21/` for the newest baseline.
 
 ## Releasing
 
