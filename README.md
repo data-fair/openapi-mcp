@@ -1,9 +1,13 @@
 # openapi-mcp
 
-Turns an OpenAPI document annotated with a custom `x-agent` extension into MCP tools for AI agents. Use it as a library to build a tool set from a spec and wire it into any MCP server, or run the bundled standalone binary to serve a spec directly over stdio or HTTP.
+Turns an OpenAPI 3.x document annotated with `x-agent` into MCP tools for AI agents. An operation
+becomes a tool only when it carries `x-agent`; the annotation says what the tool is called, what an
+agent sees of its input and output, and which skills and guides come with it.
 
-- **Annotation reference:** [`docs/x-agent.md`](docs/x-agent.md) — every key of the vocabulary.
-- **Form tools:** [`docs/editor-tool-groups.md`](docs/editor-tool-groups.md) — turn a write operation into eight json-layout editing tools.
+- [`docs/x-agent.md`](docs/x-agent.md): the annotation reference.
+- [`docs/editor-tool-groups.md`](docs/editor-tool-groups.md): a write operation as eight form tools.
+- [`skills/openapi-mcp`](skills/openapi-mcp/SKILL.md): a skill teaching coding agents to write
+  annotations (`npx skills add data-fair/openapi-mcp`).
 
 ## Install
 
@@ -14,237 +18,108 @@ npm install @data-fair/openapi-mcp
 ## Library
 
 ```ts
-import { load } from '@data-fair/openapi-mcp'
-import { createMcpServer } from '@data-fair/openapi-mcp/adapters/mcp'
-
-const toolSet = await load('https://example.com/openapi.json', { profiles: ['explore'] })
-const server = createMcpServer(toolSet, { name: 'my-api', version: '1.0.0' })
-// server.connect(transport) with any @modelcontextprotocol/sdk transport
-```
-
-`load` returns `{ profiles, instructions, tools, skills }` — provider-agnostic tools, each with an
-input schema, a description, MCP annotations and an `execute(params)` that returns
-`{ text, structuredContent?, resourceLink?, isError? }` and never throws. `toMcpServer(toolSet, server)`
-registers them on an existing SDK `Server` if you already have one.
-
-## Standalone server
-
-The package also installs an `openapi-mcp` binary that reads its configuration from the environment:
-
-| Env var             | Required | Default | Description                                                                      |
-| ------------------- | -------- | ------- | -------------------------------------------------------------------------------- |
-| `INDEX_URL`         | one of   |         | URL of a deployment index listing service-level OpenAPI documents                |
-| `OPENAPI_URL`       | one of   |         | URL of a single OpenAPI document                                                 |
-| `PROFILES`          | no       |         | Comma-separated profile set; the default profile otherwise                       |
-| `REFRESH_INTERVAL`  | no       | `300`   | Seconds between conditional re-fetches of the index and documents; `0` disables  |
-| `LINT`              | no       | `error` | `error`, `warn` or `off` — see Annotation lint                                   |
-| `LOCALE`            | no       | `en`    | Locale used to resolve localized text                                            |
-| `BASE_URL`          | no       |         | Overrides `servers[0].url` from the document                                     |
-| `TRANSPORT`         | no       | `stdio` | `stdio` or `http`                                                                |
-| `PORT`              | no       | `8080`  | Port to listen on when `TRANSPORT=http`                                          |
-| `API_KEY_HEADER`    | no       |         | Header name added to every upstream request                                      |
-| `API_KEY`           | no       |         | Value sent in `API_KEY_HEADER`                                                   |
-| `STRUCTURED_CONTENT`| no       | `false` | Set to `true` to also return `structuredContent` from tool calls                 |
-| `FILE_URL_PREFIXES` | no       |         | Comma-separated URL prefixes of the file store whose presigned URLs file inputs take; unset: file inputs off |
-| `FILE_MAX_SIZE`     | no       | `104857600` | Largest file a file input accepts, in bytes                                   |
-| `FILE_TIMEOUT`      | no       | `300`   | Seconds to fetch a file input, first request to last byte                         |
-
-In HTTP mode a request's `?profiles=explore,edit` selects the set for that request. HTTP
-mode here is single-identity and stateless: it is for development. A deployed server that
-serves several callers forwards each caller's identity per call through the adapter's
-context hook — that is `data-fair/mcp` v2, not this binary.
-
-### Coding agents behind nhi-proxy
-
-Identity comes from the environment; the binary implements nothing for it:
-
-```sh
-NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:7331 \
-NODE_EXTRA_CA_CERTS=~/.config/nhi-proxy/koumoul.com/ca.crt \
-INDEX_URL=https://koumoul.com/data-fair/api/v1/agents/index.json PROFILES=explore,edit openapi-mcp
-```
-
-`API_KEY_HEADER` + `API_KEY` are a single-credential convenience for standalone use. Anything richer (OAuth, multiple headers, per-request auth) is done in code with the library's `fetch` option.
-
-Example MCP client configuration:
-
-```json
-{
-  "mcpServers": {
-    "my-api": {
-      "command": "npx",
-      "args": ["-y", "@data-fair/openapi-mcp"],
-      "env": { "OPENAPI_URL": "https://example.com/openapi.json" }
-    }
-  }
-}
-```
-
-## Composing a deployment
-
-An index lists a deployment's service-level documents; `createComposer` merges them into
-one tool set per profile set, over one document cache:
-
-```ts
-import { createComposer } from '@data-fair/openapi-mcp'
+import { load, toolsForScopes } from '@data-fair/openapi-mcp'
 import { createMcpHttpHandler } from '@data-fair/openapi-mcp/adapters/mcp'
 
-const composer = await createComposer('https://host/data-fair/api/v1/agents/index.json', { locale: 'fr' })
-composer.profiles()                       // every declared profile, expanded, with the index's wording
-const c = await composer.compose(['explore', 'edit'])
-c.toolSet.tools                           // each operation once, index order then document order
-c.services                                // [{ id, status: 'ok' | 'skipped' | 'error', tools, reason? }]
-setInterval(() => composer.refresh(), 300_000)   // conditional GETs; the library runs no timer
-
-const handler = createMcpHttpHandler(composer, { name: 'my-server', version: '1.0.0' }, {
-  context: (request) => ({ headers: { cookie: request?.headers.get('cookie') ?? '' }, identity: request?.headers.get('cookie') ?? undefined })
-})
+const toolSet = await load('https://example.com/openapi.json', { locale: 'en' })
+const handler = createMcpHttpHandler(
+  (request) => toolsForScopes(toolSet, scopesOf(request)),
+  { name: 'my-api', version: '1.0.0' },
+  {
+    context: (request) => {
+      const authorization = request?.headers.get('authorization')
+      return authorization ? { headers: { authorization } } : undefined
+    }
+  }
+)
 ```
 
-The index is the one document this library dictates:
+`load(docOrUrl, options)` returns a tool set:
 
-```json
-{
-  "version": 1,
-  "services": [{ "id": "data-fair", "openapi": "https://host/data-fair/api/v1/api-docs.json" }],
-  "profiles": { "full": { "title": "Full", "includes": ["explore", "edit"] } },
-  "skills": [{ "name": "publishing-workflow", "description": "…", "profiles": ["edit"] }]
-}
-```
+- `tools`: provider-agnostic tools, each with a name, a description, an input schema, MCP
+  annotations, its `security` and `execute(params, ctx?)`, which never throws: a failure is
+  `{ isError: true, text }`.
+- `skills`: the document's skills (and one per editor group), served as `skill://<name>/SKILL.md`.
+- `guides`: the instruction sections of the document's tags, each with the tools it is about.
 
-A failing service is excluded and reported; only a bad index throws. Tool names must be
-unique across services (`namePrefix` is how); on a collision the later service is excluded.
-A request naming a profile no service declares is an error, not an empty set.
+The adapter (`@data-fair/openapi-mcp/adapters/mcp`) serves a tool set over MCP, both protocol eras,
+with the skills extension:
 
-The index's `profiles` are the deployment's vocabulary. A service declaring a profile the index
-does not declare keeps serving, and its status carries a warning
-(`warnings: ['declares profiles absent from the index: …']`) — a typo in a profile name would
-otherwise create a profile no consumer can present.
+- `createMcpHttpHandler(source, info, options)`: a fetch-style HTTP handler.
+- `mcpServerFactory(source, info, options)`: a server per caller, for any SDK transport (stdio).
+- `createMcpServer(source, info, options)`: one server.
 
-A skill body that cannot be read is reported the same way: `warnings: ['skill <name>: HTTP 404 (<url>)']`.
+`source` is a tool set or a function returning one per request. Options are `context`, which
+derives a call's `CallContext` from the request, and `cacheTtlMs`, the `ttlMs` advertised on
+listings (5 minutes by default). Keeping a tool set current is the server's job: when it replaces
+one, it calls `handler.notify.toolsChanged()` and `handler.notify.resourcesChanged()`.
 
-A compatibility route composes a subset of services under an overridden prefix, e.g.
-`composer.compose(['explore'], { services: ['data-fair'], namePrefix: '' })` to serve the
-names a caller already has. `createMcpHttpHandler` also takes a source chosen per request —
-`createMcpHttpHandler((request) => …, info)` — for one handler serving several such routes;
-publish change notifications yourself with `handler.notify.toolsChanged()`, since there is no
-single live source to subscribe to.
+## Scopes
+
+A tool carries its operation's security (the root `security` when the operation declares none).
+`toolsForScopes(toolSet, scopes)` keeps the tools a token with these OAuth scopes can call, the
+skills still driving one of them and the guides of their tags. An alternative grants when it is
+public (`{}`, or `security: []`) or is an `oauth2` requirement whose scopes the token holds every
+one of. Membership is exact, so an operation lists every scope it accepts as an alternative of
+its own. Another scheme never grants, and an operation without any security is left out.
+`scopes: undefined` keeps everything.
+
+A view's `security` narrows its operation's for that tool: see
+[Security](docs/x-agent.md#security).
 
 ## Identity per call
 
-`Tool.execute(params, ctx)` takes a `CallContext` — `fetch`, `headers`, `signal`,
-`identity`. The library never reads a cookie or holds a credential: a server derives the
-context from the request it serves, a page passes its own `fetch`, the binary relies on the
-environment. `identity` partitions json-layout editor sessions per caller.
+`Tool.execute(params, ctx)` takes a `CallContext`: `fetch`, `headers`, `signal`, `identity`. The
+library holds no credential: a server derives the context from the request it serves.
+`identity` keeps editor sessions apart per caller.
 
-## Skills
+## Skills and guides
 
-Skills follow the Agent Skills disclosure levels. The MCP `instructions` list each selected skill
-by name and description, with the resource to read; bodies never go there. A body is served as
-`skill://<service-id>/<name>/SKILL.md` through `resources/read`, and through the skills extension
-(`io.modelcontextprotocol/skills`: `skills/list`, `skills/get`, with a SHA-256 manifest).
+The MCP `instructions` list each skill by name and description, with the resource to read, then
+the guides. Bodies never go there: a skill's body is read as `skill://<name>/SKILL.md`, or through
+the skills extension (`skills/list`, `skills/get`). A client that declares the extension lists
+skills itself, so its instructions carry the guides only.
 
-A client that declares the skills extension in its `initialize`
-(`capabilities.extensions['io.modelcontextprotocol/skills']`) lists skills itself with `skills/list`,
-so its `instructions` carry the guides only, without the skill entries. A skill that names tools
-carries them in its frontmatter as `metadata.tools` (space-separated), so a host can hide a skill
-whose tools it filtered out without reading its body.
+A skill body is inline (`body`) or a markdown file linked by `href`, read with `load`'s `fetch`
+or with its `skillBodies` option (a caller's cache). A body that cannot be read keeps the skill
+listed, and reading it answers the error.
 
-A body is inline (`body`) or linked (`href`, a markdown file next to the document). `load()` reads
-linked bodies with its `fetch`; a composer caches them with conditional requests and revalidates
-them on `refresh()`. A body that cannot be read keeps the skill listed: its resource answers the
-error, the service status carries a warning, and the skills manifest leaves it out.
+## Golden
 
-### Upgrading to 0.4.0
+`toolSetSnapshot(toolSet)` is the agent-facing surface as plain data: tools (name, description,
+input schema, annotations, security), skills and guides. A service loads its own document with
+`lint: 'error'` in CI and diffs the snapshot against a committed golden.
 
-A skill's `description` is now at most 1024 characters and is never split into paragraphs. Move a
-long text to `body` (or to a file served next to the document, referenced by `href`) and write a
-one- or two-sentence `description`. The instructions now list skills instead of embedding them,
-and golden snapshots gain each skill's `digest`.
+## Standalone server
 
-## Per-service golden
+The `openapi-mcp` binary loads one document at startup and serves it.
 
-`toolSetSnapshot(toolSet)` is the agent-facing surface as plain data. A service's CI loads
-its own document with `lint: 'error'` for every declared profile and diffs the snapshot
-against a committed golden, so a change to a tool's name, description or schema is a
-reviewable diff in the pull request that caused it.
+| Env var             | Default     | Description                                                              |
+| ------------------- | ----------- | ------------------------------------------------------------------------ |
+| `OPENAPI_URL`       | (required)  | URL of the OpenAPI document                                              |
+| `TRANSPORT`         | `stdio`     | `stdio` or `http`                                                        |
+| `PORT`              | `8080`      | Port for `TRANSPORT=http`                                                |
+| `LOCALE`            | `en`        | Locale of localized text                                                 |
+| `BASE_URL`          |             | Overrides `servers[0].url`                                               |
+| `LINT`              | `error`     | `error`, `warn` or `off` (see [Loading](docs/x-agent.md#loading))         |
+| `API_KEY_HEADER`    |             | Header added to every upstream request                                   |
+| `API_KEY`           |             | Its value                                                                |
+| `STRUCTURED_CONTENT`| `false`     | `true` also returns `structuredContent`                                   |
+| `FILE_URL_PREFIXES` |             | Comma-separated URL prefixes of the file store; unset: file inputs off   |
+| `FILE_MAX_SIZE`     | `104857600` | Largest file input, in bytes                                             |
+| `FILE_TIMEOUT`      | `300`       | Seconds to fetch a file input                                            |
 
-## Editor tool groups
+It serves one identity. Credentials come from the environment: `API_KEY_HEADER` and `API_KEY`, or
+a credential-injecting proxy (`NODE_USE_ENV_PROXY=1 HTTPS_PROXY=…`; keep the file store in
+`NO_PROXY`).
 
-Annotate a write operation with `editor` and it becomes eight json-layout form tools —
-`describeState`, `getData`, `setData`, `setFieldValue`, `getFieldSuggestions`,
-`editArray`, `saveForm`, `reloadForm` — instead of one opaque body-submitting tool. A
-session per record loads the current document, validates every edit, and saves the whole
-document when it is valid.
-
-```yaml
-put:
-  operationId: updateLine
-  x-agent:
-    profiles: [write]
-    name: dataset_line
-    editor:
-      schemaOperation: readSchema
-      schemaParams: { mimeType: application/schema+json }
-      readOperation: readLine
-```
-
-`@json-layout/agents` and `@json-layout/core` are optional peers, imported lazily and
-needed only when an editor annotation is present. See
-[`docs/editor-tool-groups.md`](docs/editor-tool-groups.md) for the annotation, the tool
-surface, schema preprocessing and limitations.
-
-## Large request bodies
-
-A write operation's request body schema can be far too large to put in a tool definition —
-data-fair's dataset body is 28 KB, roughly twice its entire six-tool read set. Annotate the
-operation with `body: compact` and the tool exposes a single `body` property described by a
-compact listing (name, required, type, allowed values, a short description) instead of
-merging the schema's properties at top level.
-
-The real schema still validates the body before a request is sent, so a caller that
-misreads the listing gets a JSON path and a keyword locally rather than a round trip.
-`body: flat`, the default, keeps the previous behaviour.
-
-## Files
-
-Upload operations take a file as a URL, and `response: { file: true }` operations return one as
-an MCP `resource_link`: file bytes never pass through the model or the MCP protocol. File inputs
-are indirect uploads. They are detected from the OpenAPI document (multipart `format: binary` /
-`contentMediaType` parts, raw `text/csv`-style bodies) and marked `x-mcp-file`. The server
-fetches only the presigned URLs of the file store named by `FILE_URL_PREFIXES` (unset: operations
-that need a file — a required file part, raw body or list of files — are not offered, and optional
-file parts disappear from their tool), without the caller's credentials, and streams them upstream with an exact
-`Content-Length`. Behind a credential-injecting proxy (`NODE_USE_ENV_PROXY`), keep the file store in
-`NO_PROXY`: see [`docs/x-agent.md#files`](docs/x-agent.md#files).
-An optional file part that a tool cannot do without is made required for that tool with the
-view key `bodyRequired`, so the tool disappears with the file store rather than lose its file.
-
-## Annotation lint
-
-`load` checks that a description an annotation authored still agrees with the schema it
-describes — a description promising a scalar for a parameter whose schema is an array gets
-the agent rejected before any request is sent. Descriptions inherited from the OpenAPI
-document are not linted: they belong upstream.
-
-A disagreement refuses the tool set by default, listing every one at once. Pass
-`lint: 'warn'` to print and continue, or `lint: 'off'` to skip the check. Under `warn` and `off`,
-an operation whose `x-agent` this version does not accept is left out (the rest loads): see
-Forward compatibility in docs/x-agent.md.
-
-## Coding agent skill
-
-A skill that teaches coding agents to write and review `x-agent` annotations lives in
-[`skills/openapi-mcp`](skills/openapi-mcp/SKILL.md). Install it into a project with:
-
-```sh
-npx skills add data-fair/openapi-mcp
+```json
+{ "mcpServers": { "my-api": { "command": "npx", "args": ["-y", "@data-fair/openapi-mcp"], "env": { "OPENAPI_URL": "https://example.com/openapi.json" } } } }
 ```
 
 ## Contributing
 
-Development commands, the evaluation harness and the release process are in
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
+See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 

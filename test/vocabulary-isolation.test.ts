@@ -2,7 +2,7 @@ import { describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { load } from '../src/load.ts'
 import { loadSpec } from '../src/spec.ts'
-import { createComposer } from '../src/compose.ts'
+import { instructions } from '../src/adapters/server.ts'
 
 const op = (id: string, agent: unknown, extra: Record<string, unknown> = {}) => ({
   operationId: id,
@@ -63,7 +63,22 @@ describe('an operation whose tool cannot be built', () => {
     const d: any = docWith({ get: op('bad', { name: 'bad', futureKey: true }) }, { skills: [{ name: 'sk', description: 'd', body: 'b', tools: ['good', 'bad'] }] })
     const ts = await load(d, { lint: 'off', fetch: fetchFn })
     assert.deepEqual(ts.skills[0].tools, ['good'])
-    assert.ok(!ts.instructions.includes('bad'))
+    assert.ok(!instructions(ts).includes('bad'))
+  })
+  it('a skill whose tools were all left out goes with them, not offered to every token', async () => {
+    const d: any = docWith({ get: op('bad', { name: 'bad', futureKey: true }) }, { skills: [{ name: 'sk', description: 'd', body: 'b', tools: ['bad'] }, { name: 'any', description: 'd' }] })
+    const ts = await load(d, { lint: 'off', fetch: fetchFn })
+    assert.deepEqual(ts.skills.map(s => s.name), ['any'])
+  })
+  it('a tool that cannot be built is left out under warn, and named under error', async () => {
+    const body = { required: true, content: { 'application/json': { schema: { type: 'object', properties: { a: { type: 'string' } }, required: true } } } }
+    const d = docWith({ post: op('bad', { name: 'bad' }, { requestBody: body }) }, { skills: [{ name: 'sk', description: 'd', tools: ['bad'] }] })
+    let ts: any
+    const w = await warnings(async () => { ts = await load(d, { lint: 'warn', fetch: fetchFn }) })
+    assert.deepEqual(names(ts), ['good'])
+    assert.deepEqual(ts.skills, [])
+    assert.match(w.join('\n'), /POST \/bad left out of the tool set: bad: /)
+    await assert.rejects(load(d, { fetch: fetchFn }), /^Error: bad: /)
   })
   it('an unannotated operation with a finding strips no same-named tool and is worded apart', async () => {
     const d: any = docWith({ get: { operationId: 'good', parameters: [{ name: 'p', in: 'query', schema: { type: 'string' }, 'x-agent': { futureKey: true } }], responses: {} } }, { skills: [{ name: 'sk', description: 'd', body: 'b', tools: ['good'] }] })
@@ -112,25 +127,6 @@ describe('an operation annotation this version rejects', () => {
   it('a document-level error still fails the document, whatever the level', async () => {
     for (const lint of ['warn', 'off'] as const) {
       await assert.rejects(load(docWith({}, { bogus: 1 }), { lint, fetch: fetchFn }), /x-agent invalid at \//)
-      await assert.rejects(load(docWith({}, { profiles: 3 }), { lint, fetch: fetchFn }), /x-agent invalid at \//)
     }
-  })
-  it('the composer keeps the service ok and serves its other tools', async () => {
-    const index = { version: 1 as const, services: [{ id: 'svc', openapi: 'https://svc.test/openapi.json' }] }
-    const fetchStub = (async (input: RequestInfo | URL) => {
-      const url = String(input instanceof Request ? input.url : input)
-      return new Response(JSON.stringify(url.endsWith('openapi.json') ? unknownKey() : {}), { headers: { 'content-type': 'application/json' } })
-    }) as typeof fetch
-    let c: any
-    const w = await warnings(async () => {
-      const composer = await createComposer(index, { fetch: fetchStub, lint: 'warn' })
-      c = await composer.compose(['default'])
-    })
-    assert.deepEqual(c.services.map((s: any) => [s.id, s.status, s.tools]), [['svc', 'ok', 1]])
-    assert.deepEqual(names(c.toolSet), ['good'])
-    assert.equal(w.length, 1)
-    const strict = await createComposer(index, { fetch: fetchStub })
-    const sc = await strict.compose(['default'])
-    assert.equal(sc.services[0].status, 'error')
   })
 })

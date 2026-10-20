@@ -1,15 +1,15 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { renderSkillFile } from '../src/skills.ts'
-import { serverOptions, clientDeclaresSkills } from '../src/adapters/mcp.ts'
+import { serverOptions, clientDeclaresSkills } from '../src/adapters/server.ts'
 
-const skill = { id: 'svc/workflow', name: 'workflow', description: 'How to explore', body: 'Read the schema first.', digest: 'x', tools: ['list_datasets', 'get_schema'] }
+const skill = { name: 'workflow', description: 'How to explore', body: 'Read the schema first.', digest: 'x', tools: ['list_collections', 'get_schema'] }
 
 describe('skill frontmatter', () => {
   it('a skill naming tools carries them in its frontmatter metadata', () => {
     const file = renderSkillFile(skill as any)
-    assert.deepEqual(file.frontmatter, { name: 'workflow', description: 'How to explore', metadata: { tools: 'list_datasets get_schema' } })
-    assert.match(file.text, /^---\nname: workflow\ndescription: "How to explore"\nmetadata:\n {2}tools: "list_datasets get_schema"\n---\n/)
+    assert.deepEqual(file.frontmatter, { name: 'workflow', description: 'How to explore', metadata: { tools: 'list_collections get_schema' } })
+    assert.match(file.text, /^---\nname: workflow\ndescription: "How to explore"\nmetadata:\n {2}tools: "list_collections get_schema"\n---\n/)
   })
 
   it('a skill naming no tools has no metadata', () => {
@@ -18,15 +18,15 @@ describe('skill frontmatter', () => {
   })
 })
 
-const toolSet = { profiles: [], tools: [], skills: [], instructions: '## workflow\n\nRead it as the MCP resource skill://svc/workflow/SKILL.md.\n\nGuide text.', guideInstructions: 'Guide text.' }
+const toolSet = { tools: [], skills: [{ ...skill, tools: undefined }], guides: [{ name: 'Pets', text: 'Guide text.', tools: [] }] }
 
 describe('instructions for skills-aware clients', () => {
   it('keep the skill index for a client that does not declare skills', () => {
-    assert.equal(serverOptions(toolSet as any, 1000).instructions, toolSet.instructions)
+    assert.equal(serverOptions(toolSet as any, 1000).instructions, '## workflow\n\nHow to explore\n\nRead it as the MCP resource skill://workflow/SKILL.md.\n\n## Pets\n\nGuide text.')
   })
 
   it('drop the skill index for a client that declares skills', () => {
-    assert.equal(serverOptions(toolSet as any, 1000, { skillsAware: true }).instructions, 'Guide text.')
+    assert.equal(serverOptions(toolSet as any, 1000, { skillsAware: true }).instructions, '## Pets\n\nGuide text.')
   })
 })
 

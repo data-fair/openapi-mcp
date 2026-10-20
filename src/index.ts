@@ -1,14 +1,10 @@
-export { load, buildInstructions, type LoadOptions } from './load.ts'
-export { loadSpec, inlineRefs, resolveOperations, defaultProfile, snakeCase } from './spec.ts'
-export { buildInput, responseFields, type Binding } from './input.ts'
-export { buildRequest } from './request.ts'
-export { render, type RenderOptions } from './render.ts'
-export { validateVocabulary } from './vocabulary/validate.ts'
-export * from './types.ts'
+export { load, type LoadOptions } from './load.ts'
+export { toolsForScopes } from './scopes.ts'
 export { toolSetSnapshot, type ToolSetSnapshot } from './snapshot.ts'
-export { createComposer, compose, type Composer, type Composition, type ComposerOptions, type ServiceStatus, type ProfileInfo } from './compose.ts'
-export { validateIndex, indexSchema, type Index, type IndexService, type IndexProfile } from './index-contract.ts'
-export { expandProfiles, selectProfiles, matchesProfiles } from './profiles.ts'
-export { resolveSkills, defaultSkillFetcher, digestOf, skillUri, skillEntries, renderSkillFile, type SkillFile } from './skills.ts'
-export { callFetch, contextualFetch, currentCall } from './context.ts'
-export { createFileFetcher, type FileLoadOptions, type FileFetcher } from './files.ts'
+export { snakeCase } from './spec.ts'
+export { validateVocabulary } from './vocabulary/validate.ts'
+export type { FileLoadOptions } from './files.ts'
+export type {
+  ToolSet, Tool, ToolResult, ToolAnnotations, ResourceLink, CallContext, Skill, Guide, SkillBodyFetcher, SecurityRequirement, JsonSchema,
+  Localized, AgentRoot, AgentSkill, AgentTag, AgentOperation, AgentOperationAnnotation, AgentParamOverride, AgentResponse, AgentEditor, AgentProperty
+} from './types.ts'

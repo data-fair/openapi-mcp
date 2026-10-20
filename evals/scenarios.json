@@ -2,7 +2,7 @@
   {
     "id": "search-air-quality",
     "question": "Quels jeux de données sont disponibles sur la qualité de l'air sur opendata.koumoul.com ?",
-    "expected": "Should use search_datasets to find air quality datasets and list them with titles and descriptions."
+    "expected": "Should use list_datasets to find air quality datasets and list them with titles and descriptions."
   },
   {
     "id": "describe-dataset",

@@ -2,13 +2,12 @@
   "openapi": "3.1.0",
   "info": { "title": "Files", "version": "1" },
   "servers": [{ "url": "https://files.example/api" }],
-  "x-agent": { "profiles": { "edit": { "title": "Edit" } } },
   "paths": {
-    "/datasets": {
+    "/collections": {
       "post": {
-        "operationId": "createDataset",
-        "summary": "Create a dataset from a file",
-        "x-agent": { "name": "create_dataset" },
+        "operationId": "createCollection",
+        "summary": "Create a collection from a file",
+        "x-agent": { "name": "create_collection" },
         "requestBody": {
           "required": true,
           "content": {
@@ -32,7 +31,7 @@
         "responses": { "201": { "description": "created", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "string" } } } } } } }
       }
     },
-    "/datasets/{id}/_bulk_lines": {
+    "/collections/{id}/_bulk_items": {
       "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }],
       "post": {
         "operationId": "bulkLines",
@@ -42,11 +41,11 @@
         "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": { "type": "object" } } } } }
       }
     },
-    "/datasets/{id}/lines": {
+    "/collections/{id}/lines": {
       "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }],
       "get": {
         "operationId": "readLines",
-        "summary": "Export the lines of a dataset",
+        "summary": "Export the lines of a collection",
         "parameters": [
           { "in": "query", "name": "q", "schema": { "type": "string" } },
           { "in": "query", "name": "format", "schema": { "type": "string", "enum": ["json", "csv"] } }
@@ -55,7 +54,7 @@
         "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": { "type": "object" } }, "text/csv": { "schema": { "type": "string" } } } } }
       }
     },
-    "/datasets/{id}/raw": {
+    "/collections/{id}/raw": {
       "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }],
       "get": {
         "operationId": "downloadRaw",

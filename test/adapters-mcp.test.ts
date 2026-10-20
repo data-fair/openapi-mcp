@@ -9,8 +9,8 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { z } from 'zod'
 import { load } from '../src/load.ts'
 import type { ToolSet } from '../src/types.ts'
-import { createComposer } from '../src/compose.ts'
 import { createMcpServer, createMcpHttpHandler } from '../src/adapters/mcp.ts'
+import { instructions } from '../src/adapters/server.ts'
 
 const petstore = JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8'))
 const upstream: Request[] = []
@@ -36,9 +36,9 @@ async function inMemory (given?: ToolSet) {
 describe('mcp adapter over a tool set (in-memory, 2025 era)', () => {
   it('lists tools with schemas, annotations, examples and instructions', async () => {
     const { client, toolSet } = await inMemory()
-    assert.equal(client.getInstructions(), toolSet.instructions)
+    assert.equal(client.getInstructions(), instructions(toolSet))
     const { tools } = await client.listTools()
-    assert.deepEqual(tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet'])
+    assert.deepEqual(tools.map(t => t.name), ['list_pets', 'create_pet', 'get_pet'])
     assert.equal(tools[0].inputSchema.type, 'object')
     assert.deepEqual(tools[0].annotations, { readOnlyHint: true, destructiveHint: false })
     assert.deepEqual(tools[0]._meta, { 'anthropic/inputExamples': [{ query: 'rex', size: 5 }] })
@@ -46,11 +46,11 @@ describe('mcp adapter over a tool set (in-memory, 2025 era)', () => {
   })
   it('calls tools, reports validation errors and unknown tools as isError', async () => {
     const { client } = await inMemory()
-    const ok: any = await client.callTool({ name: 'pets_list_pets', arguments: { query: 'rex' } })
+    const ok: any = await client.callTool({ name: 'list_pets', arguments: { query: 'rex' } })
     assert.match(ok.content[0].text, /\| p1 \| Rex \|/)
-    const md: any = await client.callTool({ name: 'pets_get_pet', arguments: { id: 'p1' } })
+    const md: any = await client.callTool({ name: 'get_pet', arguments: { id: 'p1' } })
     assert.equal(md.content[0].text, '# Rex')
-    const bad: any = await client.callTool({ name: 'pets_list_pets', arguments: { size: 999 } })
+    const bad: any = await client.callTool({ name: 'list_pets', arguments: { size: 999 } })
     assert.equal(bad.isError, true)
     const nope: any = await client.callTool({ name: 'nope', arguments: {} })
     assert.equal(nope.isError, true)
@@ -58,7 +58,7 @@ describe('mcp adapter over a tool set (in-memory, 2025 era)', () => {
   it('serves skills as resources and through skills/list + skills/get, digest matching the bytes', async () => {
     const { client } = await inMemory()
     const { resources } = await client.listResources()
-    assert.deepEqual(resources.map(r => [r.uri, r.mimeType]), [['skill://workflow/SKILL.md', 'text/markdown']])
+    assert.deepEqual(resources.map(r => [r.uri, r.mimeType]), [['skill://workflow/SKILL.md', 'text/markdown'], ['skill://editing/SKILL.md', 'text/markdown']])
     const listed = await client.request({ method: 'skills/list', params: {} }, SkillsList)
     const entry = listed.skills[0]
     assert.deepEqual(entry.frontmatter, { name: 'workflow', description: 'Start with list_pets, then get_pet.' })
@@ -88,23 +88,19 @@ describe('mcp adapter over a tool set (in-memory, 2025 era)', () => {
   })
 })
 
-describe('mcp adapter over a composer (HTTP, both eras)', () => {
-  const docs = new Map<string, unknown>([['https://idx.test/index.json', { version: 1, services: [{ id: 'pets', openapi: 'https://pets.test/openapi.json' }] }], ['https://pets.test/openapi.json', petstore]])
-  const stackFetch = (async (input: RequestInfo | URL) => {
-    const url = input instanceof Request ? input.url : String(input)
-    if (docs.has(url)) return new Response(JSON.stringify(docs.get(url)), { headers: { 'content-type': 'application/json', etag: `"${JSON.stringify(docs.get(url)).length}"` } })
-    return fetchFn(input)
-  }) as typeof fetch
+describe('mcp adapter over HTTP (both eras)', () => {
   let http: HttpServer
   let url: URL
-  let composer: Awaited<ReturnType<typeof createComposer>>
+  let all: ToolSet
+  let current: ToolSet
+  let handler: ReturnType<typeof createMcpHttpHandler>
   const contexts: (Request | undefined)[] = []
 
   before(async () => {
-    composer = await createComposer('https://idx.test/index.json', { fetch: stackFetch })
-    const handler = createMcpHttpHandler(composer, INFO, {
+    all = current = await load(petstore, { fetch: fetchFn })
+    handler = createMcpHttpHandler(() => current, INFO, {
       context: (request) => { contexts.push(request); return { headers: { cookie: request?.headers.get('cookie') ?? '' }, identity: request?.headers.get('cookie') ?? undefined } },
-      refreshMs: 60_000
+      cacheTtlMs: 60_000
     })
     http = createServer(toNodeHandler(handler))
     await new Promise<void>(resolve => http.listen(0, '127.0.0.1', resolve))
@@ -125,7 +121,7 @@ describe('mcp adapter over a composer (HTTP, both eras)', () => {
     const client = await connect('legacy')
     assert.equal(client.getProtocolEra(), 'legacy')
     const { tools } = await client.listTools()
-    assert.deepEqual(tools.map(t => t.name), ['pets_list_pets', 'pets_get_pet'])
+    assert.deepEqual(tools.map(t => t.name), ['list_pets', 'create_pet', 'get_pet'])
     await client.close()
   })
   it('serves a 2026-07-28 client with cache hints', async () => {
@@ -134,51 +130,42 @@ describe('mcp adapter over a composer (HTTP, both eras)', () => {
     const list = await client.listTools()
     assert.equal(list.ttlMs, 60_000)
     assert.equal(list.cacheScope, 'private')
-    assert.equal(client.getInstructions(), (await composer.compose()).toolSet.instructions)
+    assert.equal(client.getInstructions(), instructions(all))
     await client.close()
-  })
-  it('selects the profile set from ?profiles= and rejects an undeclared one', async () => {
-    const client = await connect('auto', new URL(`${url}?profiles=edit`))
-    const { tools } = await client.listTools()
-    assert.deepEqual(tools.map(t => t.name), ['pets_create_pet'])
-    await client.close()
-    await assert.rejects(async () => {
-      const c = await connect('legacy', new URL(`${url}?profiles=nope`))
-      await c.listTools()
-    })
   })
   it('hands the request to the context hook and forwards the derived headers upstream', async () => {
     upstream.length = 0
     const client = await connect('auto', url, { cookie: 'id_token=abc' })
-    await client.callTool({ name: 'pets_list_pets', arguments: {} })
+    await client.callTool({ name: 'list_pets', arguments: {} })
     assert.equal(upstream.at(-1)!.headers.get('cookie'), 'id_token=abc')
     assert.ok(contexts.some(r => r?.headers.get('cookie') === 'id_token=abc'))
     await client.close()
   })
-  it('notifies a modern client when a refresh changes the set', async () => {
+  it('notifies a modern client when its owner says the set changed', async () => {
     let fired = () => {}
     const changed = new Promise<void>(resolve => { fired = resolve })
     const client = await connect('auto', url, {}, () => fired())
     await client.listTools()
-    docs.set('https://pets.test/openapi.json', { ...petstore, paths: { ...petstore.paths, '/pets': { ...petstore.paths['/pets'], get: { ...petstore.paths['/pets'].get, 'x-agent': { ...petstore.paths['/pets'].get['x-agent'], name: 'find_pets' } } } } })
-    assert.equal(await composer.refresh(), true)
+    current = { ...all, tools: all.tools.filter(t => t.name !== 'create_pet') }
+    handler.notify.toolsChanged()
     await Promise.race([changed, new Promise((_resolve, reject) => setTimeout(() => reject(new Error('no tools/list_changed within 2s')), 2000))])
     const { tools } = await client.listTools()
-    assert.ok(tools.some(t => t.name === 'pets_find_pets'))
+    assert.deepEqual(tools.map(t => t.name), ['list_pets', 'get_pet'])
+    current = all
     await client.close()
   })
 })
 
 describe('mcp adapter with a request-dependent source', () => {
   it('picks the source per request and leaves change notifications to the caller', async () => {
-    const explore = await load(petstore, { fetch: fetchFn, profiles: ['explore'] })
-    const edit = await load(petstore, { fetch: fetchFn, profiles: ['edit'] })
-    const handler = createMcpHttpHandler((request) => new URL(request!.url).pathname.endsWith('/edit') ? edit : explore, INFO)
+    const all = await load(petstore, { fetch: fetchFn })
+    const readOnly: ToolSet = { ...all, tools: all.tools.filter(t => t.annotations?.readOnlyHint) }
+    const handler = createMcpHttpHandler((request) => new URL(request!.url).pathname.endsWith('/read') ? readOnly : all, INFO)
     const http = createServer(toNodeHandler(handler))
     await new Promise<void>(resolve => http.listen(0, '127.0.0.1', resolve))
     const port = (http.address() as any).port
     try {
-      for (const [path, names] of [['/mcp', ['pets_list_pets', 'pets_get_pet']], ['/edit', ['pets_create_pet']]] as const) {
+      for (const [path, names] of [['/mcp', ['list_pets', 'create_pet', 'get_pet']], ['/read', ['list_pets', 'get_pet']]] as const) {
         const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } })
         await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}${path}`)))
         assert.deepEqual((await client.listTools()).tools.map(t => t.name), names)
@@ -197,18 +184,18 @@ describe('mcp adapter — files', () => {
   it('sends a resource_link after the text block', async () => {
     upstream.length = 0
     const { client } = await inMemory(await load(files, { fetch: fetchFn }))
-    const res: any = await client.callTool({ name: 'export_lines', arguments: { id: 'rge' } })
-    const uri = 'https://files.example/api/datasets/rge/lines?format=csv'
+    const res: any = await client.callTool({ name: 'export_lines', arguments: { id: 'c1' } })
+    const uri = 'https://files.example/api/collections/c1/lines?format=csv'
     assert.deepEqual(res.content, [
-      { type: 'text', text: `File rge-lines.csv (text/csv), not downloaded by this tool: ${uri}` },
-      { type: 'resource_link', uri, name: 'rge-lines.csv', mimeType: 'text/csv' }
+      { type: 'text', text: `File c1-lines.csv (text/csv), not downloaded by this tool: ${uri}` },
+      { type: 'resource_link', uri, name: 'c1-lines.csv', mimeType: 'text/csv' }
     ])
     assert.equal(upstream.some(r => r.url.includes('/lines')), false)
   })
   it('lists file inputs with their x-mcp-file marker when a file store is configured', async () => {
     const { client } = await inMemory(await load(files, { fetch: fetchFn, files: { urlPrefixes: ['https://s3.test/bucket/'] } }))
     const { tools } = await client.listTools()
-    const create = tools.find(t => t.name === 'create_dataset')!
+    const create = tools.find(t => t.name === 'create_collection')!
     assert.deepEqual((create.inputSchema.properties as any).file['x-mcp-file'], { accept: ['text/csv', 'application/vnd.ms-excel'], maxSize: 104857600 })
   })
 })

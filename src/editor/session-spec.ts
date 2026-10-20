@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto'
 import { localize } from '../localize.ts'
-import { prepareSchema } from './prepare-schema.ts'
 import { editorRequest, type EditorOperations } from './operations.ts'
 import type { AgentEditor, JsonSchema } from '../types.ts'
 
@@ -9,9 +8,11 @@ export interface EditorContext {
   baseUrl: string
   fetch: typeof globalThis.fetch
   locale: string
+  /** adapts a form schema before json-layout compiles it; given a copy */
+  prepareSchema: (schema: JsonSchema) => JsonSchema | Promise<JsonSchema>
 }
 
-export interface SchemaRegistry {
+interface SchemaRegistry {
   get (ops: EditorOperations, pathParams: Record<string, unknown>, ctx: EditorContext): () => Promise<unknown>
 }
 
@@ -29,8 +30,8 @@ async function json (ctx: EditorContext, request: Request): Promise<{ text: stri
  *
  * `resolveCompiledLayout` caches compiled layouts against the schema *function object*,
  * so a fresh closure per session means a fresh compilation per session. Keyed by what the
- * schema request actually depends on — the operation, its own path parameters, and the
- * fixed query — which for dataset lines is the dataset, not the line.
+ * schema request actually depends on: the operation, its own path parameters and the fixed
+ * query (for the lines of a table, the table, not the line).
  */
 export function createSchemaRegistry (): SchemaRegistry {
   const closures = new Map<string, () => Promise<unknown>>()
@@ -44,7 +45,7 @@ export function createSchemaRegistry (): SchemaRegistry {
         let closure = closures.get(key)
         if (!closure) {
           const declared = ops.write.requestBody!.schema
-          closure = async () => ({ schema: await prepareSchema(declared), version: ops.write.operationId })
+          closure = async () => ({ schema: await ctx.prepareSchema(structuredClone(declared)), version: ops.write.operationId })
           closures.set(key, closure)
         }
         return closure
@@ -57,10 +58,8 @@ export function createSchemaRegistry (): SchemaRegistry {
         closure = async () => {
           const request = editorRequest(ops.schema!, own, editor.schemaParams ?? {}, undefined, ctx.baseUrl)
           const { text, value } = await json(ctx, request)
-          // The body's hash, because the response carries no validator header and the
-          // dataset's updatedAt is a second request away. It only has to change when the
-          // schema does.
-          return { schema: await prepareSchema(value as JsonSchema), version: createHash('sha1').update(text).digest('hex') }
+          // the body's hash: it changes when the schema does, with no validator header needed
+          return { schema: await ctx.prepareSchema(value as JsonSchema), version: createHash('sha1').update(text).digest('hex') }
         }
         closures.set(key, closure)
       }

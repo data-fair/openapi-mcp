@@ -2,18 +2,14 @@
   "openapi": "3.1.0",
   "info": { "title": "Things", "version": "1" },
   "servers": [{ "url": "https://things.test/api" }],
-  "x-agent": {
-    "namePrefix": "t_",
-    "profiles": { "write": { "title": "Write" }, "manage": { "title": "Manage", "includes": ["write"] } }
-  },
   "paths": {
     "/things/{id}": {
       "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }],
       "patch": {
         "operationId": "patchThing",
         "x-agent": [
-          { "name": "update_thing", "profiles": ["write"], "description": "Edit the title and description of a thing.", "bodyFields": ["title", "description"] },
-          { "name": "publish_thing", "profiles": ["manage"], "description": "Choose the sites a thing is published on.", "bodyFields": ["publicationSites"], "annotations": { "idempotentHint": true } }
+          { "name": "update_thing", "description": "Edit the title and description of a thing.", "bodyFields": ["title", "description"] },
+          { "name": "publish_thing", "description": "Choose the sites a thing is published on.", "bodyFields": ["publicationSites"], "annotations": { "idempotentHint": true } }
         ],
         "requestBody": {
           "required": true,

@@ -63,7 +63,7 @@ const api = createServer((req, res) => {
     return
   }
   if (req.url!.includes('/too-big/')) { res.writeHead(413); return res.end('too big') }
-  // like data-fair's checkStorage: an upload of unknown size is refused
+  // an API checking a quota before reading refuses an upload of unknown size
   if (req.headers['content-length'] === undefined) { res.writeHead(411); return res.end('length required') }
   const chunks: Buffer[] = []
   req.on('data', c => chunks.push(c))
@@ -97,10 +97,10 @@ const form = (r: Received) => new Response(new Uint8Array(r.body), { headers: { 
 describe('file inputs, end to end', () => {
   it('streams a file from its URL into a multipart request with an exact Content-Length', async () => {
     received.length = 0
-    const res = await (await tool('create_dataset')).execute({ file: `${src}/files/report.csv?X-Amz-Signature=abc`, title: 'Lines', schema: [{ key: 'a' }], draft: true })
+    const res = await (await tool('create_collection')).execute({ file: `${src}/files/report.csv?X-Amz-Signature=abc`, title: 'Lines', schema: [{ key: 'a' }], draft: true })
     assert.ok(!res.isError, res.text)
     const [r] = received
-    assert.equal(r.url, '/api/datasets')
+    assert.equal(r.url, '/api/collections')
     assert.equal(Number(r.headers['content-length']), r.body.length)
     assert.equal(r.headers['transfer-encoding'], undefined)
     assert.match(r.headers['content-type'] as string, /^multipart\/form-data; boundary=/)
@@ -120,13 +120,13 @@ describe('file inputs, end to end', () => {
     assert.ok(!(await bulk.execute({ id: 'd1', file: `${src}/files/report.csv` })).isError)
     assert.ok(!(await bulk.execute({ id: 'd1', file: `${src}/files/lines.ndjson` })).isError)
     assert.deepEqual(received.map(r => [r.url, r.headers['content-type'], r.headers['content-length'], r.body.toString()]), [
-      ['/api/datasets/d1/_bulk_lines', 'text/csv', '8', 'a,b\n1,2\n'],
-      ['/api/datasets/d1/_bulk_lines', 'application/x-ndjson', '8', '{"a":1}\n']
+      ['/api/collections/d1/_bulk_items', 'text/csv', '8', 'a,b\n1,2\n'],
+      ['/api/collections/d1/_bulk_items', 'application/x-ndjson', '8', '{"a":1}\n']
     ])
   })
   it('decodes a percent-encoded file name and counts its bytes', async () => {
     received.length = 0
-    const res = await (await tool('create_dataset')).execute({ file: `${src}/files/h%C3%A9t%C3%A9.csv` })
+    const res = await (await tool('create_collection')).execute({ file: `${src}/files/h%C3%A9t%C3%A9.csv` })
     assert.ok(!res.isError, res.text)
     const [r] = received
     assert.equal(Number(r.headers['content-length']), r.body.length)
@@ -145,7 +145,7 @@ describe('file inputs, end to end', () => {
   })
   it("reports a file that cannot be fetched without the URL's query string, and sends nothing", async () => {
     received.length = 0
-    const res = await (await tool('create_dataset')).execute({ file: `${src}/files/missing.csv?X-Amz-Signature=secret` })
+    const res = await (await tool('create_collection')).execute({ file: `${src}/files/missing.csv?X-Amz-Signature=secret` })
     assert.equal(res.isError, true)
     assert.match(res.text, /^File "file" \(http:\/\/127\.0\.0\.1:\d+\/files\/missing\.csv\) could not be fetched: HTTP 404$/)
     assert.doesNotMatch(res.text, /secret/)
@@ -154,7 +154,7 @@ describe('file inputs, end to end', () => {
   it('refuses a URL outside the file store, and sends nothing', async () => {
     received.length = 0
     sourceHeaders.length = 0
-    const res = await (await tool('create_dataset')).execute({ file: `${src}/other/report.csv?X-Amz-Signature=secret` })
+    const res = await (await tool('create_collection')).execute({ file: `${src}/other/report.csv?X-Amz-Signature=secret` })
     assert.equal(res.isError, true)
     assert.match(res.text, /^File "file" \(http:\/\/127\.0\.0\.1:\d+\/other\/report\.csv\) could not be fetched: not a file store URL/)
     assert.doesNotMatch(res.text, /secret/)
@@ -167,14 +167,14 @@ describe('file inputs, end to end', () => {
   })
   it('publishes the size cap and enforces it before any upload', async () => {
     received.length = 0
-    const create = await tool('create_dataset', { maxSize: 1000 })
+    const create = await tool('create_collection', { maxSize: 1000 })
     assert.equal(create.inputSchema.properties.file['x-mcp-file'].maxSize, 1000)
     const res = await create.execute({ file: `${src}/files/big.csv` })
     assert.match(res.text, /over the 1000 bytes limit/)
     assert.equal(received.length, 0)
   })
   it('publishes the default cap', async () => {
-    assert.equal((await tool('create_dataset')).inputSchema.properties.file['x-mcp-file'].maxSize, 104857600)
+    assert.equal((await tool('create_collection')).inputSchema.properties.file['x-mcp-file'].maxSize, 104857600)
   })
   it('fails the upload rather than truncate it when the source stops short', async () => {
     received.length = 0
@@ -212,7 +212,6 @@ describe('file inputs, end to end', () => {
     const doc = {
       openapi: '3.1.0',
       info: { title: 't', version: '1' },
-      'x-agent': { profiles: { edit: { title: 'Edit' } } },
       paths: { '/two': { post: { operationId: 'two', 'x-agent': { name: 'two' }, requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['a', 'b'], properties: { a: part, b: part } } } } }, responses: { 201: { description: 'ok' } } } } }
     }
     const ts = await load(doc, { baseUrl: apiBase, files: { urlPrefixes: [`${src}/files/`] } })
@@ -228,7 +227,6 @@ describe('file inputs, end to end', () => {
     const doc = {
       openapi: '3.1.0',
       info: { title: 't', version: '1' },
-      'x-agent': { profiles: { edit: { title: 'Edit' } } },
       paths: { '/two': { post: { operationId: 'two', 'x-agent': { name: 'two' }, requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['a', 'b'], properties: { a: part, b: part } } } } }, responses: { 201: { description: 'ok' } } } } }
     }
     const ts = await load(doc, { baseUrl: apiBase, files: { urlPrefixes: [`${src}/files/`] } })
@@ -248,7 +246,6 @@ describe('file inputs, end to end', () => {
     const doc = {
       openapi: '3.1.0',
       info: { title: 't', version: '1' },
-      'x-agent': { profiles: { edit: { title: 'Edit' } } },
       paths: { '/two': { post: { operationId: 'two', 'x-agent': { name: 'two' }, requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['a', 'b'], properties: { a: part, b: part } } } } }, responses: { 201: { description: 'ok' } } } } }
     }
     const ts = await load(doc, { baseUrl: apiBase, files: { urlPrefixes: [`${src}/files/`] } })

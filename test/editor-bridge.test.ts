@@ -18,13 +18,13 @@ describe('toToolResult', () => {
 
 describe('bridgeTool', () => {
   const formTool = {
-    name: 'dataset_line_setFieldValue',
+    name: 'item_setFieldValue',
     description: 'Set one field',
     inputSchema: { type: 'object', properties: { pointer: { type: 'string' } }, required: ['pointer'] },
     execute: async (args: any) => ({ content: [{ type: 'text', text: `got ${JSON.stringify(args)}` }] })
   }
   const pathParams = [
-    { name: 'id', schema: { type: 'string', title: 'Dataset' }, required: true },
+    { name: 'id', schema: { type: 'string', title: 'Collection' }, required: true },
     { name: 'lineId', schema: { type: 'string' }, required: true }
   ]
 
@@ -36,13 +36,13 @@ describe('bridgeTool', () => {
 
   it('passes only the non-path arguments to the session tool', async () => {
     const tool = bridgeTool(formTool, pathParams as any, async () => formTool)
-    const result = await tool.execute({ id: 'communes', lineId: 'abc', pointer: '/nom' })
+    const result = await tool.execute({ id: 'cities', lineId: 'abc', pointer: '/nom' })
     assert.equal(result.text, 'got {"pointer":"/nom"}')
   })
 
   it('turns a resolver failure into an error result rather than a throw', async () => {
     const tool = bridgeTool(formTool, pathParams as any, async () => { throw new Error('schema fetch failed: 404') })
-    const result = await tool.execute({ id: 'communes', lineId: 'abc', pointer: '/nom' })
+    const result = await tool.execute({ id: 'cities', lineId: 'abc', pointer: '/nom' })
     assert.equal(result.isError, true)
     assert.match(result.text, /schema fetch failed: 404/)
   })

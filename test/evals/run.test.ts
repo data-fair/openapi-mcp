@@ -9,7 +9,6 @@ import type { Transcript } from '../../evals/transcript.ts'
 function transcript (): Transcript {
   return {
     scenario: 'pagination',
-    arm: 'A',
     model: 'haiku',
     resolvedModels: ['claude-haiku-4-5-20251115'],
     startedAt: '2026-09-21T00:00:00.000Z',
@@ -39,7 +38,7 @@ describe('writeTranscriptSafely', () => {
   it('writes the transcript to disk', () => {
     const dir = mkdtempSync(join(tmpdir(), 'run-write-'))
     try {
-      const path = join(dir, 'pagination--A.json')
+      const path = join(dir, 'pagination.json')
       writeTranscriptSafely(path, transcript(), 'pagination [A]')
       assert.equal(existsSync(path), true)
       const written = JSON.parse(readFileSync(path, 'utf8'))
@@ -50,7 +49,7 @@ describe('writeTranscriptSafely', () => {
   })
 
   it('does not throw when the write fails (e.g. the directory does not exist)', () => {
-    const missing = join(tmpdir(), 'run-write-does-not-exist', 'pagination--A.json')
+    const missing = join(tmpdir(), 'run-write-does-not-exist', 'pagination.json')
     assert.doesNotThrow(() => writeTranscriptSafely(missing, transcript(), 'pagination [A]'))
     assert.equal(existsSync(missing), false)
   })

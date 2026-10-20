@@ -1,20 +1,19 @@
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js'
 import addFormatsModule, { type FormatsPlugin } from 'ajv-formats'
 import Debug from 'debug'
-import { loadSpec, resolveOperations, defaultProfile } from './spec.ts'
-import { expandProfiles, selectProfiles } from './profiles.ts'
+import { loadSpec, resolveOperations } from './spec.ts'
 import { buildEditorTools } from './editor/index.ts'
-import { buildInput, assertFileResponseHeaders } from './input.ts'
+import { buildInput } from './input.ts'
 import { buildRequest } from './request.ts'
 import { fileLink } from './file-link.ts'
 import { render } from './render.ts'
 import { localize } from './localize.ts'
 import { callFetch, contextualFetch } from './context.ts'
-import { resolveSkills, defaultSkillFetcher, editorSkill, skillEntries } from './skills.ts'
+import { resolveSkills, defaultSkillFetcher, editorSkill } from './skills.ts'
 import { lintToolInput, formatFindings, type LintFinding } from './vocabulary/lint.ts'
 import { createFileFetcher, openFiles, closeFiles, type FileFetcher, type FileLoadOptions } from './files.ts'
 import type { FileSource } from './multipart.ts'
-import type { JsonSchema, ResolvedOperation, Skill, SkillBodyFetcher, Tool, ToolResult, ToolSet, AgentRoot, AgentTag } from './types.ts'
+import type { Guide, JsonSchema, ResolvedOperation, Skill, SkillBodyFetcher, Tool, ToolResult, ToolSet, AgentRoot, AgentTag } from './types.ts'
 
 const debug = Debug('openapi-mcp')
 // ajv-formats is a CJS package whose module.exports is reassigned to a callable value; under
@@ -23,18 +22,12 @@ const debug = Debug('openapi-mcp')
 const addFormats = addFormatsModule as unknown as FormatsPlugin
 
 export interface LoadOptions {
-  /** one profile; `profiles` wins when both are given */
-  profile?: string
-  /** a set of profiles; an operation in any of them (after `includes` expansion) is selected once */
-  profiles?: string[]
-  /** replaces the document's `x-agent.namePrefix` (`''` strips it) */
-  namePrefix?: string
   fetch?: typeof fetch
   locale?: string
   baseUrl?: string
   /** the URL the document was fetched from, for relative skill links; set automatically when `spec` is a URL */
   documentUrl?: string
-  /** how linked skill bodies are read; the composer passes its cache, the default fetches with `fetch` */
+  /** how linked skill bodies are read, e.g. through a caller's cache; the default fetches with `fetch` */
   skillBodies?: SkillBodyFetcher
   structuredContent?: boolean
   maxStringLength?: number
@@ -52,28 +45,30 @@ export interface LoadOptions {
    * call context, never with its credentials.
    */
   files?: FileLoadOptions
+  /** adapts an editor group's form schema (declared or fetched) before json-layout compiles it; default: as is */
+  prepareEditorSchema?: (schema: JsonSchema) => JsonSchema | Promise<JsonSchema>
 }
 
 const ajv = new Ajv2020({ strict: false, allErrors: true, useDefaults: true, coerceTypes: false })
 addFormats(ajv)
 
-/** The document's own guide: the skill text of the tags its selected operations carry. Skills are listed separately, by skillEntries. */
-export function buildInstructions (doc: JsonSchema, profiles: string[], ops: ResolvedOperation[], locale: string): string {
-  const sections: string[] = []
-  const usedTags = new Set(ops.flatMap(o => o.tags))
+/** The guides of the tags whose operations became tools, each with those tools. */
+function buildGuides (doc: JsonSchema, toolsByOp: Map<ResolvedOperation, string[]>, locale: string): Guide[] {
+  const guides: Guide[] = []
   for (const tag of doc.tags ?? []) {
     const agent: AgentTag | undefined = tag?.['x-agent']
-    if (!agent?.skill || !usedTags.has(tag.name)) continue
-    sections.push(`## ${tag.name}\n\n${localize(agent.skill, locale)}`)
+    if (!agent?.guide) continue
+    const tools = [...toolsByOp].filter(([op]) => op.tags.includes(tag.name)).flatMap(([, names]) => names)
+    if (tools.length) guides.push({ name: tag.name, text: localize(agent.guide, locale)!.trim(), tools })
   }
-  return sections.join('\n\n')
+  return guides
 }
 
 function errorsText (validate: ValidateFunction): string {
   return (validate.errors ?? []).map(e => `${e.instancePath || 'params'} ${e.message}`).join('; ')
 }
 
-export type ToolOptions = Required<Omit<LoadOptions, 'profile' | 'profiles' | 'namePrefix' | 'documentUrl' | 'skillBodies' | 'files'>> & { files: FileFetcher | undefined }
+type ToolOptions = Required<Omit<LoadOptions, 'documentUrl' | 'skillBodies' | 'files' | 'prepareEditorSchema'>> & { files: FileFetcher | undefined }
 
 /** A fetch failure's message with its cause: undici reports a failed body stream as "fetch failed". */
 const failureText = (err: any) => err?.cause?.message ? `${err.message} (${err.cause.message})` : (err?.message ?? String(err))
@@ -85,7 +80,6 @@ function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDes
     return undefined
   }
   const fileResponse = op.agent.response?.file === true
-  assertFileResponseHeaders(op, bindings)
   const validate = ajv.compile(inputSchema)
   // In compact mode the tool's own schema describes the body only as `object`, so the real
   // one validates it here. This is the point of summarising rather than dropping: a
@@ -102,6 +96,7 @@ function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDes
     outputSchema: o.structuredContent && !fileResponse ? op.responseSchema : undefined,
     annotations: { readOnlyHint: op.method === 'GET' || op.method === 'HEAD', destructiveHint: op.method === 'DELETE', ...(op.agent.annotations ?? {}) },
     examples: op.agent.examples,
+    security: op.security,
     async execute (rawParams, ctx): Promise<ToolResult> {
       const params = structuredClone(rawParams ?? {})
       if (!validate(params)) return { isError: true, text: `Invalid parameters: ${errorsText(validate)}` }
@@ -171,12 +166,6 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
   const fetchFn = options.fetch ?? globalThis.fetch
   const doc = await loadSpec(spec, fetchFn, { lint: options.lint })
   const root: AgentRoot = doc['x-agent'] ?? {}
-  const declared = Object.keys(root.profiles ?? {})
-  const profiles = options.profiles ?? (options.profile ? [options.profile] : [defaultProfile(doc)])
-  if (!profiles.length) throw new Error('profiles must name at least one profile')
-  for (const p of profiles) {
-    if (declared.length && !declared.includes(p)) throw new Error(`unknown profile "${p}" (declared: ${declared.join(', ')})`)
-  }
   const baseUrl = options.baseUrl ?? doc.servers?.[0]?.url
   if (!baseUrl) throw new Error('no base URL: pass options.baseUrl or declare servers[0] in the document')
   const o = {
@@ -189,10 +178,26 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
     lint: options.lint ?? 'error',
     files: createFileFetcher(options.files)
   }
-  const ops = resolveOperations(doc, profiles, { namePrefix: options.namePrefix })
+  const ops = resolveOperations(doc)
   const editorOps = ops.filter(op => op.agent.editor)
   const plainOps = ops.filter(op => !op.agent.editor)
-  const built = plainOps.flatMap(op => makeTool(op, o) ?? [])
+  const toolsByOp = new Map<ResolvedOperation, string[]>()
+  // A tool that cannot be built is a finding of its operation, like an invalid annotation.
+  const failed = (op: ResolvedOperation, err: any) => {
+    const message = `${op.toolName}: ${err?.message ?? err}`
+    if (o.lint === 'error') throw new Error(message)
+    if (o.lint === 'warn') console.warn(`openapi-mcp: ${op.method} ${op.path} left out of the tool set: ${message}`)
+  }
+  const built = plainOps.flatMap(op => {
+    let tool: ReturnType<typeof makeTool>
+    try {
+      tool = makeTool(op, o)
+    } catch (err) {
+      failed(op, err)
+    }
+    if (tool) toolsByOp.set(op, [tool.name])
+    return tool ?? []
+  })
 
   if (o.lint !== 'off') {
     const findings: LintFinding[] = built.flatMap(t => lintToolInput(t.name, t.inputSchema, t.authoredDescriptions))
@@ -206,22 +211,30 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
 
   // authoredDescriptions is scaffolding for the lint, not part of the public Tool.
   const tools: Tool[] = built.map(({ authoredDescriptions, ...tool }) => tool)
-  // The group's text comes from the package, so the guide names the tools rather than
-  // repeating the descriptions an agent already reads on each one. Each group also publishes
-  // its json-layout fill-form skill as a real MCP skill: how to drive the tools, and the
-  // schema's x-agent-guide when the schema is declared.
+  // Each editor group publishes its json-layout fill-form skill.
   const editorSkills: Skill[] = []
   for (const op of editorOps) {
-    const group = await buildEditorTools(op, { doc, baseUrl, fetch: contextualFetch(fetchFn), locale: o.locale })
+    let group: Awaited<ReturnType<typeof buildEditorTools>>
+    try {
+      group = await buildEditorTools(op, { doc, baseUrl, fetch: contextualFetch(fetchFn), locale: o.locale, prepareSchema: options.prepareEditorSchema ?? (schema => schema) })
+    } catch (err) {
+      failed(op, err)
+      continue
+    }
     tools.push(...group.tools)
+    toolsByOp.set(op, group.tools.map(t => t.name))
     editorSkills.push(editorSkill(op, group.skill, group.tools.map(t => t.name), o.locale))
   }
   // Relative skill links resolve against the document's URL, else its server URL taken as a
   // directory: `…/api/v1` + `agents/skills/x.md` is `…/api/v1/agents/skills/x.md`.
   const skillBase = options.documentUrl ?? (typeof spec === 'string' ? spec : undefined) ?? baseUrl.replace(/\/?$/, '/')
-  const selected = selectProfiles(profiles, expandProfiles(root.profiles))
-  const skills = [...await resolveSkills(root.skills, selected, o.locale, skillBase, options.skillBodies ?? defaultSkillFetcher(fetchFn)), ...editorSkills]
-  const guide = buildInstructions(doc, profiles, ops, o.locale)
-  const instructions = [skillEntries(skills), guide].filter(Boolean).join('\n\n')
-  return { profiles, instructions, guideInstructions: guide || undefined, guide, tools, skills }
+  // A skill lists only the tools this load built, and one whose tools were all left out goes too.
+  const names = new Set(tools.map(t => t.name))
+  const rootSkills = (root.skills ?? []).flatMap(skill => {
+    if (!skill.tools?.length) return [skill]
+    const kept = skill.tools.filter(t => names.has(t))
+    return kept.length ? [{ ...skill, tools: kept }] : []
+  })
+  const skills = [...await resolveSkills(rootSkills, o.locale, skillBase, options.skillBodies ?? defaultSkillFetcher(fetchFn)), ...editorSkills]
+  return { tools, skills, guides: buildGuides(doc, toolsByOp, o.locale) }
 }

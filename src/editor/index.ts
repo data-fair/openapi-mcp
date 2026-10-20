@@ -2,22 +2,19 @@ import { resolveEditorOperations } from './operations.ts'
 import { buildSessionSpec, createSchemaRegistry, type EditorContext } from './session-spec.ts'
 import { bridgeTool, type FormTool } from './bridge.ts'
 import { localize } from '../localize.ts'
-import { prepareSchema } from './prepare-schema.ts'
 import type { ResolvedOperation, Tool } from '../types.ts'
-
-export type { EditorContext } from './session-spec.ts'
 
 const STUB_SPEC = {
   load: () => ({}),
   schema: () => ({ type: 'object', properties: {} })
 }
 
-export interface EditorGroup {
+interface EditorGroup {
   tools: Tool[]
   /**
    * The json-layout fill-form skill of the group: how to use its tools and, when the schema
    * is the declared request body, the "About this …" section of its x-agent-guide. A schema
-   * fetched per record (a dataset's lines) is unknown here, so its skill stays generic.
+   * fetched per record is unknown here, so its skill stays generic.
    */
   skill: string
 }
@@ -42,7 +39,7 @@ export async function buildEditorTools (op: ResolvedOperation, ctx: EditorContex
   const declared = ops.schema ? undefined : ops.write.requestBody?.schema
   const bootstrap = createFormSession({
     ...STUB_SPEC,
-    ...(declared ? { schema: async () => await prepareSchema(declared) } : {}),
+    ...(declared ? { schema: async () => await ctx.prepareSchema(structuredClone(declared)) } : {}),
     // The title is the same expression buildSessionSpec uses: the package interpolates it
     // into every tool description, so published and runtime text must not drift.
     title: localize(op.agent.title, ctx.locale) ?? op.operationId,
@@ -53,7 +50,7 @@ export async function buildEditorTools (op: ResolvedOperation, ctx: EditorContex
   const skill: string = bootstrap.getSkill()
   bootstrap.close()
 
-  const tools = descriptors.map(descriptor => bridgeTool(descriptor, pathParams, async (pathValues, callCtx) => {
+  const bridged = descriptors.map(descriptor => bridgeTool(descriptor, pathParams, async (pathValues, callCtx) => {
     // One session per caller and record: two users editing the same record must not share
     // one. Without an identity the process is one caller (stdio) and sessions are global.
     const key = `${callCtx?.identity ?? ''}:${op.toolName}:${pathParams.map(p => String(pathValues[p.name])).join(':')}`
@@ -66,5 +63,7 @@ export async function buildEditorTools (op: ResolvedOperation, ctx: EditorContex
     if (!tool) throw new Error(`the session has no tool named "${descriptor.name}"`)
     return tool
   }))
+  // Every tool of the group drives the one operation, so each carries its security.
+  const tools = bridged.map(tool => ({ ...tool, security: op.security }))
   return { tools, skill }
 }

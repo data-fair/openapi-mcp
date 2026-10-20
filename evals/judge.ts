@@ -2,25 +2,17 @@
 /**
  * Judges each transcript on its own.
  *
- * The judge is never told which arm produced what it is reading: transcript tool names
- * already have their `mcp__<server>__` prefix stripped, and nothing in the prompt names an
- * arm. Two arms judged by one judge that knew which was "the new one" would be one judge
- * grading its own expectations.
- *
  * Its model is pinned separately from the runner's and defaults higher. The runner is
  * deliberately the smallest tier, to stress the tools; reading a transcript carefully is
  * the harder task, and a weak judge yields weak findings.
  *
- * Two failure classes are kept apart, echoing lessons the runner (Task 4) already learned
- * twice over:
+ * Two failure classes are kept apart:
  *
  * - A transcript with `isError: true` (the run threw — network failure, MCP subprocess
  *   crash, auth error — or completed with the SDK's own `is_error` on the result, or ended
  *   with no result message at all) never reaches the model: judging "(the agent made no
- *   tool calls)" with an empty answer would almost certainly read as "unsatisfactory", which
- *   biases the B/A comparison this harness exists to produce against whichever arm happens
- *   to fail more (arm A hits a live rate-limited instance, arm B a local fixture — a
- *   structural difference that has nothing to do with tool quality). Such a run is SKIPPED,
+ *   tool calls)" with an empty answer would read as "unsatisfactory", scoring a harness failure as
+ *   a tool failure. Such a run is SKIPPED,
  *   not judged and not scored either way. `isError` is the field to key on, not `error`:
  *   `error` is only set when the run threw an exception, but a run that completed without
  *   throwing can still be a harness failure (see `evals/transcript.ts`'s doc comment).

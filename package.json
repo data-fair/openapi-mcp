@@ -1,6 +1,6 @@
 {
   "name": "@data-fair/openapi-mcp",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "MCP tools for AI agents from OpenAPI documents annotated with x-agent",
   "type": "module",
   "license": "AGPL-3.0-only",
@@ -18,7 +18,6 @@
     "model-context-protocol",
     "openapi",
     "ai-agents",
-    "data-fair",
     "json-layout",
     "x-agent"
   ],
@@ -49,7 +48,7 @@
     "lint": "eslint .",
     "lint-fix": "eslint --fix .",
     "check-types": "tsc",
-    "test": "NODE_ENV=test node --test --test-force-exit 'test/**/*.test.ts'",
+    "test": "NODE_ENV=test node --test 'test/**/*.test.ts'",
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "prepublishOnly": "npm run build",
     "quality": "npm run lint && npm run check-types && npm run test",
@@ -68,14 +67,10 @@
     "mime-types": "^3.0.2"
   },
   "peerDependencies": {
-    "@json-layout/agents": "^0.2.0",
-    "@json-layout/core": "^2.11.0"
+    "@json-layout/agents": "^0.2.0"
   },
   "peerDependenciesMeta": {
     "@json-layout/agents": {
-      "optional": true
-    },
-    "@json-layout/core": {
       "optional": true
     }
   },
@@ -84,7 +79,6 @@
     "@data-fair/agent-tools-data-fair": "^0.6.4",
     "@data-fair/lib-utils": "^1.5.0",
     "@json-layout/agents": "^0.2.0",
-    "@json-layout/core": "^2.11.0",
     "@modelcontextprotocol/client": "^2.0.0",
     "@types/debug": "^4.1.12",
     "@types/mime-types": "^3.0.1",

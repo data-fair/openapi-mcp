@@ -15,18 +15,18 @@ describe('response.file', () => {
   it('returns a resource link built from the arguments and fixed values, without any request', async () => {
     const { calls, fetchFn } = recorder()
     const ts = await load(filesDoc, { fetch: fetchFn })
-    const res = await ts.tools.find(t => t.name === 'export_lines')!.execute({ id: 'rge 2024', q: 'paris' })
-    const uri = 'https://files.example/api/datasets/rge%202024/lines?q=paris&format=csv'
+    const res = await ts.tools.find(t => t.name === 'export_lines')!.execute({ id: 'c1 2024', q: 'paris' })
+    const uri = 'https://files.example/api/collections/c1%202024/lines?q=paris&format=csv'
     assert.deepEqual(res, {
-      text: `File rge-2024-lines.csv (text/csv), not downloaded by this tool: ${uri}`,
-      resourceLink: { uri, name: 'rge-2024-lines.csv', mimeType: 'text/csv' }
+      text: `File c1-2024-lines.csv (text/csv), not downloaded by this tool: ${uri}`,
+      resourceLink: { uri, name: 'c1-2024-lines.csv', mimeType: 'text/csv' }
     })
     assert.equal(calls.length, 0)
   })
   it('gives no type and no extension for application/octet-stream', async () => {
     const ts = await load(filesDoc, { fetch: recorder().fetchFn })
-    const res = await ts.tools.find(t => t.name === 'download_raw')!.execute({ id: 'rge' })
-    assert.deepEqual(res.resourceLink, { uri: 'https://files.example/api/datasets/rge/raw', name: 'rge-raw' })
+    const res = await ts.tools.find(t => t.name === 'download_raw')!.execute({ id: 'c1' })
+    assert.deepEqual(res.resourceLink, { uri: 'https://files.example/api/collections/c1/raw', name: 'c1-raw' })
     assert.ok(!res.text.includes('('))
   })
   it('validates the arguments before building the link', async () => {
@@ -42,7 +42,7 @@ describe('response.file', () => {
   })
   it('refuses a header parameter, which a link cannot carry', async () => {
     const doc = structuredClone(filesDoc)
-    doc.paths['/datasets/{id}/lines'].get.parameters.push({ in: 'header', name: 'x-trace', schema: { type: 'string' } })
+    doc.paths['/collections/{id}/lines'].get.parameters.push({ in: 'header', name: 'x-trace', schema: { type: 'string' } })
     await assert.rejects(load(doc, { fetch: recorder().fetchFn }), /export_lines: response\.file returns a link, which cannot carry header parameters \(x-trace\)/)
   })
 })
@@ -60,9 +60,9 @@ describe('linkMimeType', () => {
 
 describe('linkName', () => {
   it('names the file after the last path parameter and what follows it', () => {
-    assert.equal(linkName('/datasets/{id}/lines', new URL('https://x.test/api/datasets/rge/lines'), 'text/csv'), 'rge-lines.csv')
+    assert.equal(linkName('/collections/{id}/lines', new URL('https://x.test/api/collections/c1/lines'), 'text/csv'), 'c1-lines.csv')
     assert.equal(linkName('/files/{name}', new URL('https://x.test/files/report.csv'), 'text/csv'), 'report.csv')
     assert.equal(linkName('/export', new URL('https://x.test/api/export'), 'application/json'), 'export.json')
-    assert.equal(linkName('/datasets/{id}/raw', new URL('https://x.test/datasets/..%2Fetc/raw'), undefined), 'etc-raw')
+    assert.equal(linkName('/collections/{id}/raw', new URL('https://x.test/collections/..%2Fetc/raw'), undefined), 'etc-raw')
   })
 })

@@ -13,11 +13,15 @@ const shortLocalized: JsonSchema = {
     { type: 'object', additionalProperties: { type: 'string', maxLength: 1024 }, minProperties: 1 }
   ]
 }
-const profiles: JsonSchema = { oneOf: [{ const: true }, { type: 'array', items: { type: 'string' }, minItems: 1 }] }
 const annotations: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   properties: { readOnlyHint: { type: 'boolean' }, destructiveHint: { type: 'boolean' }, idempotentHint: { type: 'boolean' }, openWorldHint: { type: 'boolean' } }
+}
+
+const security: JsonSchema = {
+  type: 'array',
+  items: { type: 'object', additionalProperties: { type: 'array', items: { type: 'string' } } }
 }
 
 export const paramOverrideSchema: JsonSchema = {
@@ -38,16 +42,6 @@ export const rootSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    namePrefix: { type: 'string', pattern: '^[a-z0-9_]*$' },
-    profiles: {
-      type: 'object',
-      minProperties: 1,
-      additionalProperties: {
-        type: 'object',
-        additionalProperties: false,
-        properties: { title: localized, description: localized, includes: { type: 'array', items: { type: 'string' }, minItems: 1 } }
-      }
-    },
     skills: {
       type: 'array',
       items: {
@@ -63,7 +57,6 @@ export const rootSchema: JsonSchema = {
           description: shortLocalized,
           href: localized,
           body: localized,
-          profiles: { type: 'array', items: { type: 'string' } },
           tools: { type: 'array', items: { type: 'string' } }
         }
       }
@@ -74,14 +67,13 @@ export const rootSchema: JsonSchema = {
 export const tagSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  properties: { profiles, skill: localized }
+  properties: { guide: localized }
 }
 
 export const operationSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    profiles,
     name: { type: 'string', pattern: '^[a-z0-9_]+$' },
     title: localized,
     description: localized,
@@ -100,7 +92,7 @@ export const operationSchema: JsonSchema = {
         concise: { type: 'array', items: { type: 'string' }, minItems: 1 },
         detailed: { oneOf: [{ const: true }, { type: 'array', items: { type: 'string' }, minItems: 1 }] },
         selectParam: { type: 'string' },
-        hints: { type: 'boolean' },
+        hints: { type: 'string', pattern: '^(/[^/]+)+$' },
         file: { const: true }
       }
     },
@@ -117,7 +109,8 @@ export const operationSchema: JsonSchema = {
           }
         }
       ]
-    }
+    },
+    security
   }
 }
 

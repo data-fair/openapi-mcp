@@ -18,8 +18,8 @@ describe('summariseSchema — property lines', () => {
     assert.equal(out, 'm?: "avg"|"sum"')
   })
   it('keeps a short description on the line', () => {
-    const out = summariseSchema({ type: 'object', properties: { title: { type: 'string', description: 'Dataset title' } } })
-    assert.equal(out, 'title?: string — Dataset title')
+    const out = summariseSchema({ type: 'object', properties: { title: { type: 'string', description: 'Collection title' } } })
+    assert.equal(out, 'title?: string — Collection title')
   })
   it('falls back on the title when there is no description', () => {
     const out = summariseSchema({ type: 'object', properties: { spatial: { type: 'string', title: 'Geographic coverage' }, t: { type: 'string', title: 'T', description: 'Described' } } })
@@ -144,7 +144,7 @@ describe('load — body: "compact"', () => {
         put: {
           operationId: 'putThing',
           parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
-          'x-agent': { profiles: true, name: 'put_thing', body },
+          'x-agent': { name: 'put_thing', body },
           requestBody: {
             required: true,
             content: {

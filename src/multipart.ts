@@ -49,9 +49,8 @@ export function encodeRaw (file: FileSource, contentType: string): EncodedBody {
 }
 
 /**
- * A multipart field's text. OpenAPI's default content type for an object part is
- * application/json, and data-fair parses object and array parts as JSON; scalars are sent as
- * their string form (form-data refuses a boolean). An absent value sends no part.
+ * A multipart field's text: objects and arrays as JSON (OpenAPI's default content type for such
+ * a part), scalars as their string form. An absent value sends no part.
  */
 export function partValue (value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined

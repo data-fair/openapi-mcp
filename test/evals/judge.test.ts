@@ -13,7 +13,6 @@ const scenarios: Scenario[] = [
 function transcript (overrides: Partial<Transcript> = {}): Transcript {
   return {
     scenario: 'pagination',
-    arm: 'B',
     model: 'haiku',
     startedAt: '2026-09-21T00:00:00.000Z',
     provenance: {},
@@ -49,7 +48,7 @@ describe('judgeOne', () => {
     let askCalled = false
     const stub = async () => { askCalled = true; throw new Error('ask must not be called for a thrown run') }
 
-    const outcome = await judgeOne('pagination--A.json', t, scenarios, stub)
+    const outcome = await judgeOne('pagination.json', t, scenarios, stub)
 
     assert.equal(outcome.status, 'skipped')
     assert.match((outcome as any).reason, /MCP subprocess crashed/)
@@ -65,7 +64,7 @@ describe('judgeOne', () => {
     let askCalled = false
     const stub = async () => { askCalled = true; throw new Error('ask must not be called for an isError run') }
 
-    const outcome = await judgeOne('pagination--A.json', t, scenarios, stub)
+    const outcome = await judgeOne('pagination.json', t, scenarios, stub)
 
     assert.equal(outcome.status, 'skipped')
     assert.match((outcome as any).reason, /no usable result/)
@@ -77,7 +76,7 @@ describe('judgeOne', () => {
     let calledWith = ''
     const stub = async (text: string) => { calledWith = text; return goodVerdictText }
 
-    const outcome = await judgeOne('pagination--B.json', t, scenarios, stub)
+    const outcome = await judgeOne('pagination.json', t, scenarios, stub)
 
     assert.equal(outcome.status, 'judged')
     assert.equal((outcome as any).verdict.verdict, 'satisfactory')
@@ -88,7 +87,7 @@ describe('judgeOne', () => {
     const t = transcript()
     const stub = async () => 'not json at all'
 
-    const outcome = await judgeOne('pagination--B.json', t, scenarios, stub)
+    const outcome = await judgeOne('pagination.json', t, scenarios, stub)
 
     assert.equal(outcome.status, 'failed')
     assert.match((outcome as any).reason, /could not be parsed as JSON/)
@@ -98,7 +97,7 @@ describe('judgeOne', () => {
     const t = transcript()
     const stub = async () => JSON.stringify({ ...JSON.parse(goodVerdictText), scenario: 'other' })
 
-    const outcome = await judgeOne('pagination--B.json', t, scenarios, stub)
+    const outcome = await judgeOne('pagination.json', t, scenarios, stub)
 
     assert.equal(outcome.status, 'failed')
     assert.match((outcome as any).reason, /judge answered for scenario other/)
@@ -109,7 +108,7 @@ describe('judgeOne', () => {
     let askCalled = false
     const stub = async () => { askCalled = true; return goodVerdictText }
 
-    const outcome = await judgeOne('nonexistent--B.json', t, scenarios, stub)
+    const outcome = await judgeOne('nonexistent.json', t, scenarios, stub)
 
     assert.equal(outcome.status, 'failed')
     assert.match((outcome as any).reason, /no scenario named nonexistent/)
@@ -125,20 +124,20 @@ describe('judgeFile', () => {
     const dir = mkdtempSync(join(tmpdir(), 'judge-file-'))
     try {
       const good = transcript()
-      writeFileSync(join(dir, 'pagination--A.json'), JSON.stringify(good))
-      writeFileSync(join(dir, 'pagination--B.json'), '{"scenario": "pagination", "arm": "B", tru') // truncated mid-write
+      writeFileSync(join(dir, 'pagination.json'), JSON.stringify(good))
+      writeFileSync(join(dir, 'broken.json'), '{"scenario": "pagination", tru') // truncated mid-write
 
       const stub = async () => goodVerdictText
 
-      const badOutcome = await judgeFile('pagination--B.json', dir, scenarios, stub)
+      const badOutcome = await judgeFile('broken.json', dir, scenarios, stub)
       assert.equal(badOutcome.status, 'failed')
       assert.ok(badOutcome.status === 'failed' && /JSON|Unexpected/.test(badOutcome.reason))
-      assert.equal(existsSync(join(dir, 'pagination--B.verdict.json')), false)
+      assert.equal(existsSync(join(dir, 'broken.verdict.json')), false)
 
       // The good file, processed independently, is unaffected by the bad one.
-      const goodOutcome = await judgeFile('pagination--A.json', dir, scenarios, stub)
+      const goodOutcome = await judgeFile('pagination.json', dir, scenarios, stub)
       assert.equal(goodOutcome.status, 'judged')
-      assert.equal(existsSync(join(dir, 'pagination--A.verdict.json')), true)
+      assert.equal(existsSync(join(dir, 'pagination.verdict.json')), true)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -147,10 +146,10 @@ describe('judgeFile', () => {
   it('writes the verdict file for a judged transcript', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'judge-file-'))
     try {
-      writeFileSync(join(dir, 'pagination--A.json'), JSON.stringify(transcript()))
-      const outcome = await judgeFile('pagination--A.json', dir, scenarios, async () => goodVerdictText)
+      writeFileSync(join(dir, 'pagination.json'), JSON.stringify(transcript()))
+      const outcome = await judgeFile('pagination.json', dir, scenarios, async () => goodVerdictText)
       assert.equal(outcome.status, 'judged')
-      const verdict = JSON.parse(readFileSync(join(dir, 'pagination--A.verdict.json'), 'utf8'))
+      const verdict = JSON.parse(readFileSync(join(dir, 'pagination.verdict.json'), 'utf8'))
       assert.equal(verdict.verdict, 'satisfactory')
       assert.ok('judgeModel' in verdict)
       assert.ok('judgeResolvedModel' in verdict, 'F7: records the resolved judge model id(s) alongside the verdict')
@@ -162,10 +161,10 @@ describe('judgeFile', () => {
   it('does not write a verdict file when the transcript is skipped (isError)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'judge-file-'))
     try {
-      writeFileSync(join(dir, 'pagination--A.json'), JSON.stringify(transcript({ isError: true, error: 'boom' })))
-      const outcome = await judgeFile('pagination--A.json', dir, scenarios, async () => { throw new Error('must not be called') })
+      writeFileSync(join(dir, 'pagination.json'), JSON.stringify(transcript({ isError: true, error: 'boom' })))
+      const outcome = await judgeFile('pagination.json', dir, scenarios, async () => { throw new Error('must not be called') })
       assert.equal(outcome.status, 'skipped')
-      assert.equal(existsSync(join(dir, 'pagination--A.verdict.json')), false)
+      assert.equal(existsSync(join(dir, 'pagination.verdict.json')), false)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

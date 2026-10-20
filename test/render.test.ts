@@ -5,7 +5,7 @@ import { inlineRefs, resolveOperations } from '../src/spec.ts'
 import { render, type RenderOptions } from '../src/render.ts'
 
 const petstore = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8')))
-const listPets = resolveOperations(petstore, 'explore').find(o => o.operationId === 'listPets')!
+const listPets = resolveOperations(petstore).find(o => o.operationId === 'listPets')!
 const goldenDir = new URL('./fixtures/render/', import.meta.url)
 
 // UPDATE_GOLDEN writes the file and then fails the test on purpose: a regeneration run must
@@ -52,6 +52,15 @@ describe('render', () => {
   it('renders arrays of scalars and truncates long strings', () => {
     assert.equal(render(['a', 'b'], { locale: 'en' }), '- a\n- b')
     assert.equal(render('x'.repeat(20), { locale: 'en', maxStringLength: 5 }), 'xxxxx…')
+  })
+  it('reads hints at an escaped pointer, and shows a non-string hint as JSON', () => {
+    const out = render({ a: 1, 'x/y': { tips: ['one', { code: 2 }] } }, { locale: 'en', response: { hints: '/x~1y/tips' } })
+    assert.equal(out, '- **a**: 1\n\n> Hint: one\n> Hint: {"code":2}')
+  })
+  it('never truncates a URL or a list of URLs', () => {
+    const url = 'https://example.test/' + 'x'.repeat(40)
+    assert.equal(render({ next: url, links: [url, url], text: 'y'.repeat(40) }, { locale: 'en', maxStringLength: 10 }),
+      `- **next**: ${url}\n- **links**: ${url}, ${url}\n- **text**: yyyyyyyyyy…`)
   })
   it('renders arrays of objects without a schema as a table', () => {
     const out = render([{ a: 1, b: 'x' }, { a: 2, b: 'y' }], { locale: 'en' })

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Runs each scenario against each arm and writes one transcript per run.
+ * Runs each scenario against the server under evaluation and writes one transcript per scenario.
  *
  * `allowedTools` is not optional. Without it every MCP tool call is DENIED, and the agent
  * — which cannot tell a denial from a broken tool — answers that it has a permissions
@@ -15,11 +15,10 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { isolationOptions, neutralCwd } from './isolation.ts'
-import { armA, armB, armC, discoverTools, type ArmSpec, type ArmName } from './arms.ts'
+import { serverSpec, discoverTools, type ServerSpec } from './server.ts'
 import { startFixtureServer } from './fixture-server.ts'
 import { extractCalls, extractMetrics, extractResolvedModels, type Transcript } from './transcript.ts'
 
-const PORTAL_URL = process.env.PORTAL_URL ?? 'https://opendata.koumoul.com'
 const MODEL = process.env.OPENAPI_MCP_EVAL_MODEL ?? 'haiku'
 const here = fileURLToPath(new URL('.', import.meta.url))
 const RUNS_DIR = join(here, 'runs')
@@ -28,21 +27,16 @@ interface Scenario { id: string, question: string, expected: string }
 
 function parseArgs (argv: string[]) {
   const ids: string[] = []
-  let arm: ArmName | undefined
   let concurrency = 1
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--arm') {
-      const raw = argv[++i]
-      if (raw !== 'A' && raw !== 'B' && raw !== 'C') throw new Error(`--arm must be A, B or C, got ${JSON.stringify(raw)}`)
-      arm = raw
-    } else if (argv[i] === '--concurrency') {
+    if (argv[i] === '--concurrency') {
       const raw = argv[++i]
       const n = Number(raw)
       if (!Number.isInteger(n) || n < 1) throw new Error(`--concurrency must be a positive integer, got ${JSON.stringify(raw)}`)
       concurrency = n
     } else ids.push(argv[i])
   }
-  return { ids, arm, concurrency }
+  return { ids, concurrency }
 }
 
 /**
@@ -51,7 +45,7 @@ function parseArgs (argv: string[]) {
  * a datum, never left to crash the batch: the try/catch below covers the whole body,
  * including cwd creation, so every throw path in a run is caught the same way.
  */
-async function runOne (scenario: Scenario, arm: ArmSpec, allowedTools: string[]): Promise<Transcript> {
+async function runOne (scenario: Scenario, server: ServerSpec, allowedTools: string[]): Promise<Transcript> {
   const startedAt = new Date().toISOString()
   let cwd: string | undefined
   try {
@@ -65,7 +59,7 @@ async function runOne (scenario: Scenario, arm: ArmSpec, allowedTools: string[])
           ...isolationOptions(cwd),
           model: MODEL,
           allowedTools,
-          mcpServers: { [arm.serverName]: arm.config }
+          mcpServers: { [server.name]: server.config }
         }
       })) {
         messages.push(message)
@@ -78,11 +72,10 @@ async function runOne (scenario: Scenario, arm: ArmSpec, allowedTools: string[])
     const calls = extractCalls(messages)
     return {
       scenario: scenario.id,
-      arm: arm.name,
       model: MODEL,
       resolvedModels: extractResolvedModels(result),
       startedAt,
-      provenance: arm.provenance,
+      provenance: server.provenance,
       question: scenario.question,
       calls,
       answer: result?.result ?? '',
@@ -92,11 +85,10 @@ async function runOne (scenario: Scenario, arm: ArmSpec, allowedTools: string[])
   } catch (err: any) {
     return {
       scenario: scenario.id,
-      arm: arm.name,
       model: MODEL,
       resolvedModels: [],
       startedAt,
-      provenance: arm.provenance,
+      provenance: server.provenance,
       question: scenario.question,
       calls: [],
       answer: '',
@@ -140,7 +132,7 @@ async function pool<T> (tasks: (() => Promise<T>)[], limit: number): Promise<T[]
 // without side-effecting a live fixture server, subprocess spawns and network calls just by
 // loading this module.
 async function main () {
-  const { ids, arm: onlyArm, concurrency } = parseArgs(process.argv.slice(2))
+  const { ids, concurrency } = parseArgs(process.argv.slice(2))
   const all: Scenario[] = JSON.parse(readFileSync(join(here, 'scenarios.json'), 'utf8'))
   const scenarios = ids.length ? all.filter(s => ids.includes(s.id)) : all
   if (!scenarios.length) throw new Error(`no scenarios matched ${ids.join(', ')}`)
@@ -148,40 +140,27 @@ async function main () {
   mkdirSync(RUNS_DIR, { recursive: true })
   const fixture = await startFixtureServer()
   try {
-    const arms: ArmSpec[] = []
-    if (!onlyArm || onlyArm === 'A') arms.push(armA(PORTAL_URL))
-    if (!onlyArm || onlyArm === 'B') arms.push(armB(fixture.url, fixture.hash))
-    if (!onlyArm || onlyArm === 'C') arms.push(armC(fixture.indexUrl, fixture.hash))
+    const server = serverSpec(fixture.url, fixture.hash)
+    const { allowedTools, ...defs } = await discoverTools(server)
+    console.log(`${defs.toolNames.length} tools, ${defs.definitionBytes} bytes of definitions, ${defs.instructionsBytes} bytes of instructions`)
+    writeFileSync(join(RUNS_DIR, 'tool-definitions.json'), JSON.stringify({ ...defs, measuredAt: new Date().toISOString(), model: MODEL }, null, 2) + '\n')
 
-    const discovered: Record<string, { toolNames: string[], definitionBytes: number, instructionsBytes: number }> = {}
-    const allowed: Record<string, string[]> = {}
-    for (const a of arms) {
-      const d = await discoverTools(a)
-      discovered[a.name] = { toolNames: d.toolNames, definitionBytes: d.definitionBytes, instructionsBytes: d.instructionsBytes }
-      allowed[a.name] = d.allowedTools
-      console.log(`arm ${a.name}: ${d.toolNames.length} tools, ${d.definitionBytes} bytes of definitions, ${d.instructionsBytes} bytes of instructions`)
-    }
-    writeFileSync(join(RUNS_DIR, 'tool-definitions.json'),
-      JSON.stringify({ ...discovered, measuredAt: new Date().toISOString(), model: MODEL }, null, 2) + '\n')
-
-    // The same error text recurring across runs is a bug in the harness or the environment,
-    // not per-run flakiness in what is being measured — flagged in the console line so a
-    // human watching a long run notices it instead of reading 22 lines of identical "ERROR".
+    // The same error text recurring across runs is a harness or environment bug, not flakiness
+    // in what is measured: say so in the console line.
     const errorCounts = new Map<string, number>()
-
-    const tasks = scenarios.flatMap(s => arms.map(a => async () => {
-      const transcript = await runOne(s, a, allowed[a.name])
-      writeTranscriptSafely(join(RUNS_DIR, `${s.id}--${a.name}.json`), transcript, `${s.id} [${a.name}]`)
-      let line = `${s.id} [${a.name}] ${transcript.isError ? 'ERROR' : 'ok'} — ${transcript.metrics.toolCalls} calls, ${transcript.metrics.totalTokens} tokens, $${transcript.metrics.costUsd.toFixed(4)}`
+    const tasks = scenarios.map(s => async () => {
+      const transcript = await runOne(s, server, allowedTools)
+      writeTranscriptSafely(join(RUNS_DIR, `${s.id}.json`), transcript, s.id)
+      let line = `${s.id} ${transcript.isError ? 'ERROR' : 'ok'}: ${transcript.metrics.toolCalls} calls, ${transcript.metrics.totalTokens} tokens, $${transcript.metrics.costUsd.toFixed(4)}`
       if (transcript.error) {
         const seen = (errorCounts.get(transcript.error) ?? 0) + 1
         errorCounts.set(transcript.error, seen)
         line += ` (${transcript.error})`
-        if (seen > 1) line += ` [seen ${seen}x — likely a bug, not per-run flakiness]`
+        if (seen > 1) line += ` [seen ${seen}x: likely a bug, not flakiness]`
       }
       console.log(line)
       return transcript
-    }))
+    })
     await pool(tasks, concurrency)
   } finally {
     await fixture.close()

@@ -45,9 +45,8 @@ export function bridgeTool (descriptor: FormTool, pathParams: ResolvedParam[], r
       const rest = { ...params }
       for (const p of pathParams) delete rest[p.name]
       try {
-        // The session's own requests (schema, load, save) happen inside this call and must
-        // carry this call's headers — an NHI cookie rotates every two minutes, so nothing
-        // captured when the session was opened may be reused.
+        // The session's own requests (schema, load, save) carry this call's context:
+        // credentials captured when the session was opened may have expired.
         return await currentCall.run(ctx, async () => {
           const tool = await resolve(pathValues, ctx)
           return toToolResult(await tool.execute(rest))

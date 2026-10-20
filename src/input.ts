@@ -13,12 +13,15 @@ export interface Binding {
   accept?: string[]
 }
 
-/** Walk a JSON pointer inside a schema: "/results" → schema.properties.results; array steps go through items. */
+/** The object keys of a JSON pointer, unescaped. */
+export const pointerKeys = (pointer: string) => pointer.split('/').filter(Boolean).map(s => s.replace(/~1/g, '/').replace(/~0/g, '~'))
+
+/** Walk a JSON pointer of object keys inside a schema: "/results" → schema.properties.results. */
 export function schemaAt (schema: JsonSchema | undefined, pointer: string | undefined): JsonSchema | undefined {
   if (!schema) return undefined
   if (!pointer) return schema
   let node: JsonSchema | undefined = schema
-  for (const key of pointer.split('/').filter(Boolean)) {
+  for (const key of pointerKeys(pointer)) {
     node = node?.properties?.[key]
     if (!node) return undefined
   }
@@ -40,25 +43,15 @@ function paramSchema (p: ResolvedParam, locale: string): JsonSchema {
   delete schema.title
   const description = localize(p.agent.description, locale) ?? p.description
   if (description) schema.description = description.trim()
-  // default/maximum describe a single value; on an array-typed param (data-fair's
-  // explode:false comma-joined params, e.g. one size entry per aggregation level) that
-  // value belongs on items, not on the array itself. A default/maximum sitting on the
-  // array made ajv's useDefaults fill a scalar into an array-typed property and then
-  // reject it — both when the API document declares it directly (e.g. search_data's raw
-  // `select` param: `{ type: array, items: { type: string }, default: "all" }`, which
-  // broke every call that omitted `select`) and when an agent.params override adds one
-  // (aggregate_data's former agg_size override, which broke every call outright). Both
-  // sources are normalized onto items here.
+  // default, maximum and enum describe one value: on an array parameter they belong on items,
+  // where the document or an override put them there or not (on the array, useDefaults would
+  // fill a scalar into an array and every call omitting the parameter would be refused).
   if (schema.type === 'array') {
     const items: JsonSchema = { ...schema.items }
     if (schema.default !== undefined) { items.default = schema.default; delete schema.default }
     if (schema.maximum !== undefined) { items.maximum = schema.maximum; delete schema.maximum }
     if (p.agent.default !== undefined) items.default = p.agent.default
     if (p.agent.maximum !== undefined) items.maximum = p.agent.maximum
-    // enum, like default/maximum, describes a single value: it must constrain each array
-    // item, not the array itself. Applying it to the array's own schema (alongside
-    // items: { type: 'string' }) produces a shape ajv rejects for every value, since no
-    // array literal can equal one of the enum's scalar members.
     if (p.agent.enum !== undefined) items.enum = p.agent.enum
     schema.items = items
   } else {
@@ -81,12 +74,7 @@ function pickBody (op: ResolvedOperation): ResolvedOperation['requestBody'] {
   const { bodyFields: fields, bodyRequired } = op.agent
   if (!op.requestBody || (!fields && !bodyRequired)) return op.requestBody
   const schema = op.requestBody.schema
-  if (schema.type !== 'object' || !schema.properties) throw new Error(`${op.toolName}: ${fields ? 'bodyFields' : 'bodyRequired'} needs an object request body with properties`)
-  const missing = (fields ?? []).filter(f => !Object.hasOwn(schema.properties, f))
-  if (missing.length) throw new Error(`${op.toolName}: bodyFields names properties the request body does not declare: ${missing.join(', ')}`)
   const offered = fields ?? Object.keys(schema.properties)
-  const stray = (bodyRequired ?? []).filter(f => !offered.includes(f))
-  if (stray.length) throw new Error(`${op.toolName}: bodyRequired names properties the tool does not offer: ${stray.join(', ')}`)
   const picked: JsonSchema = fields
     ? { type: 'object', properties: Object.fromEntries(fields.map(f => [f, schema.properties[f]])), additionalProperties: false }
     : { ...schema }
@@ -131,12 +119,6 @@ function fileProperty (description: string | undefined, accept: string[] | undef
   return { type: 'string', format: 'uri', description: description ? `${description.trim()}\n\n${FILE_NOTE}` : FILE_NOTE, 'x-mcp-file': marker }
 }
 
-/** A file response is a link the caller fetches: it cannot carry the header parameters a request would. */
-export function assertFileResponseHeaders (op: ResolvedOperation, bindings: Binding[]): void {
-  const headerParams = bindings.filter(b => b.kind === 'header').map(b => b.apiName)
-  if (op.agent.response?.file === true && headerParams.length) throw new Error(`${op.toolName}: response.file returns a link, which cannot carry header parameters (${headerParams.join(', ')}); exclude them`)
-}
-
 export function buildInput (op: ResolvedOperation, locale: string, options: { files?: FileInputs } = {}): { inputSchema: JsonSchema, bindings: Binding[], authoredDescriptions: Set<string>, bodySchema?: JsonSchema, unavailable?: string } {
   const properties: JsonSchema = {}
   const required: string[] = []
@@ -162,8 +144,7 @@ export function buildInput (op: ResolvedOperation, locale: string, options: { fi
 
   const requestBody = pickBody(op)
   // In compact mode the body is one property described by a listing, and the real schema
-  // is returned for the caller to validate against — a tool definition carrying data-fair's
-  // 28 KB dataset body costs more than the entire six-tool explore set.
+  // is returned for the tool to validate against.
   let bodySchema: JsonSchema | undefined
   if (requestBody?.kind === 'json' && op.agent.body === 'compact') {
     properties.body = {
@@ -218,10 +199,8 @@ export function buildInput (op: ResolvedOperation, locale: string, options: { fi
   }
 
   if (selectParam) {
-    const apiParam = op.params.find(p => p.name === selectParam)
-    if (!apiParam) throw new Error(`${op.operationId}: response.selectParam "${selectParam}" is not a parameter`)
+    const apiParam = op.params.find(p => p.name === selectParam)!
     const fields = responseFields(op.responseSchema, op.agent.response?.rows)
-    if (!fields.length) throw new Error(`${op.operationId}: response.selectParam "${selectParam}" needs response fields, but the response schema declares no properties (at${op.agent.response?.rows ? ` "${op.agent.response.rows}"` : ' the top level'})`)
     properties.fields = {
       type: 'array',
       items: { type: 'string', enum: fields },

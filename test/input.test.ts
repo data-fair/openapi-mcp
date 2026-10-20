@@ -6,12 +6,12 @@ import { buildInput, responseFields, isFilePart, FILE_NOTE } from '../src/input.
 import type { AgentOperation } from '../src/types.ts'
 
 const petstore = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8')))
-const ops = resolveOperations(petstore, 'explore')
+const ops = resolveOperations(petstore)
 const listPets = ops.find(o => o.operationId === 'listPets')!
 const getPet = ops.find(o => o.operationId === 'getPet')!
-const createPet = resolveOperations(petstore, 'edit')[0]
+const createPet = ops.find(o => o.operationId === 'createPet')!
 const views = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/views.json', import.meta.url), 'utf8')))
-const [updateThing, publishThing] = resolveOperations(views, 'manage')
+const [updateThing, publishThing] = resolveOperations(views)
 
 describe('buildInput', () => {
   it('renames, excludes, applies overrides and drops fixed params', () => {
@@ -101,21 +101,11 @@ describe('buildInput', () => {
     assert.equal(inputSchema.properties.size.maximum, 50)
     assert.deepEqual(inputSchema.properties.size.enum, [10, 20, 50])
   })
-  it('throws when response.selectParam names a parameter the operation does not have', () => {
-    const op = structuredClone(getPet)
-    op.agent = { ...op.agent, response: { selectParam: 'bogus' } }
-    assert.throws(() => buildInput(op, 'en'), /bogus/)
-  })
   it('drops an inherited raw OpenAPI title from the param schema', () => {
     const op = structuredClone(listPets)
     op.params.find(p => p.name === 'q')!.schema.title = 'Recherche textuelle'
     const { inputSchema } = buildInput(op, 'en')
     assert.equal(inputSchema.properties.query.title, undefined)
-  })
-  it('throws when response.selectParam would yield an empty fields enum (response schema has no properties)', () => {
-    const op = structuredClone(listPets)
-    op.responseSchema = { type: 'object' }
-    assert.throws(() => buildInput(op, 'en'), /declares no properties/)
   })
 })
 
@@ -145,19 +135,11 @@ describe('buildInput — bodyFields', () => {
     assert.match(inputSchema.properties.body.description, /publicationSites/)
     assert.doesNotMatch(inputSchema.properties.body.description, /title/)
   })
-  it('fails on a property the body does not declare', () => {
-    const op = { ...publishThing, agent: { ...publishThing.agent, bodyFields: ['publicationSites', 'nope'] } }
-    assert.throws(() => buildInput(op, 'en'), /t_publish_thing: bodyFields names properties the request body does not declare: nope/)
-  })
-  it('fails on a body that is not an object with properties', () => {
-    const op = { ...publishThing, requestBody: { kind: 'json' as const, schema: { type: 'array', items: { type: 'string' } }, required: true } }
-    assert.throws(() => buildInput(op, 'en'), /t_publish_thing: bodyFields needs an object request body with properties/)
-  })
 })
 
 const filesDoc = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/files.json', import.meta.url), 'utf8')))
-const fileOps = resolveOperations(filesDoc, 'edit')
-const createDataset = fileOps.find(o => o.operationId === 'createDataset')!
+const fileOps = resolveOperations(filesDoc)
+const createCollection = fileOps.find(o => o.operationId === 'createCollection')!
 const bulkLines = fileOps.find(o => o.operationId === 'bulkLines')!
 
 /** file inputs on, as when files.urlPrefixes is configured */
@@ -165,7 +147,7 @@ const on = { files: { maxSize: 1000 } }
 
 describe('buildInput — files', () => {
   it('turns binary multipart parts into file URL inputs and keeps the other parts flat', () => {
-    const { inputSchema, bindings, unavailable } = buildInput(createDataset, 'en', on)
+    const { inputSchema, bindings, unavailable } = buildInput(createCollection, 'en', on)
     assert.equal(unavailable, undefined)
     assert.deepEqual(inputSchema.properties.file, {
       type: 'string',
@@ -185,7 +167,7 @@ describe('buildInput — files', () => {
     assert.equal(bindings.find(b => b.toolName === 'schema')!.kind, 'bodyProp')
   })
   it('leaves accept out when a part declares no specific type', () => {
-    const op = structuredClone(createDataset)
+    const op = structuredClone(createCollection)
     op.requestBody!.encoding = { file: ['application/octet-stream'] }
     const { inputSchema } = buildInput(op, 'en', on)
     assert.deepEqual(inputSchema.properties.file['x-mcp-file'], { maxSize: 1000 })
@@ -205,18 +187,18 @@ describe('buildInput — files', () => {
     assert.equal(bindings.find(b => b.toolName === 'file__body')!.kind, 'file')
   })
   it('does not offer a tool that needs a list of files', () => {
-    const op = structuredClone(createDataset)
+    const op = structuredClone(createCollection)
     op.requestBody!.schema.required = ['file', 'previews']
-    assert.match(buildInput(op, 'en', on).unavailable!, /create_dataset: multipart part "previews" is a list of files, which a tool cannot send/)
+    assert.match(buildInput(op, 'en', on).unavailable!, /create_collection: multipart part "previews" is a list of files, which a tool cannot send/)
   })
   it('with file inputs off, drops optional file parts and does not offer a tool that needs a file', () => {
-    const optional = structuredClone(createDataset)
+    const optional = structuredClone(createCollection)
     optional.requestBody!.schema.required = []
     const off = buildInput(optional, 'en')
     assert.equal(off.unavailable, undefined)
     assert.deepEqual(Object.keys(off.inputSchema.properties), ['title', 'schema', 'draft'])
     assert.ok(!off.bindings.some(b => b.kind === 'file'))
-    assert.match(buildInput(createDataset, 'en').unavailable!, /create_dataset: needs a file \("file"\), and file inputs are off/)
+    assert.match(buildInput(createCollection, 'en').unavailable!, /create_collection: needs a file \("file"\), and file inputs are off/)
     assert.match(buildInput(bulkLines, 'en').unavailable!, /bulk_lines: needs a file \("file"\), and file inputs are off/)
   })
   it('recognises OAS 3.0 binary and OAS 3.1 contentMediaType parts, not inline encoded ones', () => {
@@ -233,9 +215,9 @@ describe('buildInput — files', () => {
 })
 
 describe('buildInput — bodyRequired', () => {
-  /** data-fair's case: the file part is optional, since the operation also creates datasets without one */
+  /** the file part is optional: the operation also creates a collection without one */
   const optionalFile = (agent: Partial<AgentOperation>) => {
-    const op = structuredClone(createDataset)
+    const op = structuredClone(createCollection)
     op.requestBody!.schema.required = []
     op.agent = { ...op.agent, ...agent }
     return op
@@ -248,15 +230,12 @@ describe('buildInput — bodyRequired', () => {
   })
   it('makes a tool that requires a file unavailable without a file store', () => {
     const { unavailable } = buildInput(optionalFile({ bodyFields: ['file', 'title'], bodyRequired: ['file'] }), 'en')
-    assert.match(unavailable!, /create_dataset: needs a file \("file"\), and file inputs are off/)
+    assert.match(unavailable!, /create_collection: needs a file \("file"\), and file inputs are off/)
   })
   it('applies without bodyFields, keeping every property', () => {
     const { inputSchema } = buildInput(optionalFile({ bodyRequired: ['title'] }), 'en', on)
     assert.ok(inputSchema.properties.schema && inputSchema.properties.draft)
     assert.deepEqual(inputSchema.required, ['title'])
-  })
-  it('refuses a property the tool does not offer', () => {
-    assert.throws(() => buildInput(optionalFile({ bodyFields: ['title'], bodyRequired: ['file'] }), 'en', on), /create_dataset: bodyRequired names properties the tool does not offer: file/)
   })
   it('applies to a compact JSON body too', () => {
     const op = { ...publishThing, agent: { ...publishThing.agent, body: 'compact' as const, bodyRequired: ['publicationSites'] } }

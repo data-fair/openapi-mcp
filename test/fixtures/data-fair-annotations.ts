@@ -14,7 +14,6 @@ const geoParams = {
 }
 
 export const root: AgentRoot = {
-  profiles: { explore: { title: { en: 'Explore open data', fr: 'Explorer les données ouvertes' } } },
   skills: [{
     name: 'workflow',
     description: 'How to query French open data through Data Fair: find datasets, read their schema, then search, aggregate or compute metrics.',
@@ -30,7 +29,6 @@ Always cite the dataset page link and license. Answer in the user's language.`
 
 export const operations: Record<string, AgentOperation> = {
   listDatasets: {
-    profiles: ['explore'],
     name: 'list_datasets',
     description: 'List datasets accessible to the current user with optional text search. Returns id, title, status, row count, and last update.',
     params: {
@@ -56,7 +54,6 @@ export const operations: Record<string, AgentOperation> = {
     response: { rows: '/results', concise: ['id', 'slug', 'title', 'summary', 'count', 'status', 'updatedAt', 'page'], detailed: true }
   },
   readDescription: {
-    profiles: ['explore'],
     name: 'describe_dataset',
     description: 'Get detailed metadata and column schema for a dataset: title, description, license, topics, row count, geo/temporal coverage and every column with its type, concept and enum values. Call search_data with size=3 afterwards to see sample rows.',
     params: { id: datasetId },
@@ -66,7 +63,6 @@ export const operations: Record<string, AgentOperation> = {
     }
   },
   readLines: {
-    profiles: ['explore'],
     name: 'search_data',
     description: 'Retrieve dataset rows matching filters and/or full-text search. Do NOT use it to compute statistics — use aggregate_data or calculate_metric. Paginate with the "after" value returned as next.',
     params: {
@@ -93,10 +89,9 @@ export const operations: Record<string, AgentOperation> = {
       ...geoParams
     },
     fixed: { hint: 'true' },
-    response: { rows: '/results', hints: true }
+    response: { rows: '/results', hints: '/meta/hints' }
   },
   getValues: {
-    profiles: ['explore'],
     name: 'get_field_values',
     description: 'List distinct values of a column. Useful to discover values before filtering with _eq or _in.',
     params: {
@@ -108,7 +103,6 @@ export const operations: Record<string, AgentOperation> = {
     }
   },
   getValuesAgg: {
-    profiles: ['explore'],
     name: 'aggregate_data',
     description: 'Aggregate dataset rows by 1-3 columns with an optional metric (avg, sum, min, max, value_count, cardinality). Defaults to counting rows per group. For a single global metric without grouping, use calculate_metric.',
     params: {
@@ -143,10 +137,9 @@ export const operations: Record<string, AgentOperation> = {
     // before/after. `results` (nested drill-down for multi-level grouping) is intentionally
     // left out of `concise`; this tool has no `detailed` preset, so there is currently no way
     // to opt back into it — a future need for `results` would require adding one.
-    response: { rows: '/aggs', concise: ['value', 'total', 'metric'], hints: true }
+    response: { rows: '/aggs', concise: ['value', 'total', 'metric'], hints: '/meta/hints' }
   },
   getMetricAgg: {
-    profiles: ['explore'],
     name: 'calculate_metric',
     description: 'Calculate a single metric on a dataset column: avg, sum, min, max, stats, value_count, cardinality, percentiles. For per-group breakdowns, use aggregate_data.',
     params: {

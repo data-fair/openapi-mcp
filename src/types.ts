@@ -8,6 +8,9 @@ export interface ToolAnnotations {
   openWorldHint?: boolean
 }
 
+/** An OpenAPI security requirement: scheme name → scopes. `{}` is the public alternative. */
+export type SecurityRequirement = Record<string, string[]>
+
 export interface AgentParamOverride {
   name?: string
   description?: Localized
@@ -23,7 +26,8 @@ export interface AgentResponse {
   concise?: string[]
   detailed?: true | string[]
   selectParam?: string
-  hints?: boolean
+  /** JSON pointer to a list of strings the API returns as advice: shown as hints after the rest */
+  hints?: string
   /**
    * The response is a file: the tool performs no request and returns a link to it (an MCP
    * `resource_link`) built from its arguments. GET only; excludes every rendering key.
@@ -32,7 +36,6 @@ export interface AgentResponse {
 }
 
 export interface AgentOperation {
-  profiles?: string[] | true
   name?: string
   title?: Localized
   description?: Localized
@@ -62,11 +65,17 @@ export interface AgentOperation {
   bodyRequired?: string[]
   response?: AgentResponse
   editor?: true | AgentEditor
+  /**
+   * The tool's security, narrowing the operation's: each alternative must be one the
+   * operation (or the document root) declares. For a view whose purpose needs more than
+   * the operation's weakest alternative, so a token that cannot use it is not offered it.
+   */
+  security?: SecurityRequirement[]
 }
 
 /**
  * An operation's `x-agent`: one tool, or several views of the operation, each its own tool —
- * a PATCH whose fields belong to different profile tiers is offered as one tool per tier.
+ * a PATCH whose fields serve different purposes is offered as one tool per purpose.
  */
 export type AgentOperationAnnotation = AgentOperation | AgentOperation[]
 
@@ -90,20 +99,15 @@ export interface AgentSkill {
   description: Localized
   href?: Localized
   body?: Localized
-  profiles?: string[]
   tools?: string[]
 }
 
 export interface AgentRoot {
-  namePrefix?: string
-  /** `includes` declares a superset: requesting this profile also selects every operation of the included ones. */
-  profiles?: Record<string, { title?: Localized, description?: Localized, includes?: string[] }>
   skills?: AgentSkill[]
 }
 
 export interface AgentTag {
-  profiles?: string[] | true
-  skill?: Localized
+  guide?: Localized
 }
 
 export interface AgentProperty {
@@ -152,9 +156,11 @@ export interface ResolvedOperation {
   responseSchema?: JsonSchema
   /** media types declared for the 2xx response, in document order */
   responseMediaTypes: string[]
-  agent: AgentOperation & { profiles: string[] | true }
-  /** final tool name (prefix + name or snake_case operationId) */
+  agent: AgentOperation
+  /** final tool name (x-agent name, else snake_case operationId) */
   toolName: string
+  /** effective security: the x-agent entry's, else the operation's, else the document's; absent when none declares one */
+  security?: SecurityRequirement[]
 }
 
 /** An MCP `resource_link`: a file the client fetches itself (MCP 2026-07-28, tool results). */
@@ -195,13 +201,13 @@ export interface Tool {
   outputSchema?: JsonSchema
   annotations: ToolAnnotations
   examples?: Record<string, unknown>[]
+  /** the security of the operation behind the tool (see ResolvedOperation.security) */
+  security?: SecurityRequirement[]
   execute (params: Record<string, unknown>, ctx?: CallContext): Promise<ToolResult>
 }
 
-/** A resolved skill, ready to be served as a `skill://` resource and listed in instructions. */
+/** A resolved skill, served as the `skill://<name>/SKILL.md` resource and listed in the instructions. */
 export interface Skill {
-  /** `<skill-name>` for a single document, `<service-id>/<skill-name>` once composed */
-  id: string
   name: string
   /** what the skill is for and when to use it — the SKILL.md frontmatter description */
   description: string
@@ -212,20 +218,21 @@ export interface Skill {
   /** why a linked body could not be read; the skill stays listed and its resource read reports it */
   error?: string
   tools?: string[]
-  profiles?: string[]
 }
 
 /** Reads a linked skill body; never throws. */
 export type SkillBodyFetcher = (url: string) => Promise<{ text: string } | { error: string }>
 
+/** A tag's `x-agent.guide`: a section of the instructions, kept while one of its tools is. */
+export interface Guide {
+  /** the tag's name */
+  name: string
+  text: string
+  tools: string[]
+}
+
 export interface ToolSet {
-  /** the profiles requested, in request order */
-  profiles: string[]
-  instructions: string
-  /** the document's own sections (tag guides), without skill entries — what a composer nests under the service heading */
-  guide?: string
-  /** `instructions` without the skill entries: what a client listing skills itself (SEP-2640) is sent. */
-  guideInstructions?: string
   tools: Tool[]
   skills: Skill[]
+  guides: Guide[]
 }
