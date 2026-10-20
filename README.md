@@ -36,7 +36,6 @@ The package also installs an `openapi-mcp` binary that reads its configuration f
 | Env var             | Required | Default | Description                                                                      |
 | ------------------- | -------- | ------- | -------------------------------------------------------------------------------- |
 | `OPENAPI_URL`       | yes      |         | URL of the OpenAPI document                                                      |
-| `REFRESH_INTERVAL`  | no       | `300`   | Seconds between conditional re-fetches of the document and its skill bodies; `0` disables |
 | `LINT`              | no       | `error` | `error`, `warn` or `off` — see Annotation lint                                   |
 | `LOCALE`            | no       | `en`    | Locale used to resolve localized text                                            |
 | `BASE_URL`          | no       |         | Overrides `servers[0].url` from the document                                     |
@@ -83,31 +82,27 @@ Example MCP client configuration:
 
 ## One document
 
-A deployment publishes one document; a server serves it as one live tool set.
-`createLiveDocument` loads a URL and keeps what it fetched with its validators, so a refresh is
-a conditional GET of the document and of its linked skill bodies:
+A deployment publishes one document; `load` turns it into one tool set. Keeping it current is
+the server's business: the library runs no timer and caches nothing between calls. A server that
+reloads passes the tool set per request and tells its clients when it changed:
 
 ```ts
-import { createLiveDocument } from '@data-fair/openapi-mcp'
+import { load, toolsForScopes } from '@data-fair/openapi-mcp'
 import { createMcpHttpHandler } from '@data-fair/openapi-mcp/adapters/mcp'
 
-const doc = await createLiveDocument('https://host/data-fair/api/v1/platform/api-docs.json', { locale: 'fr' })
-doc.toolSet                                     // the current tool set, replaced when a refresh changes it
-doc.onChange(toolSet => { /* … */ })            // after a refresh that changed it
-setInterval(() => doc.refresh(), 300_000)       // the library runs no timer
-doc.error                                       // why the last refresh failed; the previous tool set is kept
-
-const handler = createMcpHttpHandler(doc, { name: 'my-server', version: '1.0.0' }, {
-  context: (request) => ({ headers: { cookie: request?.headers.get('cookie') ?? '' }, identity: request?.headers.get('cookie') ?? undefined })
+let toolSet = await load('https://host/data-fair/api/v1/platform/api-docs.json', { locale: 'fr' })
+const handler = createMcpHttpHandler((request) => toolsForScopes(toolSet, scopesOf(request)), { name: 'my-server', version: '1.0.0' }, {
+  context: (request) => ({ headers: { cookie: request?.headers.get('cookie') ?? '' }, identity: request?.headers.get('cookie') ?? undefined }),
+  cacheTtlMs: 300_000 // advertised as `ttlMs`: how long a client may keep a listing
 })
+// after a reload that changed something:
+toolSet = reloaded
+handler.notify.toolsChanged()
+handler.notify.resourcesChanged()
 ```
 
-Only the first load throws. A later refresh that fails — the document unreachable, or no longer
-accepted — keeps serving the last good tool set and says why in `error`. A handler given a live
-document notifies its clients when the tool set changes. `createMcpHttpHandler` also takes a
-source chosen per request — `createMcpHttpHandler((request) => …, info)` — returning a tool set
-or a live document; publish change notifications yourself with `handler.notify.toolsChanged()`
-in that case.
+`load`'s `skillBodies` option is where a server plugs its own cache of linked skill bodies, and
+`toolSetSnapshot` tells a reload that changed something from one that only fetched new bytes.
 
 A document assembled from several services carries schemas written for each of them. `load`
 inlines every `$ref` the document resolves itself: `#/…` against the nearest embedded schema
@@ -175,8 +170,7 @@ carries them in its frontmatter as `metadata.tools` (space-separated), so a host
 whose tools it filtered out without reading its body.
 
 A body is inline (`body`) or linked (`href`, a markdown file next to the document). `load()` reads
-linked bodies with its `fetch`; a live document caches them with conditional requests and revalidates
-them on `refresh()`. A body that cannot be read keeps the skill listed: its resource answers the
+linked bodies with its `fetch`, or with the `skillBodies` function it is given. A body that cannot be read keeps the skill listed: its resource answers the
 error, the binary prints a warning, and the skills manifest leaves it out.
 
 ### Upgrading to 0.7.0
@@ -191,11 +185,12 @@ One document in, one tool set out.
   several services merges them into one document, whose entries carry their final names.
 - Who sees a tool is now the token's business: tools carry their `security`, an entry may narrow
   it, `toolsForScopes` filters (see Scopes). Goldens gain each tool's `security`.
-- The binary: `OPENAPI_URL` is required, and `INDEX_URL`, `PROFILES` and `PROFILE` stop it with
-  `unknown variable …`. `OPENAPI_URL` alone is now refreshed every `REFRESH_INTERVAL` (300 s by
-  default; `0` restores the old load-once behaviour), where before only an index was.
-- `createLiveDocument(url, options)` replaces the composer for one URL: `toolSet`, `error`,
-  `refresh()`, `onChange()`. The MCP adapter takes a tool set or a live document.
+- The binary: `OPENAPI_URL` is required and loaded once; restart it to pick up a change.
+  `INDEX_URL`, `PROFILES`, `PROFILE` and `REFRESH_INTERVAL` stop it with `unknown variable …`.
+- Nothing refreshes a document any more: a server that reloads one calls `load` again (see One
+  document). The MCP adapter takes a tool set or a function returning one per request, and its
+  `refreshMs` option is now `cacheTtlMs`; it no longer publishes change notifications itself,
+  `handler.notify` does. `resolveToolSet` and the `ToolSource` type are gone.
 
 ### Upgrading to 0.4.0
 

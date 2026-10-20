@@ -24,7 +24,6 @@ src/
   skills.ts     Skill objects and SKILL.md rendering
   snapshot.ts   toolSetSnapshot for per-service goldens
   scopes.ts     toolsForScopes: the tools a token's scopes reach
-  live.ts       live document: conditional refresh, onChange
   input.ts      input schema derivation
   request.ts    serialization → Request
   multipart.ts  multipart (form-data) / raw file bodies with an exact length
@@ -33,7 +32,7 @@ src/
   render.ts     projection + markdown renderer
   editor/       json-layout form tool groups (optional peers, lazily imported)
   adapters/     mcp.ts — MCP SDK v2, both protocol eras, skills extension
-  bin/          standalone MCP server (one live document)
+  bin/          standalone MCP server (one document, loaded once)
 test/           fixtures/ (annotated data-fair root doc, golden renders)
 evals/          scenarios.json, harness, baselines/
 docs/           stable documentation (this repo's product docs)

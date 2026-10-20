@@ -9,7 +9,6 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { z } from 'zod'
 import { load } from '../src/load.ts'
 import type { ToolSet } from '../src/types.ts'
-import { createLiveDocument, type LiveDocument } from '../src/live.ts'
 import { createMcpServer, createMcpHttpHandler } from '../src/adapters/mcp.ts'
 
 const petstore = JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8'))
@@ -88,28 +87,19 @@ describe('mcp adapter over a tool set (in-memory, 2025 era)', () => {
   })
 })
 
-describe('mcp adapter over a live document (HTTP, both eras)', () => {
-  const docs = new Map<string, unknown>([['https://pets.test/openapi.json', petstore]])
-  const stackFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = input instanceof Request ? input.url : String(input)
-    if (docs.has(url)) {
-      const body = JSON.stringify(docs.get(url))
-      const etag = `"${createHash('sha256').update(body).digest('hex')}"`
-      if (new Headers(init?.headers).get('if-none-match') === etag) return new Response(null, { status: 304, headers: { etag } })
-      return new Response(body, { headers: { 'content-type': 'application/json', etag } })
-    }
-    return fetchFn(input)
-  }) as typeof fetch
+describe('mcp adapter over HTTP (both eras)', () => {
   let http: HttpServer
   let url: URL
-  let live: LiveDocument
+  let all: ToolSet
+  let current: ToolSet
+  let handler: ReturnType<typeof createMcpHttpHandler>
   const contexts: (Request | undefined)[] = []
 
   before(async () => {
-    live = await createLiveDocument('https://pets.test/openapi.json', { fetch: stackFetch })
-    const handler = createMcpHttpHandler(live, INFO, {
+    all = current = await load(petstore, { fetch: fetchFn })
+    handler = createMcpHttpHandler(() => current, INFO, {
       context: (request) => { contexts.push(request); return { headers: { cookie: request?.headers.get('cookie') ?? '' }, identity: request?.headers.get('cookie') ?? undefined } },
-      refreshMs: 60_000
+      cacheTtlMs: 60_000
     })
     http = createServer(toNodeHandler(handler))
     await new Promise<void>(resolve => http.listen(0, '127.0.0.1', resolve))
@@ -139,7 +129,7 @@ describe('mcp adapter over a live document (HTTP, both eras)', () => {
     const list = await client.listTools()
     assert.equal(list.ttlMs, 60_000)
     assert.equal(list.cacheScope, 'private')
-    assert.equal(client.getInstructions(), live.toolSet.instructions)
+    assert.equal(client.getInstructions(), all.instructions)
     await client.close()
   })
   it('hands the request to the context hook and forwards the derived headers upstream', async () => {
@@ -150,17 +140,17 @@ describe('mcp adapter over a live document (HTTP, both eras)', () => {
     assert.ok(contexts.some(r => r?.headers.get('cookie') === 'id_token=abc'))
     await client.close()
   })
-  it('notifies a modern client when a refresh changes the set', async () => {
+  it('notifies a modern client when its owner says the set changed', async () => {
     let fired = () => {}
     const changed = new Promise<void>(resolve => { fired = resolve })
     const client = await connect('auto', url, {}, () => fired())
     await client.listTools()
-    assert.equal(await live.refresh(), false, 'an unchanged document is a 304')
-    docs.set('https://pets.test/openapi.json', { ...petstore, paths: { ...petstore.paths, '/pets': { ...petstore.paths['/pets'], get: { ...petstore.paths['/pets'].get, 'x-agent': { ...petstore.paths['/pets'].get['x-agent'], name: 'find_pets' } } } } })
-    assert.equal(await live.refresh(), true)
+    current = { ...all, tools: all.tools.filter(t => t.name !== 'create_pet') }
+    handler.notify.toolsChanged()
     await Promise.race([changed, new Promise((_resolve, reject) => setTimeout(() => reject(new Error('no tools/list_changed within 2s')), 2000))])
     const { tools } = await client.listTools()
-    assert.ok(tools.some(t => t.name === 'find_pets'))
+    assert.deepEqual(tools.map(t => t.name), ['list_pets', 'get_pet'])
+    current = all
     await client.close()
   })
 })

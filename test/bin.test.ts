@@ -5,13 +5,12 @@ import { createServer as createNetServer } from 'node:net'
 import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 
 const petstore = JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8'))
 const bin = fileURLToPath(new URL('../src/bin/server.ts', import.meta.url))
 let port = 0
-let version = 1
 const api = createServer((req, res) => {
   const servers = [{ url: `http://127.0.0.1:${port}/api` }]
   if (req.url === '/gone.md') { res.writeHead(404); return res.end('not found') }
@@ -19,11 +18,6 @@ const api = createServer((req, res) => {
   if (req.url === '/openapi.json') return res.end(JSON.stringify({ ...petstore, servers }))
   if (req.url === '/broken-skill.json') {
     return res.end(JSON.stringify({ ...petstore, servers, 'x-agent': { skills: [{ name: 'workflow', description: 'When pets.', href: `http://127.0.0.1:${port}/gone.md` }] } }))
-  }
-  // a document whose tool names follow `version`: what a refresh picks up
-  if (req.url === '/changing.json') {
-    const get = { ...petstore.paths['/pets'].get, 'x-agent': { ...petstore.paths['/pets'].get['x-agent'], name: `list_pets_v${version}` } }
-    return res.end(JSON.stringify({ ...petstore, servers, paths: { ...petstore.paths, '/pets': { ...petstore.paths['/pets'], get } } }))
   }
   res.end(JSON.stringify({ total: 1, results: [{ id: 'p1', name: 'Rex' }], apiKey: req.headers['x-apikey'] }))
 })
@@ -68,6 +62,17 @@ describe('standalone server', () => {
     })
   }
 
+  it('refuses the removed REFRESH_INTERVAL variable', async () => {
+    const child = spawn(process.execPath, [bin], {
+      env: { ...process.env, OPENAPI_URL: `http://127.0.0.1:${port}/openapi.json`, REFRESH_INTERVAL: '0', TRANSPORT: 'http', PORT: String(await freePort()) },
+      stdio: ['ignore', 'ignore', 'pipe']
+    })
+    let stderr = ''
+    child.stderr!.on('data', (chunk) => { stderr += chunk })
+    assert.equal(await new Promise<number | null>(resolve => child.on('exit', resolve)), 1)
+    assert.match(stderr, /unknown variable REFRESH_INTERVAL: openapi-mcp loads its document once/)
+  })
+
   it('requires OPENAPI_URL', async () => {
     const { OPENAPI_URL: _unset, ...rest } = process.env
     const env = { ...rest, TRANSPORT: 'http' }
@@ -80,7 +85,7 @@ describe('standalone server', () => {
 
   it('reports at startup a skill whose body cannot be read, and still serves', async () => {
     const child = spawn(process.execPath, [bin], {
-      env: { ...process.env, OPENAPI_URL: `http://127.0.0.1:${port}/broken-skill.json`, TRANSPORT: 'http', PORT: String(await freePort()), REFRESH_INTERVAL: '0' },
+      env: { ...process.env, OPENAPI_URL: `http://127.0.0.1:${port}/broken-skill.json`, TRANSPORT: 'http', PORT: String(await freePort()) },
       stdio: ['ignore', 'ignore', 'pipe']
     })
     let stderr = ''
@@ -92,37 +97,6 @@ describe('standalone server', () => {
           if (stderr.includes(`skill workflow: warning — HTTP 404 (http://127.0.0.1:${port}/gone.md)`) && stderr.includes('listening')) { clearTimeout(timer); resolve() }
         })
       })
-    } finally {
-      child.kill()
-    }
-  })
-
-  it('serves over HTTP and refreshes the document on its interval', async () => {
-    version = 1
-    const httpPort = await freePort()
-    const child = spawn(process.execPath, [bin], {
-      env: { ...process.env, OPENAPI_URL: `http://127.0.0.1:${port}/changing.json`, TRANSPORT: 'http', PORT: String(httpPort), REFRESH_INTERVAL: '0.2' },
-      stdio: ['ignore', 'ignore', 'pipe']
-    })
-    await new Promise<void>((resolve, reject) => {
-      child.stderr.on('data', (d: Buffer) => { if (d.toString().includes('listening')) resolve() })
-      child.on('exit', code => reject(new Error(`bin exited with ${code}`)))
-    })
-    try {
-      const names = async () => {
-        const client = new Client({ name: 'test', version: '0.0.0' }, { versionNegotiation: { mode: 'auto' } })
-        await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${httpPort}/mcp`)))
-        const { tools } = await client.listTools()
-        await client.close()
-        return tools.map(t => t.name)
-      }
-      assert.deepEqual(await names(), ['list_pets_v1', 'create_pet', 'get_pet'])
-      version = 2
-      const deadline = Date.now() + 5000
-      while (!(await names()).includes('list_pets_v2')) {
-        if (Date.now() > deadline) throw new Error('the refresh did not pick up the new document within 5s')
-        await new Promise(resolve => setTimeout(resolve, 100))
-      }
     } finally {
       child.kill()
     }

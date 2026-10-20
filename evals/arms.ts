@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 
-export type ArmName = 'A' | 'B' | 'C'
+export type ArmName = 'A' | 'B'
 
 export interface ArmSpec {
   name: ArmName
@@ -65,23 +65,9 @@ export function armB (openapiUrl: string, fixtureHash: string): ArmSpec {
     config: {
       command: 'node',
       args: [resolve(repoRoot, 'src/bin/server.ts')],
-      env: { OPENAPI_URL: openapiUrl, REFRESH_INTERVAL: '0' }
+      env: { OPENAPI_URL: openapiUrl }
     },
     provenance: { fixtureHash }
-  }
-}
-
-/** The same document served as a live document, refreshed on a timer: parity with B is the expectation. */
-export function armC (openapiUrl: string, fixtureHash: string): ArmSpec {
-  return {
-    name: 'C',
-    serverName: SERVER_NAME,
-    config: {
-      command: 'node',
-      args: [resolve(repoRoot, 'src/bin/server.ts')],
-      env: { OPENAPI_URL: openapiUrl, REFRESH_INTERVAL: '300' }
-    },
-    provenance: { fixtureHash, live: 'true' }
   }
 }
 

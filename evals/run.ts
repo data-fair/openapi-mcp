@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { isolationOptions, neutralCwd } from './isolation.ts'
-import { armA, armB, armC, discoverTools, type ArmSpec, type ArmName } from './arms.ts'
+import { armA, armB, discoverTools, type ArmSpec, type ArmName } from './arms.ts'
 import { startFixtureServer } from './fixture-server.ts'
 import { extractCalls, extractMetrics, extractResolvedModels, type Transcript } from './transcript.ts'
 
@@ -33,7 +33,7 @@ function parseArgs (argv: string[]) {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--arm') {
       const raw = argv[++i]
-      if (raw !== 'A' && raw !== 'B' && raw !== 'C') throw new Error(`--arm must be A, B or C, got ${JSON.stringify(raw)}`)
+      if (raw !== 'A' && raw !== 'B') throw new Error(`--arm must be A or B, got ${JSON.stringify(raw)}`)
       arm = raw
     } else if (argv[i] === '--concurrency') {
       const raw = argv[++i]
@@ -151,7 +151,6 @@ async function main () {
     const arms: ArmSpec[] = []
     if (!onlyArm || onlyArm === 'A') arms.push(armA(PORTAL_URL))
     if (!onlyArm || onlyArm === 'B') arms.push(armB(fixture.url, fixture.hash))
-    if (!onlyArm || onlyArm === 'C') arms.push(armC(fixture.url, fixture.hash))
 
     const discovered: Record<string, { toolNames: string[], definitionBytes: number, instructionsBytes: number }> = {}
     const allowed: Record<string, string[]> = {}

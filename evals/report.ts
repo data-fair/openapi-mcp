@@ -89,7 +89,7 @@ export function summarise (runs: Run[], toolDefs: ToolDefs | null): { lines: str
   const passes = (arm: ArmName) => byArm(arm).filter(r => r.verdict?.verdict === 'satisfactory').length
 
   // A is the hand-written baseline; every other arm is compared to it.
-  const ARMS: readonly ArmName[] = ['A', 'B', 'C']
+  const ARMS: readonly ArmName[] = ['A', 'B']
   const present = ARMS.filter(arm => byArm(arm).length)
   lines.push('')
   for (const arm of present) lines.push(`arm ${arm}: ${passes(arm)}/${byArm(arm).length} satisfactory, ${tokens(arm)} tokens`)
@@ -196,7 +196,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // --arm), so it is the authoritative source when present. Fall back to whatever arms
   // actually show up in the runs directory only when it is missing.
   const presentArms: (ArmName)[] = toolDefs
-    ? (['A', 'B', 'C'] as const).filter(a => toolDefs[a])
+    ? (['A', 'B'] as const).filter(a => toolDefs[a])
     : Array.from(armsSeen)
 
   const scenarios: { id: string }[] = JSON.parse(readFileSync(join(here, 'scenarios.json'), 'utf8'))

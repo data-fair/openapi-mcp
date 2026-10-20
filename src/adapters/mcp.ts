@@ -3,30 +3,22 @@ import {
   type ServerOptions, type McpServerFactory, type McpHttpHandler, type CreateMcpHandlerOptions, type CacheHint
 } from '@modelcontextprotocol/server'
 import { renderSkillFile, skillUri, type SkillFile } from '../skills.ts'
-import type { LiveDocument } from '../live.ts'
 import type { CallContext, ToolSet } from '../types.ts'
 
-export type ToolSource = ToolSet | LiveDocument
-/** Chooses the source per request; stdio and the version-negotiation probe pass `undefined`. */
-export type ToolSourceFn = (request: Request | undefined) => ToolSource | Promise<ToolSource>
+/** Chooses the tool set per request; stdio and the version-negotiation probe pass `undefined`. */
+export type ToolSourceFn = (request: Request | undefined) => ToolSet | Promise<ToolSet>
 
 export interface McpAdapterOptions {
   /** derive the per-call context from the HTTP request; absent on stdio, where identity is the environment */
   context?: (request: Request | undefined) => CallContext | undefined
-  /** how often the caller refreshes the live document; advertised as `ttlMs` on cacheable results */
-  refreshMs?: number
+  /** how long a client may keep a listing, advertised as `ttlMs` on cacheable results: how often the tool set can change */
+  cacheTtlMs?: number
 }
 
 export const SKILLS_EXTENSION = 'io.modelcontextprotocol/skills'
-const DEFAULT_REFRESH_MS = 300_000
+const DEFAULT_CACHE_TTL_MS = 300_000
 
-const isLive = (s: ToolSource): s is LiveDocument => typeof (s as LiveDocument).onChange === 'function'
-const isSourceFn = (s: ToolSource | ToolSourceFn): s is ToolSourceFn => typeof s === 'function'
-
-/** The tool set a source serves now. */
-export async function resolveToolSet (source: ToolSource): Promise<ToolSet> {
-  return isLive(source) ? source.toolSet : source
-}
+const isSourceFn = (s: ToolSet | ToolSourceFn): s is ToolSourceFn => typeof s === 'function'
 
 /**
  * Whether the client listing this server declared the skills extension (SEP-2640) in its `initialize`.
@@ -47,8 +39,8 @@ export async function clientDeclaresSkills (request: Request | undefined): Promi
   }
 }
 
-export function serverOptions (toolSet: ToolSet, refreshMs: number, opts: { skillsAware?: boolean } = {}): ServerOptions {
-  const hint: CacheHint = { ttlMs: refreshMs, cacheScope: 'private' }
+export function serverOptions (toolSet: ToolSet, cacheTtlMs: number, opts: { skillsAware?: boolean } = {}): ServerOptions {
+  const hint: CacheHint = { ttlMs: cacheTtlMs, cacheScope: 'private' }
   const instructions = opts.skillsAware ? toolSet.guideInstructions : toolSet.instructions
   return {
     capabilities: { tools: { listChanged: true }, resources: { listChanged: true }, extensions: { [SKILLS_EXTENSION]: {} } },
@@ -60,8 +52,8 @@ export function serverOptions (toolSet: ToolSet, refreshMs: number, opts: { skil
 const skillEntry = (s: SkillFile) => ({ uri: s.uri, frontmatter: s.frontmatter, resources: [{ uri: s.uri, digest: s.digest, size: s.size }] })
 
 /** Register tools, resources and the skills extension on a low-level server, for one caller. */
-export function toMcpServer (toolSet: ToolSet, server: Server, options: { ctx?: CallContext, refreshMs?: number } = {}): void {
-  const refreshMs = options.refreshMs ?? DEFAULT_REFRESH_MS
+export function toMcpServer (toolSet: ToolSet, server: Server, options: { ctx?: CallContext, cacheTtlMs?: number } = {}): void {
+  const cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS
   // A skill whose body could not be read has no digest to publish in the manifest; its resource
   // stays listed and answers the error, so an agent following an instructions entry learns why.
   const skills = toolSet.skills.filter(s => !s.error).map(renderSkillFile)
@@ -107,7 +99,7 @@ export function toMcpServer (toolSet: ToolSet, server: Server, options: { ctx?: 
   })
   // The extension's two methods, on the base Resources primitive (SEP-2640). Custom methods
   // do not receive the SDK's cache hints, so the fields are set on the result directly.
-  const cache = { ttlMs: refreshMs, cacheScope: 'private' as const }
+  const cache = { ttlMs: cacheTtlMs, cacheScope: 'private' as const }
   server.setRequestHandler('skills/list', { params: fromJsonSchema({ type: 'object', properties: { cursor: { type: 'string' } } }) }, async () => ({
     skills: skills.map(skillEntry), ...cache
   }))
@@ -118,28 +110,25 @@ export function toMcpServer (toolSet: ToolSet, server: Server, options: { ctx?: 
   })
 }
 
-/** One server for one caller: the request's source and context, or the options' defaults. */
-export async function createMcpServer (source: ToolSource | ToolSourceFn, info: { name: string, version: string }, options: McpAdapterOptions & { request?: Request } = {}): Promise<Server> {
-  const resolved = isSourceFn(source) ? await source(options.request) : source
-  const toolSet = await resolveToolSet(resolved)
-  const refreshMs = options.refreshMs ?? DEFAULT_REFRESH_MS
-  const server = new Server(info, serverOptions(toolSet, refreshMs, { skillsAware: await clientDeclaresSkills(options.request) }))
-  toMcpServer(toolSet, server, { ctx: options.context?.(options.request), refreshMs })
+/** One server for one caller: the request's tool set and context, or the options' defaults. */
+export async function createMcpServer (source: ToolSet | ToolSourceFn, info: { name: string, version: string }, options: McpAdapterOptions & { request?: Request } = {}): Promise<Server> {
+  const toolSet = isSourceFn(source) ? await source(options.request) : source
+  const cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS
+  const server = new Server(info, serverOptions(toolSet, cacheTtlMs, { skillsAware: await clientDeclaresSkills(options.request) }))
+  toMcpServer(toolSet, server, { ctx: options.context?.(options.request), cacheTtlMs })
   return server
 }
 
 /** The per-request factory both SDK entries (`createMcpHandler`, `serveStdio`) take. */
-export function mcpServerFactory (source: ToolSource | ToolSourceFn, info: { name: string, version: string }, options: McpAdapterOptions = {}): McpServerFactory {
+export function mcpServerFactory (source: ToolSet | ToolSourceFn, info: { name: string, version: string }, options: McpAdapterOptions = {}): McpServerFactory {
   return (ctx) => createMcpServer(source, info, { ...options, request: ctx.requestInfo })
 }
 
-/** An HTTP handler serving both protocol eras, publishing change notifications from a live source. */
-export function createMcpHttpHandler (source: ToolSource | ToolSourceFn, info: { name: string, version: string }, options: McpAdapterOptions & CreateMcpHandlerOptions = {}): McpHttpHandler {
-  const { context, refreshMs, ...handlerOptions } = options
-  const handler = createMcpHandler(mcpServerFactory(source, info, { context, refreshMs }), handlerOptions)
-  // A function source decides per request; whoever owns it publishes changes through handler.notify.
-  if (!isSourceFn(source) && isLive(source)) {
-    source.onChange(() => { handler.notify.toolsChanged(); handler.notify.resourcesChanged() })
-  }
-  return handler
+/**
+ * An HTTP handler serving both protocol eras. Whoever changes the tool set a function source returns
+ * tells the connected clients with `handler.notify.toolsChanged()` and `resourcesChanged()`.
+ */
+export function createMcpHttpHandler (source: ToolSet | ToolSourceFn, info: { name: string, version: string }, options: McpAdapterOptions & CreateMcpHandlerOptions = {}): McpHttpHandler {
+  const { context, cacheTtlMs, ...handlerOptions } = options
+  return createMcpHandler(mcpServerFactory(source, info, { context, cacheTtlMs }), handlerOptions)
 }

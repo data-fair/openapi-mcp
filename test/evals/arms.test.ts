@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { armA, armB, armC, discoverTools } from '../../evals/arms.ts'
+import { armA, armB, discoverTools } from '../../evals/arms.ts'
 import { startFixtureServer } from '../../evals/fixture-server.ts'
 
 describe('armA', () => {
@@ -26,18 +26,8 @@ describe('armB', () => {
     const b = armB('http://127.0.0.1:1234/openapi.json', 'abc123def456')
     assert.equal(b.name, 'B')
     assert.match(b.config.args[0], /src\/bin\/server\.ts$/)
-    assert.deepEqual(b.config.env, { OPENAPI_URL: 'http://127.0.0.1:1234/openapi.json', REFRESH_INTERVAL: '0' })
+    assert.deepEqual(b.config.env, { OPENAPI_URL: 'http://127.0.0.1:1234/openapi.json' })
     assert.deepEqual(b.provenance, { fixtureHash: 'abc123def456' })
-  })
-})
-
-describe('armC', () => {
-  it('runs the binary over the same spec URL as a live document', () => {
-    const c = armC('http://127.0.0.1:1/openapi.json', 'abc123')
-    assert.equal(c.name, 'C')
-    assert.equal(c.serverName, 'datafair')
-    assert.deepEqual(c.config.env, { OPENAPI_URL: 'http://127.0.0.1:1/openapi.json', REFRESH_INTERVAL: '300' })
-    assert.deepEqual(c.provenance, { fixtureHash: 'abc123', live: 'true' })
   })
 })
 
@@ -54,17 +44,6 @@ describe('discoverTools', () => {
       // every run just like the tool definitions — omitted from definitionBytes on
       // purpose, so it must be measured and reported separately (F5).
       assert.ok(d.instructionsBytes > 0, `instructionsBytes was ${d.instructionsBytes}`)
-    } finally {
-      await srv.close()
-    }
-  })
-
-  it('lists the same tools through arm C, served as a live document', async () => {
-    const srv = await startFixtureServer()
-    try {
-      const d = await discoverTools(armC(srv.url, srv.hash))
-      assert.deepEqual(d.toolNames.sort(), ['aggregate_data', 'calculate_metric', 'describe_dataset', 'get_field_values', 'list_datasets', 'search_data'])
-      assert.equal(d.allowedTools.length, 6)
     } finally {
       await srv.close()
     }
