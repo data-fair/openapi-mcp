@@ -29,9 +29,29 @@ src/
   adapters/     mcp.ts (public), server.ts: the MCP server of a tool set
   bin/          the standalone server
 test/
+evals/          judged agent scenarios over the binary, baselines/
 docs/           the vocabulary reference and the editor guide
 skills/         the coding-agent skill, published with the package
 ```
+
+## Evaluating
+
+Unit tests check what a tool is; the evals check that an agent uses the tools well. Each scenario
+in `evals/scenarios.json` is a question an agent answers with the tools this repository's binary
+serves from a frozen annotated document (`test/fixtures/data-fair-root.json`, its data live on
+the instance its `servers` names). A judge model then reads each transcript on its own and records
+a verdict and the friction points the tools caused.
+
+```sh
+npm run eval:run      # every scenario (or: node evals/run.ts <id>…), into evals/runs/
+npm run eval:judge    # judge every transcript in evals/runs/
+npm run eval:report   # the table and totals; node evals/report.ts <baselineDir> compares with a baseline
+```
+
+`OPENAPI_MCP_EVAL_MODEL` (default `haiku`) is the agent's model, `OPENAPI_MCP_EVAL_JUDGE_MODEL`
+(default `sonnet`) the judge's. A run costs model calls and queries a live instance: it is not
+part of `npm test`. Run it when a change affects what an agent reads (descriptions, input schemas,
+rendering, skills) and compare with `evals/baselines/`, adding a baseline when the change is kept.
 
 ## Releasing
 

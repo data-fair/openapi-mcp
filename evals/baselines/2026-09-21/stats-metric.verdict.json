@@ -1,0 +1,16 @@
+{
+  "scenario": "stats-metric",
+  "verdict": "satisfactory",
+  "reasoning": "The agent explored the catalog, picked a dataset, inspected its schema, and attempted calculate_metric with the 'stats' metric on a field that turned out to be typed as string (formatted numeric text) rather than a true numeric type, causing a 400 error. It recovered cleanly by picking another dataset with genuinely numeric fields (population_de_lunite_urbaine, nombre_de_communes_de_lunite_urbaine) and successfully retrieved min/max/avg/sum via calculate_metric, then reported these figures accurately and with sourcing. No data was invented, and the final answer matches exactly what the tool returned, satisfying the task's requirements.",
+  "friction": [
+    {
+      "call": 5,
+      "tool": "calculate_metric",
+      "observed": "HTTP 400: Impossible de calculer une métrique sur le champ Montant. La métrique \"stats\", n'est pas supportée pour ce type de champ.",
+      "inferred": "The agent assumed the 'Montant' field (schema type: string, holding numeric-looking values like '1 577') would support numeric stats aggregation, but the API rejected it, forcing a switch to a different dataset.",
+      "severity": "medium"
+    }
+  ],
+  "judgeModel": "sonnet",
+  "judgedAt": "2026-09-21T06:39:00.433Z"
+}
