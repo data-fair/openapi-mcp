@@ -1,5 +1,5 @@
 import { validateVocabulary, type OperationFinding } from './vocabulary/validate.ts'
-import { buildInput, assertFileResponseHeaders } from './input.ts'
+import { responseFields } from './input.ts'
 import { resolveEditorOperations } from './editor/operations.ts'
 import type { JsonSchema, AgentOperation, AgentOperationAnnotation, AgentParamOverride, AgentRoot, ResolvedBody, ResolvedOperation, ResolvedParam, SecurityRequirement } from './types.ts'
 
@@ -123,13 +123,18 @@ export interface LoadSpecOptions {
    * What an operation whose x-agent this version rejects does. 'error' (the default) fails the
    * document. 'warn' and 'off' leave that operation's tools out and load the rest ('warn' says
    * which on the console): ignoring a key a server does not know could change a tool's meaning.
-   * Findings outside one operation (root, tags, shared schemas) fail the document whatever the level.
-   * A $ref the document cannot resolve itself never fails it: it reads as {} (see inlineRefs),
-   * and is listed on the console unless 'off'.
+   * Findings outside one operation (root, tags, shared schemas, duplicate tool names) fail the
+   * document whatever the level. A $ref the document cannot resolve itself never fails it: it
+   * reads as {} (see inlineRefs), and is listed on the console unless 'off'.
    */
   lint?: 'error' | 'warn' | 'off'
 }
 
+/**
+ * The document, fetched when given a URL, its refs inlined and every annotation checked: what
+ * building the tools relies on. An operation a lenient load leaves out loses its x-agent, and a
+ * skill stops listing its tools.
+ */
 export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetch, options: LoadSpecOptions = {}): Promise<JsonSchema> {
   let doc: JsonSchema
   if (typeof input === 'string') {
@@ -156,14 +161,22 @@ export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetc
   if (unresolved.length && options.lint !== 'off') {
     console.warn(`openapi-mcp: ${unresolved.length} $ref(s) the document does not resolve itself, read as {} (any value), or refused under security:\n${unresolved.join('\n')}`)
   }
-  checkAnnotations(inlined, onOperation, key => leftOut.has(key))
+  for (const { path, item, method } of annotatedOperations(inlined)) {
+    if (leftOut.has(`${method} ${path}`)) continue
+    try {
+      checkOperation(path, item, method, inlined)
+    } catch (err: any) {
+      if (!onOperation) throw err
+      onOperation({ path, method, message: err.message })
+    }
+  }
   // The annotation is what makes an operation a tool: without it the operation contributes none
   // of its views, and the document is otherwise untouched (inlined is a copy).
   const gone = new Set<string>()
   for (const { path, method } of leftOut.values()) {
     const op = inlined.paths[path][method]
     if (!op['x-agent']) continue // not a tool: nothing to strip from a skill, nothing of its own left out
-    for (const view of Array.isArray(op['x-agent']) ? op['x-agent'] : [op['x-agent']]) {
+    for (const view of views(op['x-agent'])) {
       const name = view?.name ?? (typeof op.operationId === 'string' ? snakeCase(op.operationId) : undefined)
       if (name) gone.add(name)
     }
@@ -175,7 +188,21 @@ export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetc
     const lines = [...leftOut.values()].map(o => `  ${o.method.toUpperCase()} ${o.path}: ${o.reasons.join('; ')}`)
     console.warn(`openapi-mcp: ${leftOut.size} operation(s) left out of the tool set, their annotations are not accepted by this version:\n${lines.join('\n')}`)
   }
+  const names = annotatedOperations(inlined).flatMap(({ item, method }) => views(item[method]['x-agent']).map(view => view.name ?? snakeCase(item[method].operationId)))
+  const dupes = names.filter((n, i) => names.indexOf(n) !== i)
+  if (dupes.length) throw new Error(`duplicate tool names: ${[...new Set(dupes)].join(', ')}`)
   return inlined
+}
+
+const views = (annotation: AgentOperationAnnotation): AgentOperation[] => Array.isArray(annotation) ? annotation : [annotation]
+
+/** Every operation carrying x-agent, in document order. */
+function annotatedOperations (doc: JsonSchema): { path: string, item: any, method: string }[] {
+  const out: { path: string, item: any, method: string }[] = []
+  for (const [path, item] of Object.entries<any>(doc.paths ?? {})) {
+    for (const method of METHODS) if (item?.[method]?.['x-agent'] !== undefined) out.push({ path, item, method })
+  }
+  return out
 }
 
 /** A requirement in a canonical form: schemes and their scopes sorted, so order never makes two differ. */
@@ -187,7 +214,7 @@ const isJsonMedia = (t: string) => t === 'application/json' || /^application\/[^
 /** Media types that are not one file's bytes: JSON (sent as JSON, or not at all), forms, multipart. */
 const notAFile = (t: string) => isJsonMedia(t) || t.startsWith('multipart/') || t === 'application/x-www-form-urlencoded'
 
-/** The body a tool sends — see ResolvedBody. `+json` and form bodies are left out, as they always were. */
+/** The body a tool sends — see ResolvedBody. `+json` and form bodies are left out. */
 export function resolveBody (requestBody: any): ResolvedBody | undefined {
   const content: Record<string, any> = requestBody?.content ?? {}
   const required = requestBody?.required === true
@@ -206,26 +233,6 @@ export function resolveBody (requestBody: any): ResolvedBody | undefined {
   return undefined
 }
 
-/**
- * Body annotations are checked on every view up front, so that a misspelled field fails at its
- * annotation (or, in a lenient load, leaves only that operation out). Needs the inlined document,
- * since a request body is usually a $ref.
- */
-function checkAnnotations (doc: JsonSchema, onOperation?: (finding: OperationFinding) => void, alreadyLeftOut: (key: string) => boolean = () => false) {
-  for (const [path, item] of Object.entries<any>(doc.paths ?? {})) {
-    for (const method of METHODS) {
-      const annotation: AgentOperationAnnotation | undefined = item?.[method]?.['x-agent']
-      if (annotation === undefined || alreadyLeftOut(`${method} ${path}`)) continue
-      try {
-        checkOperationAnnotation(path, method, item, annotation, doc, onOperation !== undefined)
-      } catch (err: any) {
-        if (!onOperation) throw err
-        onOperation({ path, method, message: err.message })
-      }
-    }
-  }
-}
-
 const isSecurity = (value: unknown): value is SecurityRequirement[] => Array.isArray(value) && value.every(requirement =>
   requirement !== null && typeof requirement === 'object' && !Array.isArray(requirement) &&
   Object.values(requirement).every(scopes => Array.isArray(scopes) && scopes.every(scope => typeof scope === 'string')))
@@ -239,54 +246,67 @@ const isPublic = (security: SecurityRequirement[]) => security.length === 0 || s
  * would offer the tool to tokens the operation does not declare it accepts; an empty entry list
  * would make a secured operation's tool public.
  */
-function checkSecurity (path: string, method: string, operation: any, view: AgentOperation, doc: JsonSchema, at: string) {
-  const name = view.name ?? (typeof operation.operationId === 'string' ? snakeCase(operation.operationId) : at)
-  const declared: unknown = operation.security ?? doc.security
+function checkSecurity (op: ResolvedOperation, declared: unknown, view: AgentOperation, at: string) {
   if (declared !== undefined && !isSecurity(declared)) {
-    throw new Error(`${name}: the security of ${method.toUpperCase()} ${path} is not a list of requirements (scheme name → scope list)`)
+    throw new Error(`${op.toolName}: the security of ${op.method} ${op.path} is not a list of requirements (scheme name → scope list)`)
   }
   if (view.security === undefined) return
   if (!isSecurity(view.security)) throw new Error(`x-agent invalid at ${at}: security must be a list of requirements (scheme name → scope list)`)
   // No security anywhere is not public: it fails closed, and an entry must not open it.
   if (view.security.length === 0 && !(declared !== undefined && isPublic(declared))) {
-    throw new Error(`${name}: x-agent security [] makes the tool public, the operation's security is not`)
+    throw new Error(`${op.toolName}: x-agent security [] makes the tool public, the operation's security is not`)
   }
   const known = new Set((declared ?? []).map(canonical))
   const added = view.security.find(alternative => !known.has(canonical(alternative)))
-  if (added) throw new Error(`${name}: x-agent security alternative ${JSON.stringify(added)} is not in the operation's security`)
+  if (added) throw new Error(`${op.toolName}: x-agent security alternative ${JSON.stringify(added)} is not in the operation's security`)
 }
 
-function checkOperationAnnotation (path: string, method: string, item: any, annotation: AgentOperationAnnotation, doc: JsonSchema, structural: boolean) {
-  const operation = item[method]
-  const body = resolveBody(operation.requestBody)
-  const views = Array.isArray(annotation) ? annotation : [annotation]
-  views.forEach((view, i) => {
-    const at = `/paths/${esc(path)}/${method}${Array.isArray(annotation) ? `/${i}` : ''}`
-    checkSecurity(path, method, operation, view, doc, at)
-    if (view.body === 'compact' && body && body.kind !== 'json') {
-      throw new Error(`x-agent invalid at ${at}: body: compact needs a JSON request body (this one is ${body.kind === 'multipart' ? 'multipart/form-data' : body.mediaTypes!.join(', ')})`)
-    }
-    if (!view.bodyFields && !view.bodyRequired) return
-    const schema = body && body.kind !== 'file' ? body.schema : undefined
-    if (schema?.type !== 'object' || !schema.properties) throw new Error(`x-agent invalid at ${at}: ${view.bodyFields ? 'bodyFields' : 'bodyRequired'} needs a JSON or multipart request body that is an object with properties`)
-    if (view.bodyFields) {
-      const missing = view.bodyFields.filter(f => !Object.hasOwn(schema.properties, f))
-      if (missing.length) throw new Error(`x-agent invalid at ${at}: bodyFields names properties the request body does not declare: ${missing.join(', ')}`)
-    }
-    const offered = view.bodyFields ?? Object.keys(schema.properties)
-    const stray = (view.bodyRequired ?? []).filter(f => !offered.includes(f))
-    if (stray.length) throw new Error(`x-agent invalid at ${at}: bodyRequired names properties the tool does not offer: ${stray.join(', ')}`)
-  })
-  // What building the tools would refuse (selectParam, header parameters of a file response,
-  // an editor's references), found here for every view so that a lenient load can leave the
-  // operation out. A strict load keeps finding them when the tools are built, as it always did.
-  if (!structural) return
-  for (const agent of views) {
-    if (!operation.operationId) throw new Error(`operation ${method.toUpperCase()} ${path} has x-agent but no operationId`)
-    const op = resolveOne(path, item, method, operation, agent, doc.security)
-    if (agent.editor) resolveEditorOperations(op, doc)
-    else assertFileResponseHeaders(op, buildInput(op, 'en').bindings)
+function checkBody (op: ResolvedOperation, view: AgentOperation, at: string) {
+  const body = op.requestBody
+  if (view.body === 'compact' && body && body.kind !== 'json') {
+    throw new Error(`x-agent invalid at ${at}: body: compact needs a JSON request body (this one is ${body.kind === 'multipart' ? 'multipart/form-data' : body.mediaTypes!.join(', ')})`)
   }
+  if (!view.bodyFields && !view.bodyRequired) return
+  const schema = body && body.kind !== 'file' ? body.schema : undefined
+  if (schema?.type !== 'object' || !schema.properties) throw new Error(`x-agent invalid at ${at}: ${view.bodyFields ? 'bodyFields' : 'bodyRequired'} needs a JSON or multipart request body that is an object with properties`)
+  if (view.bodyFields) {
+    const missing = view.bodyFields.filter(f => !Object.hasOwn(schema.properties, f))
+    if (missing.length) throw new Error(`x-agent invalid at ${at}: bodyFields names properties the request body does not declare: ${missing.join(', ')}`)
+  }
+  const offered = view.bodyFields ?? Object.keys(schema.properties)
+  const stray = (view.bodyRequired ?? []).filter(f => !offered.includes(f))
+  if (stray.length) throw new Error(`x-agent invalid at ${at}: bodyRequired names properties the tool does not offer: ${stray.join(', ')}`)
+}
+
+function checkResponse (op: ResolvedOperation) {
+  const { selectParam, rows, file } = op.agent.response ?? {}
+  if (selectParam) {
+    if (!op.params.some(p => p.name === selectParam)) throw new Error(`${op.toolName}: response.selectParam "${selectParam}" is not a parameter`)
+    if (!responseFields(op.responseSchema, rows).length) throw new Error(`${op.toolName}: response.selectParam "${selectParam}" needs response fields, but the response schema declares no properties (at ${rows ? `"${rows}"` : 'the top level'})`)
+  }
+  if (file) {
+    // A file response is a link the caller fetches: it cannot carry a header.
+    const headers = op.params.filter(p => p.in === 'header' && !p.agent.exclude && !(p.name in (op.agent.fixed ?? {}))).map(p => p.name)
+    if (headers.length) throw new Error(`${op.toolName}: response.file returns a link, which cannot carry header parameters (${headers.join(', ')}); exclude them`)
+  }
+}
+
+/** Every check of one operation's annotation that the vocabulary schemas cannot express. */
+function checkOperation (path: string, item: any, method: string, doc: JsonSchema) {
+  const operation = item[method]
+  if (!operation.operationId) throw new Error(`operation ${method.toUpperCase()} ${path} has x-agent but no operationId`)
+  const annotation: AgentOperationAnnotation = operation['x-agent']
+  views(annotation).forEach((view, i) => {
+    const at = `/paths/${esc(path)}/${method}${Array.isArray(annotation) ? `/${i}` : ''}`
+    const op = resolveOne(path, item, method, operation, view, doc.security)
+    checkSecurity(op, operation.security ?? doc.security, view, at)
+    if (view.editor) {
+      resolveEditorOperations(op, doc)
+      return
+    }
+    checkBody(op, view, at)
+    checkResponse(op)
+  })
 }
 
 /** Operation-level override wins over parameter-level x-agent. */
@@ -334,27 +354,10 @@ function resolveOne (path: string, item: any, method: string, op: any, agent: Ag
   }
 }
 
-/** Every operation carrying `x-agent`, one entry per view. */
+/** Every operation carrying `x-agent`, one entry per view, from a document loadSpec checked. */
 export function resolveOperations (doc: JsonSchema): ResolvedOperation[] {
-  const out: ResolvedOperation[] = []
-  for (const [path, item] of Object.entries<any>(doc.paths ?? {})) {
-    for (const method of METHODS) {
-      const op = item?.[method]
-      if (!op || op['x-agent'] === undefined) continue
-      const annotation: AgentOperationAnnotation = op['x-agent']
-      // Each view of an operation is a tool of its own.
-      const views = Array.isArray(annotation) ? annotation : [annotation]
-      views.forEach((agent, i) => {
-        if (!op.operationId) throw new Error(`operation ${method.toUpperCase()} ${path} has x-agent but no operationId`)
-        // Checked here too: a caller may resolve a document that never went through loadSpec.
-        checkSecurity(path, method, op, agent, doc, `/paths/${esc(path)}/${method}${Array.isArray(annotation) ? `/${i}` : ''}`)
-        out.push(resolveOne(path, item, method, op, agent, doc.security))
-      })
-    }
-  }
-  const dupes = out.map(o => o.toolName).filter((n, i, a) => a.indexOf(n) !== i)
-  if (dupes.length) throw new Error(`duplicate tool names: ${[...new Set(dupes)].join(', ')}`)
-  return out
+  return annotatedOperations(doc).flatMap(({ path, item, method }) =>
+    views(item[method]['x-agent']).map(view => resolveOne(path, item, method, item[method], view, doc.security)))
 }
 
 /**

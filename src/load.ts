@@ -3,7 +3,7 @@ import addFormatsModule, { type FormatsPlugin } from 'ajv-formats'
 import Debug from 'debug'
 import { loadSpec, resolveOperations } from './spec.ts'
 import { buildEditorTools } from './editor/index.ts'
-import { buildInput, assertFileResponseHeaders } from './input.ts'
+import { buildInput } from './input.ts'
 import { buildRequest } from './request.ts'
 import { fileLink } from './file-link.ts'
 import { render } from './render.ts'
@@ -80,7 +80,6 @@ function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDes
     return undefined
   }
   const fileResponse = op.agent.response?.file === true
-  assertFileResponseHeaders(op, bindings)
   const validate = ajv.compile(inputSchema)
   // In compact mode the tool's own schema describes the body only as `object`, so the real
   // one validates it here. This is the point of summarising rather than dropping: a

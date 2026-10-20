@@ -2,7 +2,6 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { load } from '../src/load.ts'
 import { toolsForScopes } from '../src/scopes.ts'
-import { resolveOperations } from '../src/spec.ts'
 
 const fetchFn = (async () => new Response('{}', { headers: { 'content-type': 'application/json' } })) as typeof fetch
 const idParam = { in: 'path', name: 'id', required: true, schema: { type: 'string' } }
@@ -127,10 +126,10 @@ describe('toolsForScopes', () => {
     assert.deepEqual(names(toolsForScopes(ts, [])), ['public_read'])
     assert.match(String(warn.mock.calls[0].arguments[0]), /GET \/bare: bare_read: x-agent security \[\] makes the tool public/)
   })
-  it('resolveOperations names the view of an array annotation', () => {
+  it('names the view of an array annotation', async () => {
     const d: any = doc()
     d.paths['/items/{id}'].patch['x-agent'][1].security = { oauth2: ['items:admin'] }
-    assert.throws(() => resolveOperations(d), /x-agent invalid at \/paths\/~1items~1\{id\}\/patch\/1: security must be a list/)
+    await assert.rejects(load(d, { fetch: fetchFn }), /x-agent invalid at \/paths\/~1items~1\{id\}\/patch\/1: \/security must be array/)
   })
   it('an entry may say public when the operation is', async () => {
     const d: any = doc()
@@ -140,9 +139,9 @@ describe('toolsForScopes', () => {
     const ts = await load(d, { fetch: fetchFn })
     assert.deepEqual(names(toolsForScopes(ts, [])), ['bare_read', 'public_read'])
   })
-  it('resolveOperations applies the same check to a document that skipped loadSpec', () => {
-    assert.throws(() => resolveOperations(doc([])), /publish_item: x-agent security \[\] makes the tool public/)
-    assert.throws(() => resolveOperations(doc([{ oauth2: ['items:read'] }])), /publish_item: x-agent security alternative \{"oauth2":\["items:read"\]\} is not in the operation's security/)
+  it('an entry can only narrow its operation\'s security', async () => {
+    await assert.rejects(load(doc([]), { fetch: fetchFn }), /publish_item: x-agent security \[\] makes the tool public/)
+    await assert.rejects(load(doc([{ oauth2: ['items:read'] }]), { fetch: fetchFn }), /publish_item: x-agent security alternative \{"oauth2":\["items:read"\]\} is not in the operation's security/)
   })
   it('a malformed operation security is refused at load, never in the filter', async (t) => {
     const d: any = doc()

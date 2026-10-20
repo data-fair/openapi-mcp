@@ -126,12 +126,22 @@ describe('resolveOperations', () => {
     const create = resolveOperations(doc).find(o => o.operationId === 'createPet')!
     assert.equal(create.requestBody?.required, true)
   })
-  it('throws when two operations resolve to the same tool name', () => {
+  it('refuses two operations resolving to the same tool name, whatever the lint level', async () => {
     const dupeDoc = structuredClone(petstore)
     dupeDoc.paths['/pets/{petId}/twin'] = {
       get: { operationId: 'getPetTwin', 'x-agent': { name: 'list_pets' }, responses: {} }
     }
-    assert.throws(() => resolveOperations(inlineRefs(dupeDoc)), /duplicate tool names: list_pets/)
+    await assert.rejects(loadSpec(dupeDoc, fetch), /duplicate tool names: list_pets/)
+    await assert.rejects(loadSpec(dupeDoc, fetch, { lint: 'off' }), /duplicate tool names: list_pets/)
+  })
+  it('refuses a selectParam naming no parameter, or yielding no fields', async () => {
+    const bogus = structuredClone(petstore)
+    bogus.paths['/pets'].get['x-agent'].response.selectParam = 'bogus'
+    await assert.rejects(loadSpec(bogus, fetch), /list_pets: response.selectParam "bogus" is not a parameter/)
+    const empty = structuredClone(petstore)
+    empty.paths['/pets'].get['x-agent'].response = { selectParam: 'select' }
+    empty.paths['/pets'].get.responses['200'].content['application/json'].schema = { type: 'object' }
+    await assert.rejects(loadSpec(empty, fetch), /list_pets: response.selectParam "select" needs response fields, but the response schema declares no properties \(at the top level\)/)
   })
 })
 

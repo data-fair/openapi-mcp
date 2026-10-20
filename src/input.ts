@@ -71,12 +71,7 @@ function pickBody (op: ResolvedOperation): ResolvedOperation['requestBody'] {
   const { bodyFields: fields, bodyRequired } = op.agent
   if (!op.requestBody || (!fields && !bodyRequired)) return op.requestBody
   const schema = op.requestBody.schema
-  if (schema.type !== 'object' || !schema.properties) throw new Error(`${op.toolName}: ${fields ? 'bodyFields' : 'bodyRequired'} needs an object request body with properties`)
-  const missing = (fields ?? []).filter(f => !Object.hasOwn(schema.properties, f))
-  if (missing.length) throw new Error(`${op.toolName}: bodyFields names properties the request body does not declare: ${missing.join(', ')}`)
   const offered = fields ?? Object.keys(schema.properties)
-  const stray = (bodyRequired ?? []).filter(f => !offered.includes(f))
-  if (stray.length) throw new Error(`${op.toolName}: bodyRequired names properties the tool does not offer: ${stray.join(', ')}`)
   const picked: JsonSchema = fields
     ? { type: 'object', properties: Object.fromEntries(fields.map(f => [f, schema.properties[f]])), additionalProperties: false }
     : { ...schema }
@@ -119,12 +114,6 @@ function fileProperty (description: string | undefined, accept: string[] | undef
   if (accept) marker.accept = accept
   marker.maxSize = maxSize
   return { type: 'string', format: 'uri', description: description ? `${description.trim()}\n\n${FILE_NOTE}` : FILE_NOTE, 'x-mcp-file': marker }
-}
-
-/** A file response is a link the caller fetches: it cannot carry the header parameters a request would. */
-export function assertFileResponseHeaders (op: ResolvedOperation, bindings: Binding[]): void {
-  const headerParams = bindings.filter(b => b.kind === 'header').map(b => b.apiName)
-  if (op.agent.response?.file === true && headerParams.length) throw new Error(`${op.toolName}: response.file returns a link, which cannot carry header parameters (${headerParams.join(', ')}); exclude them`)
 }
 
 export function buildInput (op: ResolvedOperation, locale: string, options: { files?: FileInputs } = {}): { inputSchema: JsonSchema, bindings: Binding[], authoredDescriptions: Set<string>, bodySchema?: JsonSchema, unavailable?: string } {
@@ -207,10 +196,8 @@ export function buildInput (op: ResolvedOperation, locale: string, options: { fi
   }
 
   if (selectParam) {
-    const apiParam = op.params.find(p => p.name === selectParam)
-    if (!apiParam) throw new Error(`${op.operationId}: response.selectParam "${selectParam}" is not a parameter`)
+    const apiParam = op.params.find(p => p.name === selectParam)!
     const fields = responseFields(op.responseSchema, op.agent.response?.rows)
-    if (!fields.length) throw new Error(`${op.operationId}: response.selectParam "${selectParam}" needs response fields, but the response schema declares no properties (at${op.agent.response?.rows ? ` "${op.agent.response.rows}"` : ' the top level'})`)
     properties.fields = {
       type: 'array',
       items: { type: 'string', enum: fields },

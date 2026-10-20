@@ -101,21 +101,11 @@ describe('buildInput', () => {
     assert.equal(inputSchema.properties.size.maximum, 50)
     assert.deepEqual(inputSchema.properties.size.enum, [10, 20, 50])
   })
-  it('throws when response.selectParam names a parameter the operation does not have', () => {
-    const op = structuredClone(getPet)
-    op.agent = { ...op.agent, response: { selectParam: 'bogus' } }
-    assert.throws(() => buildInput(op, 'en'), /bogus/)
-  })
   it('drops an inherited raw OpenAPI title from the param schema', () => {
     const op = structuredClone(listPets)
     op.params.find(p => p.name === 'q')!.schema.title = 'Recherche textuelle'
     const { inputSchema } = buildInput(op, 'en')
     assert.equal(inputSchema.properties.query.title, undefined)
-  })
-  it('throws when response.selectParam would yield an empty fields enum (response schema has no properties)', () => {
-    const op = structuredClone(listPets)
-    op.responseSchema = { type: 'object' }
-    assert.throws(() => buildInput(op, 'en'), /declares no properties/)
   })
 })
 
@@ -144,14 +134,6 @@ describe('buildInput — bodyFields', () => {
     assert.equal(bodySchema!.required, undefined)
     assert.match(inputSchema.properties.body.description, /publicationSites/)
     assert.doesNotMatch(inputSchema.properties.body.description, /title/)
-  })
-  it('fails on a property the body does not declare', () => {
-    const op = { ...publishThing, agent: { ...publishThing.agent, bodyFields: ['publicationSites', 'nope'] } }
-    assert.throws(() => buildInput(op, 'en'), /publish_thing: bodyFields names properties the request body does not declare: nope/)
-  })
-  it('fails on a body that is not an object with properties', () => {
-    const op = { ...publishThing, requestBody: { kind: 'json' as const, schema: { type: 'array', items: { type: 'string' } }, required: true } }
-    assert.throws(() => buildInput(op, 'en'), /publish_thing: bodyFields needs an object request body with properties/)
   })
 })
 
