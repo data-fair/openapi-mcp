@@ -56,6 +56,6 @@ rendering, skills) and compare with `evals/baselines/`, adding a baseline when t
 ## Releasing
 
 1. `npm run quality`
-2. Bump `version` in `package.json` and commit.
+2. `npm version <patch|minor|major>` (commits the version and tags it).
 3. `npm publish` (runs the build).
-4. `git tag v<version> && git push --follow-tags`
+4. `git push --follow-tags`
