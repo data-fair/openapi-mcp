@@ -7,16 +7,6 @@ import { load } from '../load.ts'
 import { createMcpHttpHandler, mcpServerFactory } from '../adapters/mcp.ts'
 
 const env = process.env
-// Removed in 0.7.0: refused rather than ignored, so an old configuration does not serve another surface.
-const removed = ['INDEX_URL', 'PROFILES', 'PROFILE'].filter(name => env[name] !== undefined)
-if (removed.length) {
-  console.error(`unknown variable${removed.length > 1 ? 's' : ''} ${removed.join(', ')}: openapi-mcp serves one document, set OPENAPI_URL`)
-  process.exit(1)
-}
-if (env.REFRESH_INTERVAL !== undefined) {
-  console.error('unknown variable REFRESH_INTERVAL: openapi-mcp loads its document once, restart it to pick up a change')
-  process.exit(1)
-}
 const openapiUrl = env.OPENAPI_URL
 if (!openapiUrl) {
   console.error('OPENAPI_URL is required')
@@ -26,7 +16,7 @@ if (!openapiUrl) {
 const lint = (env.LINT ?? 'error') as 'error' | 'warn' | 'off'
 
 // The single-credential convenience: a fixed header on every upstream request. Anything
-// richer lives outside this binary — nhi-proxy through the environment, or a server's
+// richer lives outside this binary: a proxy through the environment, or a server's
 // context hook.
 const apiKeyHeader = env.API_KEY_HEADER
 const apiKey = env.API_KEY

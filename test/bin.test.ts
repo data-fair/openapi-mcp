@@ -48,31 +48,6 @@ describe('standalone server', () => {
     await client.close()
   })
 
-  for (const name of ['INDEX_URL', 'PROFILES']) {
-    it(`refuses the removed ${name} variable`, async () => {
-      const child = spawn(process.execPath, [bin], {
-        env: { ...process.env, OPENAPI_URL: `http://127.0.0.1:${port}/openapi.json`, [name]: 'x', TRANSPORT: 'http', PORT: String(await freePort()) },
-        stdio: ['ignore', 'ignore', 'pipe']
-      })
-      let stderr = ''
-      child.stderr!.on('data', (chunk) => { stderr += chunk })
-      const code = await new Promise<number | null>(resolve => child.on('exit', resolve))
-      assert.equal(code, 1)
-      assert.match(stderr, new RegExp(`unknown variable ${name}: openapi-mcp serves one document, set OPENAPI_URL`))
-    })
-  }
-
-  it('refuses the removed REFRESH_INTERVAL variable', async () => {
-    const child = spawn(process.execPath, [bin], {
-      env: { ...process.env, OPENAPI_URL: `http://127.0.0.1:${port}/openapi.json`, REFRESH_INTERVAL: '0', TRANSPORT: 'http', PORT: String(await freePort()) },
-      stdio: ['ignore', 'ignore', 'pipe']
-    })
-    let stderr = ''
-    child.stderr!.on('data', (chunk) => { stderr += chunk })
-    assert.equal(await new Promise<number | null>(resolve => child.on('exit', resolve)), 1)
-    assert.match(stderr, /unknown variable REFRESH_INTERVAL: openapi-mcp loads its document once/)
-  })
-
   it('requires OPENAPI_URL', async () => {
     const { OPENAPI_URL: _unset, ...rest } = process.env
     const env = { ...rest, TRANSPORT: 'http' }

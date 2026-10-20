@@ -135,7 +135,7 @@ export function render (body: unknown, o: RenderOptions): string {
       if (value.some(isObject)) return table(value.filter(isObject).map(r => project(r, keys)), o.schema, keys, o, max)
       return value.map(v => `- ${cell(v, max)}`).join('\n')
     }
-    return value === null || value === undefined ? '' : truncate(String(value), max)
+    return value === null || value === undefined ? '' : isUrl(value) ? String(value) : truncate(String(value), max)
   }
 
   // rows and hints are taken out of the rest, which is rendered as a list

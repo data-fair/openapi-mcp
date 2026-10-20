@@ -1,19 +1,8 @@
 /**
- * Checks that a description an annotation authored still agrees with the schema it
- * describes.
- *
- * An annotation may refine, name, exclude or describe a parameter. It may not contradict
- * it: `x-agent` rewrites the description and leaves the schema alone, so the two can drift
- * apart — and when they do, the model reads the description, does what it says, and Ajv
- * rejects it before any HTTP request is sent. Three such bugs shipped past review in phase
- * 1, all of the same shape: a description promising a scalar (`Example: "-count"`) for a
- * parameter whose schema is an array.
- *
- * Only descriptions an annotation AUTHORED are linted. An inherited description belongs to
- * the upstream document; it cannot be fixed from here, and linting it would bury a real
- * finding under prose we do not own.
- *
- * Every rule is mechanical. A rule that needs judgement does not belong here.
+ * Checks that a description an annotation authored agrees with the schema it describes: the
+ * model follows the description, and the schema refuses what disagrees before any request.
+ * Inherited descriptions belong to the upstream document and are not linted. Every rule is
+ * mechanical.
  */
 import type { JsonSchema } from '../types.ts'
 

@@ -119,10 +119,6 @@ describe('load — one document, no profiles', () => {
     assert.deepEqual(toolSet.tools.map(t => t.name), ['list_things', 'create_thing'])
     assert.equal('profiles' in toolSet, false)
   })
-  it('refuses profiles and namePrefix in x-agent', async () => {
-    await assert.rejects(load(doc({ namePrefix: 'x_' })), /namePrefix/)
-    await assert.rejects(load(doc({}, { profiles: ['read'] })), /profiles/)
-  })
   it('all root skills are listed', async () => {
     const toolSet = await load(doc({ skills: [{ name: 'how-to', description: 'How to handle things.' }] }), { fetch: stub(() => json({})).fetchFn })
     assert.deepEqual(toolSet.skills.map(s => s.name), ['how-to'])

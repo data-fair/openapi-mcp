@@ -1,268 +1,150 @@
 ---
 name: openapi-mcp
 description: >
-  Use when writing, reviewing or debugging `x-agent` annotations in an OpenAPI 3.x
-  document for @data-fair/openapi-mcp: choosing which operations become MCP tools, naming
-  them, scopes (security narrowing) and skills/instructions, parameter overrides, response projections,
-  compact request bodies, and json-layout editor tool groups over a write operation.
-  Triggers include: "annotate this OpenAPI with x-agent", "expose this API as MCP tools",
-  "make this spec agent-readable", an annotation lint error about a description
-  contradicting its schema, a request body too large to put in a tool definition, a
-  document that validates but produces no tools, a tool offered to the wrong scopes,
-  or wanting an agent to edit a document field by field through a form instead of
-  submitting a raw request body.
+  Use when writing, reviewing or debugging `x-agent` annotations in an OpenAPI 3.x document for
+  @data-fair/openapi-mcp: which operations become MCP tools, their names and descriptions, scopes
+  and security narrowing, skills and tag guides, parameter overrides, response projections,
+  request body shaping, files, and json-layout editor groups. Triggers include "annotate this
+  OpenAPI with x-agent", "expose this API as MCP tools", an annotation lint error, a document that
+  validates but produces no tools, or a tool offered to the wrong scopes.
 ---
 
 # Annotating OpenAPI documents with `x-agent`
 
-`@data-fair/openapi-mcp` turns an OpenAPI 3.x document into MCP tools. Nothing is
-generated from the document's generic shape: an operation becomes a tool **only if it
-carries an `x-agent` annotation**. The annotation is the entire product surface — what a
-tool is called, what an agent sees, which scopes reach it, how input is validated and
-how output is rendered all come from it. Everything else in the document stays for humans.
+`@data-fair/openapi-mcp` turns an OpenAPI 3.x document into MCP tools. An operation becomes a tool
+only when it carries `x-agent`, and the annotation decides everything an agent sees of it. The
+reference is [`docs/x-agent.md`](https://github.com/data-fair/openapi-mcp/blob/main/docs/x-agent.md);
+this is the working guide.
 
-The full reference lives in the project's [`docs/x-agent.md`](https://github.com/data-fair/openapi-mcp/blob/main/docs/x-agent.md).
-This skill is the working guide: how to add annotations, what to check, and why the
-non-obvious rules exist.
+## At a glance
 
-## Install
-
-```sh
-npm install @data-fair/openapi-mcp
-# only for editor tool groups (optional peers, lazily imported):
-npm install @json-layout/agents @json-layout/core
-```
-
-## The annotation at a glance
-
-`x-agent` is an object validated by its own JSON schema. Unknown fields or wrong shapes
-fail `load` loudly with the JSON path of the offence — a typo never degrades silently into
-a missing feature.
-
-| Where | What it controls |
+| Where | Keys |
 | --- | --- |
-| Document root | `skills` (`name`, short `description`, body in `body` or linked by `href`) |
-| `tags[]` entry | `skill` for the tag's operations |
-| Operation (`paths.<p>.<method>`) | opt-in, `name`, `title`, `description`, `examples`, `annotations`, `params`, `fixed`, `body`, `bodyFields`, `bodyRequired`, `response`, `editor`, `security` — or an array of such views |
-| Parameter definition | the same override object as `params.<name>`, usable from a shared `$ref` |
+| Document root | `skills` (`name`, `description`, `body` or `href`, `tools`) |
+| `tags[]` entry | `guide` |
+| Operation | `name`, `title`, `description`, `examples`, `annotations`, `params`, `fixed`, `body`, `bodyFields`, `bodyRequired`, `response`, `editor`, `security`; or an array of such views |
+| Parameter definition | the overrides of `params.<name>` |
 | Response schema property | `hint`, `exclude` |
 
-Every agent-facing string is a plain string or a locale map (`{ en: …, fr: … }`);
-`load({ locale })` picks one.
+Every agent-facing string is a string or a locale map. The vocabulary is validated by a JSON
+schema: an unknown key fails with its JSON path.
 
-## Workflow: annotating an operation
+## Annotating an operation
 
-1. **Pick the operations that deserve a tool.** A tool competes for the agent's attention
-   with every other tool, so annotate the operations that answer real questions, not every
-   route. Read-only exploration is the common case; write operations get `editor` (below)
-   when a raw body would be too much to ask for.
+1. **Choose the operations.** Every tool competes for the agent's attention: annotate the
+   operations that answer real questions, not every route.
 
-2. **Give each a stable name and a real description.**
+2. **Name and describe.** `name` defaults to the snake_case `operationId`. Write the description
+   for an agent, and say what the tool is not for when a sibling is close:
 
    ```yaml
-   paths:
-     /datasets/{id}/lines:
-       get:
-         operationId: readLines
-         x-agent:
-           name: search_data
-           description: Retrieve rows matching filters/text. Not for statistics — use aggregate_data.
+   x-agent:
+     name: search_articles
+     description: Find articles by text and filters. Not for counts: use count_articles.
    ```
 
-   `name` defaults to snake_case `operationId`; set it explicitly when the operationId is
-   not what an agent should read. `description` falls back to `summary`/`description`/
-   `operationId`, but a purpose-written one is usually what makes the tool usable. State
-   what the tool is **not** for when a sibling tool is close — this is the single highest
-   leverage sentence in an annotation.
+3. **Check the security.** A tool carries its operation's `security` (else the root's).
+   `toolsForScopes(toolSet, scopes)` keeps it when an `oauth2` alternative's scopes are all in the
+   token's, or an alternative is public. Membership is exact: list every accepted scope as its own
+   alternative. No security anywhere: no scoped token is offered the tool.
 
-3. **Declare its security.** Who is offered a tool follows the operation's OpenAPI `security`
-   (the root `security` when it declares none): `toolsForScopes(toolSet, scopes)` keeps a tool
-   when an `oauth2` alternative's scopes are all in the token's, or an alternative is public
-   (`{}`, `security: []`). Membership is exact: list every accepted scope, umbrella included, as
-   its own alternative. An operation with no security anywhere is offered to no scoped token.
-   A tool offered to the wrong scopes is almost always a missing or extra alternative here.
-
-4. **Tune the parameters** where the API's names or constraints don't suit an agent:
+4. **Tune the parameters.**
 
    ```yaml
    params:
      q: { name: query, description: Full-text search. }
-     qs: { exclude: true }          # noise for agents
      size: { maximum: 100, default: 12 }
-     select: { exclude: true }      # if a fields enum is generated instead
+     debug: { exclude: true }
+   fixed: { format: json }
    ```
 
-   `exclude` drops a parameter entirely; `fixed` sends a value the agent never sees;
-   `required`, `default`, `maximum`, `enum` refine the schema. The same object can sit on
-   the parameter definition itself (useful through `$ref`); the operation-level entry wins.
-
-5. **Project and render the response.** Flat, wide JSON is where agents burn context:
+5. **Shape the response.** Wide JSON is where agents spend their context:
 
    ```yaml
    response:
-     rows: /results                       # array of row objects → markdown table
+     rows: /results
      concise: [id, title, updatedAt]
-     detailed: [id, title, summary, description, updatedAt]
-     selectParam: select                  # expose a `fields` param from the response schema
-     hints: true                          # surface meta.hints as footnotes
+     detailed: [id, title, summary, updatedAt]
+     selectParam: select   # a `fields` parameter generated from the response schema
+     hints: /meta/hints    # the API's advice, shown after the rest
    ```
 
-   `concise` + `detailed` generate a `response_format` enum parameter. `selectParam` maps a
-   generated `fields` enum onto the API's own projection parameter — it fails at load when
-   the response schema declares no properties, so point it at an operation whose schema is
-   real, not a synthetic stub. On response schema properties, `x-agent: { hint: … }` adds a
-   note next to the value and `x-agent: { exclude: true }` drops it everywhere.
+6. **Shape the body.** `bodyFields` allow-lists the properties a tool sends; `bodyRequired` makes
+   some required for this tool; `body: compact` replaces a huge body schema with a listing, still
+   validated locally.
 
-6. **Only if the body is huge, compact it.** `body: compact` replaces a merged body schema
-   with one `body` property described by a listing; the real schema still validates before
-   the request. Use it when a body schema is thousands of characters (data-fair's is
-   28 KB). Otherwise leave `body: flat`.
+7. **Files.** Uploads need no annotation: multipart `format: binary` parts and raw bodies become
+   URL inputs, fetched only from the configured file store (`files.urlPrefixes`). A download is
+   `response: { file: true }` on a GET, returning a link.
 
-7. **Files.** Uploads need no annotation: a `multipart/form-data` part with `format: binary` (or a
-   3.1 `contentMediaType`) or a raw `text/csv` body becomes a URL input marked `x-mcp-file`. Make
-   sure the document declares those parts — an undeclared part is not offered. They are indirect
-   uploads: the server only fetches the presigned URLs of the file store it is configured with
-   (`files.urlPrefixes` / `FILE_URL_PREFIXES`), and without one an operation that needs a file is
-   not offered. A download is
-   `response: { file: true }` on a GET: the tool returns a link instead of the bytes; pin a
-   type-selecting parameter with `fixed` (`fixed: { format: csv }`).
-
-8. **Verify.** Nothing replaces actually loading the document:
+8. **Load it.**
 
    ```ts
-   import { load, toolsForScopes } from '@data-fair/openapi-mcp'
-   const toolSet = await load(doc, { lint: 'warn' })
-   console.log(toolSet.tools.map(t => `${t.name}: ${t.description.split('\n')[0]}`).join('\n'))
-   console.log(toolsForScopes(toolSet, ['datasets:read']).tools.map(t => t.name))
+   const toolSet = await load(doc, { lint: 'error' })
+   console.log(toolSet.tools.map(t => t.name), toolsForScopes(toolSet, ['articles:read']).tools.map(t => t.name))
    ```
 
-   Check the tool list, the names, the descriptions and which scope sets reach each tool.
-   For a document served over HTTP, the bundled binary does the same: `OPENAPI_URL=… npx openapi-mcp`.
+## Descriptions must agree with their schema
 
-## The rule that bites: descriptions must agree with their schema
+The agent follows the description and the schema refuses what disagrees. `load` lints the
+descriptions an annotation authored and fails on a quoted scalar example for an array parameter
+(show `["x"]`), on "comma-separated" for an array parameter (the serializer adds the commas), and
+on a quoted value outside the enum. Fix the description; `lint: 'warn'` is for documents you cannot
+edit.
 
-An annotation may rewrite a description but it cannot change the schema it describes. When
-the two drift apart, the agent reads the description, does what it says, and Ajv rejects it
-before any request leaves the process — a silent trap, because the description is the only
-thing the agent sees. `load` therefore lints descriptions the annotation **authored** and
-fails by default on:
-
-- a quoted scalar example (`Example: "-count"`) for an array parameter — show `["-count"]`;
-- the words "comma-separated" for an array parameter — the commas are added by the
-  serializer, the agent never types them;
-- a quoted value the parameter's enum does not allow.
-
-Fix the description, not the lint configuration; `lint: 'warn'` and `lint: 'off'` exist for
-upstream documents you cannot edit, not for annotations you are writing. Inherited
-descriptions (from the OpenAPI document itself) are never linted.
-
-## One endpoint, several tools: views
-
-When the same operation does things of different criticality depending on its payload — a PATCH
-that edits a description but also changes where a resource is published — annotate it with an
-array of views instead of one object. Each view is a tool with its own `name` (required,
-unique in the array), `annotations`, `bodyFields` allow-list and `security`:
+## One operation, several tools: views
 
 ```yaml
-security: [{ apiKey: [] }, { oauth2: [datasets:write] }, { oauth2: [datasets:admin] }]
-x-agent:
-  - { name: update_dataset, bodyFields: [title, description] }
-  - { name: publish_dataset, bodyFields: [publicationSites], security: [{ apiKey: [] }, { oauth2: [datasets:admin] }] }
+patch:
+  operationId: patchArticle
+  security: [{ oauth2: [articles:write] }, { oauth2: [articles:admin] }]
+  x-agent:
+    - { name: update_article, bodyFields: [title, body] }
+    - { name: publish_article, bodyFields: [published], security: [{ oauth2: [articles:admin] }] }
 ```
 
-A view's `security` narrows the operation's for that tool, so a token the API would refuse is
-not offered it. It can only drop alternatives: one the operation does not declare refuses the
-document (`publish_dataset: x-agent security alternative … is not in the operation's security`).
+Each view is a tool with its own name. A view's `security` narrows the operation's, so a token the
+API would refuse is not offered the tool; it can only drop alternatives. Prefer `bodyFields` to
+trusting an agent to leave fields alone: a field the API adds later is offered by no tool until
+named.
 
-Prefer `bodyFields` (an allow-list) over trusting an agent to leave fields alone: a property
-outside the list is refused before the request leaves, and a property added to the API later
-is offered by no tool until someone places it. The API still enforces its own permissions —
-views decide what an agent is offered, not what it is allowed.
+## Editor groups
 
-## Editor tool groups: eight tools instead of one body
-
-When an agent should edit a structured document rather than hand over a whole request
-body, put `editor` on the write operation. The operation stops being a one-shot tool and
-becomes eight json-layout form tools (`describeState`, `getData`, `setData`,
-`setFieldValue`, `getFieldSuggestions`, `editArray`, `saveForm`, `reloadForm`), each taking
-the write operation's path parameters.
+`editor` on a write operation with a JSON body makes eight form tools instead of one: the agent
+edits a json-layout session and saves a valid document.
 
 ```yaml
 put:
-  operationId: updateLine
+  operationId: updateItem
   x-agent:
-    name: dataset_line
-    title: { en: Edit a dataset record }
-    editor:
-      schemaOperation: readSchema     # operation whose response body IS the JSON Schema
-      schemaParams: { mimeType: application/schema+json }  # fixed values for it
-      readOperation: readLine         # operation that loads the document; omit = create
+    name: item
+    editor: { schemaOperation: readItemSchema, readOperation: readItem }
 ```
 
-Rules that decide whether this works:
+`schemaOperation` returns the JSON Schema (absent: the declared body); `readOperation` loads the
+document (absent: a create). Named operations take only path parameters of the write operation,
+by name. Install `@json-layout/agents`. See
+[`docs/editor-tool-groups.md`](https://github.com/data-fair/openapi-mcp/blob/main/docs/editor-tool-groups.md).
 
-- The write operation must declare an `application/json` request body. Multipart bodies
-  are not supported by editor groups.
-- Use `editor: true` only when the declared body schema is already the form schema (it
-  carries json-layout `layout` keywords). When the schema comes from the API — dataset
-  schemas do — name a `schemaOperation`.
-- `schemaParams` exists because documents often under-declare how to ask for a JSON
-  schema (a required `mimeType`, an `extension` flag). It sends values the document never
-  declared; that is normal here and not an error.
-- Path parameters are matched **by name** across the three operations, and a missing one
-  fails at load time, not at call time. If `updateLine` needs `id` and `lineId`, every
-  named operation must take those names.
-- `readOperation` absent means create: the session starts from `{}` and makes no HTTP call.
-- Saving sends the whole document (PUT/POST semantics); there is no PATCH diffing, and
-  attachment/`x-extension` columns are hidden from the form.
-- Install `@json-layout/agents` and `@json-layout/core` (>= 2.10.0); read-only documents
-  do not need them.
-
-Full guide: [`docs/editor-tool-groups.md`](https://github.com/data-fair/openapi-mcp/blob/main/docs/editor-tool-groups.md).
-
-## Guard the agent-facing surface in CI
-
-Every annotated service commits a golden of its tool surface and diffs it on each run:
+## A golden in CI
 
 ```ts
-import { load, toolSetSnapshot, toolsForScopes } from '@data-fair/openapi-mcp'
-const doc = buildApiDocs('https://example.test')          // the service's own generator
-const toolSet = await load(doc, { lint: 'error' })
-assert.deepEqual(toolSetSnapshot(toolSet), JSON.parse(readFileSync('test/golden/agent-tools.json', 'utf8')))
-// { "datasets:read": ["describe_dataset", …], "datasets:write": […] }: who is offered what
-const byScopes = JSON.parse(readFileSync('test/golden/agent-tools.scopes.json', 'utf8'))
-for (const [scopes, names] of Object.entries(byScopes)) {
-  assert.deepEqual(toolsForScopes(toolSet, scopes.split(' ')).tools.map(t => t.name), names)
-}
+const toolSet = await load(buildApiDocs(), { lint: 'error' })
+assert.deepEqual(toolSetSnapshot(toolSet), JSON.parse(readFileSync('test/agent-surface.json', 'utf8')))
 ```
 
-`lint: 'error'` refuses a description that contradicts its schema; the golden turns a renamed
-tool, a widened schema, a dropped parameter or a changed security into a diff the reviewer sees.
+A renamed tool, a widened schema or a changed security becomes a diff in review. Asserting the tool
+names `toolsForScopes` keeps for each scope set worth checking covers who is offered what.
 
-## Common failure modes
+## Failure modes
 
 | Symptom | Cause |
 | --- | --- |
-| Document validates, no tools | `x-agent` missing, or the scopes requested reach none of the operations' security alternatives |
-| A scoped token is offered nothing for an operation | The operation (and the root) declares no `security`: fail closed |
-| `x-agent invalid at /paths/…` with an unknown field | Typo, or a key used at the wrong scope (e.g. `params` on the root) |
-| Tool name is `some_operation_id` | No `name`, and the operationId is not agent-friendly |
-| Lint error: scalar example for an array | Description shows `"x"` where the schema is an array — use `["x"]` |
-| Lint error: quoted value not in enum | Description quotes a value the enum forbids — fix the description or the enum |
-| `editor` fails at load naming a path parameter | The named operation takes a path param the write operation does not supply |
-| `editor` fails at load naming an operationId | `schemaOperation`/`readOperation` does not match any operation in the document |
-| An editor tool call returns "missing required parameter" | The caller omitted one of the write operation's path parameters |
-| A huge schema bloats every tool definition | `body: compact` on the write operation |
-| An upload tool has no file input, or is missing | The multipart part lacks `format: binary` / `contentMediaType`; the operation also declares `application/json` (JSON wins); or no file store is configured (`files.urlPrefixes`), so a tool needing a file is not offered |
-| `response.file needs a GET operation` | `response.file` is for downloads; an upload's file is an input, detected from the body |
-| `selectParam` fails at load with "declares no properties" | The response schema it reads from is an empty/synthetic stub; use an operation with a real schema |
-
-## Reference
-
-- `profiles` and `namePrefix` were removed in 0.7.0 and are refused; a tool's name is
-  `x-agent.name ?? snake_case(operationId)` and its audience is its security.
-- Skill names follow the Agent Skills format: `^[a-z0-9]+(-[a-z0-9]+)*$`, at most 64
-  characters (`workflow`, `publishing-workflow` — never `Workflow`).
-- Vocabulary reference: `docs/x-agent.md` in the project repo (or the npm page).
-- Editor tool groups: `docs/editor-tool-groups.md`.
-- Source of truth for shapes: `src/vocabulary/schema.ts` — when in doubt, the validator beats prose.
+| No tools | No `x-agent`, or no security alternative the scopes reach |
+| A scoped token gets nothing for an operation | No security on the operation or the root |
+| `x-agent invalid at /paths/…` | A typo, or a key at the wrong place |
+| Lint error on a description | The description contradicts the schema: fix the description |
+| `editor` fails at load | A named operation is missing, or needs a path parameter the write operation lacks |
+| An upload tool is missing | No file store configured, or the part is not declared as a file |
+| `selectParam … declares no properties` | The response schema is a stub |
+| `x-agent security alternative … is not in the operation's security` | A view widens instead of narrowing |

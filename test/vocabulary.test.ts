@@ -54,15 +54,6 @@ describe('validateVocabulary', () => {
   it('rejects a wrong type at root', () => {
     assert.throws(() => validateVocabulary(doc({ 'x-agent': { skills: 3 } })), /x-agent invalid at \/: .*skills/)
   })
-  it('refuses the retired namePrefix and profiles, wherever they appear', () => {
-    assert.throws(() => validateVocabulary(doc({ 'x-agent': { namePrefix: 'df_' } })), /x-agent invalid at \/: .*namePrefix/)
-    assert.throws(() => validateVocabulary(doc({ 'x-agent': { profiles: { explore: {} } } })), /x-agent invalid at \/: .*profiles/)
-    assert.throws(() => validateVocabulary(doc({ 'x-agent': { skills: [{ name: 'w', description: 'd', profiles: ['explore'] }] } })), /x-agent invalid at \/: .*profiles/)
-    assert.throws(() => validateVocabulary(doc({ tags: [{ name: 'Things', 'x-agent': { profiles: ['explore'] } }] })), /x-agent invalid at .*profiles/)
-    const d: any = doc({})
-    d.paths['/things'].get['x-agent'] = { name: 'list_things', profiles: true }
-    assert.throws(() => validateVocabulary(d), /x-agent invalid at \/paths\/~1things\/get: .*profiles/)
-  })
   it('accepts an operation security of requirement objects, and refuses another shape', () => {
     const withSecurity = (security: unknown) => {
       const d: any = doc({})

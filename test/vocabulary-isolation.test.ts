@@ -112,7 +112,6 @@ describe('an operation annotation this version rejects', () => {
   it('a document-level error still fails the document, whatever the level', async () => {
     for (const lint of ['warn', 'off'] as const) {
       await assert.rejects(load(docWith({}, { bogus: 1 }), { lint, fetch: fetchFn }), /x-agent invalid at \//)
-      await assert.rejects(load(docWith({}, { namePrefix: 'x_' }), { lint, fetch: fetchFn }), /x-agent invalid at \//)
     }
   })
 })
