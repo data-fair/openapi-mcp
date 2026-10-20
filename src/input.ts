@@ -40,25 +40,15 @@ function paramSchema (p: ResolvedParam, locale: string): JsonSchema {
   delete schema.title
   const description = localize(p.agent.description, locale) ?? p.description
   if (description) schema.description = description.trim()
-  // default/maximum describe a single value; on an array-typed param (data-fair's
-  // explode:false comma-joined params, e.g. one size entry per aggregation level) that
-  // value belongs on items, not on the array itself. A default/maximum sitting on the
-  // array made ajv's useDefaults fill a scalar into an array-typed property and then
-  // reject it — both when the API document declares it directly (e.g. search_data's raw
-  // `select` param: `{ type: array, items: { type: string }, default: "all" }`, which
-  // broke every call that omitted `select`) and when an agent.params override adds one
-  // (aggregate_data's former agg_size override, which broke every call outright). Both
-  // sources are normalized onto items here.
+  // default, maximum and enum describe one value: on an array parameter they belong on items,
+  // where the document or an override put them there or not (on the array, useDefaults would
+  // fill a scalar into an array and every call omitting the parameter would be refused).
   if (schema.type === 'array') {
     const items: JsonSchema = { ...schema.items }
     if (schema.default !== undefined) { items.default = schema.default; delete schema.default }
     if (schema.maximum !== undefined) { items.maximum = schema.maximum; delete schema.maximum }
     if (p.agent.default !== undefined) items.default = p.agent.default
     if (p.agent.maximum !== undefined) items.maximum = p.agent.maximum
-    // enum, like default/maximum, describes a single value: it must constrain each array
-    // item, not the array itself. Applying it to the array's own schema (alongside
-    // items: { type: 'string' }) produces a shape ajv rejects for every value, since no
-    // array literal can equal one of the enum's scalar members.
     if (p.agent.enum !== undefined) items.enum = p.agent.enum
     schema.items = items
   } else {
@@ -162,8 +152,7 @@ export function buildInput (op: ResolvedOperation, locale: string, options: { fi
 
   const requestBody = pickBody(op)
   // In compact mode the body is one property described by a listing, and the real schema
-  // is returned for the caller to validate against — a tool definition carrying data-fair's
-  // 28 KB dataset body costs more than the entire six-tool explore set.
+  // is returned for the tool to validate against.
   let bodySchema: JsonSchema | undefined
   if (requestBody?.kind === 'json' && op.agent.body === 'compact') {
     properties.body = {

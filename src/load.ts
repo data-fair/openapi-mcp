@@ -45,6 +45,8 @@ export interface LoadOptions {
    * call context, never with its credentials.
    */
   files?: FileLoadOptions
+  /** adapts an editor group's form schema (declared or fetched) before json-layout compiles it; default: as is */
+  prepareEditorSchema?: (schema: JsonSchema) => JsonSchema | Promise<JsonSchema>
 }
 
 const ajv = new Ajv2020({ strict: false, allErrors: true, useDefaults: true, coerceTypes: false })
@@ -66,7 +68,7 @@ function errorsText (validate: ValidateFunction): string {
   return (validate.errors ?? []).map(e => `${e.instancePath || 'params'} ${e.message}`).join('; ')
 }
 
-export type ToolOptions = Required<Omit<LoadOptions, 'documentUrl' | 'skillBodies' | 'files'>> & { files: FileFetcher | undefined }
+type ToolOptions = Required<Omit<LoadOptions, 'documentUrl' | 'skillBodies' | 'files' | 'prepareEditorSchema'>> & { files: FileFetcher | undefined }
 
 /** A fetch failure's message with its cause: undici reports a failed body stream as "fetch failed". */
 const failureText = (err: any) => err?.cause?.message ? `${err.message} (${err.cause.message})` : (err?.message ?? String(err))
@@ -205,7 +207,7 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
   // schema's x-agent-guide when the schema is declared.
   const editorSkills: Skill[] = []
   for (const op of editorOps) {
-    const group = await buildEditorTools(op, { doc, baseUrl, fetch: contextualFetch(fetchFn), locale: o.locale })
+    const group = await buildEditorTools(op, { doc, baseUrl, fetch: contextualFetch(fetchFn), locale: o.locale, prepareSchema: options.prepareEditorSchema ?? (schema => schema) })
     tools.push(...group.tools)
     toolsByOp.set(op, group.tools.map(t => t.name))
     editorSkills.push(editorSkill(op, group.skill, group.tools.map(t => t.name), o.locale))

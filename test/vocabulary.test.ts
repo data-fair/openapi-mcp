@@ -185,7 +185,7 @@ describe('response.file', () => {
     assert.throws(() => validateVocabulary(fileDoc('post', { response: { file: true } })), /x-agent invalid at \/paths\/~1export\/post: response.file needs a GET operation/)
   })
   it('refuses the rendering keys beside it', () => {
-    assert.throws(() => validateVocabulary(fileDoc('get', { response: { file: true, rows: '/results', hints: true } })), /x-agent invalid at \/paths\/~1export\/get: response.file does not combine with rows, hints/)
+    assert.throws(() => validateVocabulary(fileDoc('get', { response: { file: true, rows: '/results', hints: '/meta/hints' } })), /x-agent invalid at \/paths\/~1export\/get: response.file does not combine with rows, hints/)
   })
   it('checks every view of an array', () => {
     assert.throws(() => validateVocabulary(fileDoc('post', [{ name: 'a' }, { name: 'b', response: { file: true } }])), /x-agent invalid at \/paths\/~1export\/post\/1: response.file needs a GET operation/)

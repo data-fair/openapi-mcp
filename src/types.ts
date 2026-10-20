@@ -26,7 +26,8 @@ export interface AgentResponse {
   concise?: string[]
   detailed?: true | string[]
   selectParam?: string
-  hints?: boolean
+  /** JSON pointer to a list of strings the API returns as advice: shown as hints after the rest */
+  hints?: string
   /**
    * The response is a file: the tool performs no request and returns a link to it (an MCP
    * `resource_link`) built from its arguments. GET only; excludes every rendering key.

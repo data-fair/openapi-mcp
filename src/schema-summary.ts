@@ -1,33 +1,12 @@
 /**
- * Renders a JSON Schema as a compact listing an agent can read.
- *
- * A write operation's request body can be very large: data-fair's `datasetPatch` is 26 KB
- * of schema across 216 properties, and merging it into a tool's input schema produced a
- * single tool twice the size of the whole six-tool explore set. Almost none of that weight
- * is information the agent needs to fill the form — it is `layout` keywords, prose, and
- * the structural noise of JSON Schema itself.
- *
- * The listing keeps what a caller actually needs: the property name, whether it is
- * required, its type, its allowed values, and a short description. Everything else goes.
- * Type-definition renderings of this kind are measured at roughly 60% smaller than the
- * JSON Schema they replace; dropping `layout` and full prose takes this one further.
- *
- * This is a reading aid, NOT the validation contract. The real schema still validates the
- * body before a request is sent, so a caller that misreads the listing gets a precise
- * local error rather than a round trip.
+ * A JSON Schema as a compact listing an agent can read (`body: compact`): name, required, type,
+ * allowed values and a short description per property, for a request body too large to put in a
+ * tool definition. A reading aid only: the real schema still validates the body before sending.
  */
 import type { JsonSchema } from './types.ts'
 
 export interface SummaryOptions {
-  /**
-   * How many levels of nested objects to expand before collapsing to `object`.
-   *
-   * Zero by default, on measurement: expanding one level of data-fair's `datasetPatch`
-   * takes the listing from 35 lines to 114 and from 2.4 KB to 5.8 KB, while the properties
-   * it reveals belong to sub-documents (`schema[]`, `masterData`) that a caller editing
-   * them needs the real schema for anyway. Depth is the expensive knob; descriptions,
-   * which cost about a third as much, are the useful one.
-   */
+  /** levels of nested objects listed before collapsing to `object` (default 0: nesting is what costs) */
   maxDepth?: number
   /** Descriptions longer than this are truncated; they are a hint, not the documentation. */
   maxDescription?: number
@@ -35,11 +14,7 @@ export interface SummaryOptions {
   maxEnumValues?: number
 }
 
-/**
- * `oneOf: [T, null]` is how an OpenAPI 3.1 document spells "nullable T", and data-fair uses
- * it on nearly every property. Left alone it renders as `object | null` and hides the
- * branch that carries the actual fields, so the listing would say nothing at all.
- */
+/** `oneOf: [T, null]` is OpenAPI 3.1's "nullable T": listed as T, so its fields are not hidden. */
 function unwrapNullable (schema: JsonSchema): { schema: JsonSchema, nullable: boolean } {
   const branches: JsonSchema[] | undefined = schema.oneOf ?? schema.anyOf
   if (!Array.isArray(branches)) return { schema, nullable: false }

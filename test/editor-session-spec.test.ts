@@ -38,7 +38,7 @@ function harness (overrides: Record<string, unknown> = {}) {
     if (input.method === 'GET') return new Response(JSON.stringify({ nom: 'Rennes' }), { headers: { 'content-type': 'application/json' } })
     return new Response(JSON.stringify({ ok: true }), { headers: { 'content-type': 'application/json' } })
   }) as unknown as typeof globalThis.fetch
-  const ctx = { doc, baseUrl: 'https://api.test/v1', fetch: fetchFn, locale: 'en' }
+  const ctx = { doc, baseUrl: 'https://api.test/v1', fetch: fetchFn, locale: 'en', prepareSchema: (schema: any) => ({ ...schema, prepared: true }) }
   const ops = resolveEditorOperations(resolveOperationById(doc, 'updateLine')!, doc)
   return { calls, ctx, ops, registry: createSchemaRegistry() }
 }
@@ -66,6 +66,7 @@ describe('buildSessionSpec', () => {
     const spec: any = buildSessionSpec(ops, { id: 'communes', lineId: 'abc' }, ctx, registry)
     const { schema, version } = await spec.schema()
     assert.equal(schema.properties.nom.type, 'string')
+    assert.equal(schema.prepared, true)
     assert.equal(typeof version, 'string')
     const url = new URL(calls[0].url)
     assert.equal(url.pathname, '/v1/datasets/communes/schema')
@@ -111,7 +112,7 @@ describe('buildSessionSpec', () => {
   })
 
   it('reports an API error rather than swallowing it', async () => {
-    const ctx = { doc, baseUrl: 'https://api.test/v1', locale: 'en', fetch: (async () => new Response('nope', { status: 403 })) as unknown as typeof globalThis.fetch }
+    const ctx = { doc, baseUrl: 'https://api.test/v1', locale: 'en', prepareSchema: (schema: any) => schema, fetch: (async () => new Response('nope', { status: 403 })) as unknown as typeof globalThis.fetch }
     const ops = resolveEditorOperations(resolveOperationById(doc, 'updateLine')!, doc)
     const spec: any = buildSessionSpec(ops, { id: 'communes', lineId: 'abc' }, ctx, createSchemaRegistry())
     await assert.rejects(() => spec.save({ nom: 'Brest' }, {}), /403/)

@@ -18,7 +18,6 @@
     "model-context-protocol",
     "openapi",
     "ai-agents",
-    "data-fair",
     "json-layout",
     "x-agent"
   ],
@@ -64,21 +63,16 @@
     "mime-types": "^3.0.2"
   },
   "peerDependencies": {
-    "@json-layout/agents": "^0.2.0",
-    "@json-layout/core": "^2.11.0"
+    "@json-layout/agents": "^0.2.0"
   },
   "peerDependenciesMeta": {
     "@json-layout/agents": {
-      "optional": true
-    },
-    "@json-layout/core": {
       "optional": true
     }
   },
   "devDependencies": {
     "@data-fair/lib-utils": "^1.5.0",
     "@json-layout/agents": "^0.2.0",
-    "@json-layout/core": "^2.11.0",
     "@modelcontextprotocol/client": "^2.0.0",
     "@types/debug": "^4.1.12",
     "@types/mime-types": "^3.0.1",

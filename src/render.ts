@@ -25,13 +25,17 @@ function truncate (s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '…' : s
 }
 
+/** A truncated URL is useless: a link (a next page, a file) is shown whole. */
+const isUrl = (v: unknown) => typeof v === 'string' && /^https?:\/\/\S+$/.test(v)
+
 function cell (v: unknown, max: number): string {
   if (v === null || v === undefined) return ''
   let s: string
   if (Array.isArray(v)) s = v.map(x => isObject(x) ? JSON.stringify(x) : String(x)).join(', ')
   else if (isObject(v)) s = JSON.stringify(v)
   else s = String(v)
-  return truncate(s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' '), max)
+  const flat = s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
+  return isUrl(v) ? flat : truncate(flat, max)
 }
 
 function hintOf (schema: JsonSchema | undefined, locale: string): string | undefined {
@@ -89,11 +93,29 @@ function kv (value: unknown, schema: JsonSchema | undefined, o: RenderOptions, m
         } else lines.push(`${indent}  - ${cell(item, max)}`)
       }
     } else {
-      const text = k === 'next' && typeof v === 'string' ? v : cell(v, max)
-      lines.push(`${indent}- **${k}**: ${text}${suffix}`)
+      lines.push(`${indent}- **${k}**: ${cell(v, max)}${suffix}`)
     }
   }
   return lines
+}
+
+const steps = (pointer: string) => pointer.split('/').filter(Boolean)
+
+/** The value at a JSON pointer, and a copy of `value` without it (an emptied parent object goes too). */
+function extract (value: Record<string, unknown>, pointer: string): { found: unknown, rest: Record<string, unknown> } {
+  const [key, ...more] = steps(pointer)
+  if (!(key in value)) return { found: undefined, rest: value }
+  const rest = { ...value }
+  if (!more.length) {
+    delete rest[key]
+    return { found: value[key], rest }
+  }
+  const child = value[key]
+  if (!isObject(child)) return { found: undefined, rest: value }
+  const inner = extract(child, '/' + more.join('/'))
+  if (Object.keys(inner.rest).length) rest[key] = inner.rest
+  else delete rest[key]
+  return { found: inner.found, rest }
 }
 
 function project (row: Record<string, unknown>, keys: string[] | undefined): Record<string, unknown> {
@@ -116,26 +138,21 @@ export function render (body: unknown, o: RenderOptions): string {
     return value === null || value === undefined ? '' : truncate(String(value), max)
   }
 
+  // rows and hints are taken out of the rest, which is rendered as a list
   const rowsPointer = o.response?.rows
-  const rowsKey = rowsPointer?.split('/').filter(Boolean)[0]
-  const rows = rowsPointer ? rowsPointer.split('/').filter(Boolean).reduce<any>((acc, k) => acc?.[k], value) : undefined
-  const hasRows = Array.isArray(rows)
-
-  const rest: Record<string, unknown> = { ...value }
-  if (hasRows && rowsKey) delete rest[rowsKey]
-  if (o.response?.hints && isObject(rest.meta) && Array.isArray((rest.meta as any).hints)) {
-    const meta = { ...(rest.meta as Record<string, unknown>) }
-    delete meta.hints
-    if (Object.keys(meta).length) rest.meta = meta; else delete rest.meta
-  }
+  const withRows = rowsPointer ? extract(value, rowsPointer) : undefined
+  const rows = Array.isArray(withRows?.found) ? withRows.found : undefined
+  const hasRows = rows !== undefined
+  const withHints = o.response?.hints ? extract(rows ? withRows!.rest : value, o.response.hints) : undefined
+  const hints = Array.isArray(withHints?.found) ? withHints.found : undefined
+  const rest = hints ? withHints!.rest : rows ? withRows!.rest : value
 
   const out: string[] = kv(hasRows ? rest : project(rest, keys), o.schema, o, max, '')
   if (hasRows) {
     if (out.length) out.push('')
-    out.push(table((rows as unknown[]).filter(isObject).map(r => project(r, keys)), schemaAt(o.schema, rowsPointer), keys, o, max))
+    out.push(table(rows.filter(isObject).map(r => project(r, keys)), schemaAt(o.schema, rowsPointer), keys, o, max))
   }
-  const hints = o.response?.hints ? (value as any).meta?.hints : undefined
-  if (Array.isArray(hints) && hints.length) {
+  if (hints?.length) {
     out.push('')
     for (const h of hints) out.push(`> Hint: ${h}`)
   }

@@ -61,8 +61,8 @@ export function buildRequest (op: ResolvedOperation, bindings: Binding[], params
   const url = new URL(path.replace(/^\//, ''), baseUrl.endsWith('/') ? baseUrl : baseUrl + '/')
   url.search = search.toString()
   const init: RequestInit & { duplex?: 'half' } = { method: op.method, headers }
-  // A streamed body with its exact length: servers that check a size before accepting an
-  // upload (data-fair answers 411) refuse Transfer-Encoding: chunked.
+  // A streamed body with its exact length: a server checking a size before accepting an upload
+  // refuses Transfer-Encoding: chunked (411).
   const send = (encoded: EncodedBody) => {
     headers.set('content-type', encoded.contentType)
     headers.set('content-length', String(encoded.length))

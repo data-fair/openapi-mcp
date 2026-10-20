@@ -52,7 +52,7 @@ export function underPrefix (href: string, prefixes: string[]): boolean {
   })
 }
 
-/** The file name a URL carries: its last path segment, decoded. data-fair types an upload by it. */
+/** The file name a URL carries: its last path segment, decoded. An API may type an upload by it. */
 export function fileName (url: URL): string {
   const last = url.pathname.split('/').pop() ?? ''
   let name = last

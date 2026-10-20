@@ -92,7 +92,7 @@ export const operationSchema: JsonSchema = {
         concise: { type: 'array', items: { type: 'string' }, minItems: 1 },
         detailed: { oneOf: [{ const: true }, { type: 'array', items: { type: 'string' }, minItems: 1 }] },
         selectParam: { type: 'string' },
-        hints: { type: 'boolean' },
+        hints: { type: 'string', pattern: '^(/[^/]+)+$' },
         file: { const: true }
       }
     },

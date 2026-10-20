@@ -44,7 +44,7 @@
           "description": { "en": "List pets. Use q for text search.", "fr": "Lister les animaux." },
           "params": { "q": { "name": "query" }, "debug": { "exclude": true }, "size": { "default": 10 } },
           "fixed": { "select": "id,name" },
-          "response": { "rows": "/results", "concise": ["id", "name"], "detailed": true, "selectParam": "select", "hints": true },
+          "response": { "rows": "/results", "concise": ["id", "name"], "detailed": true, "selectParam": "select", "hints": "/meta/hints" },
           "examples": [{ "query": "rex", "size": 5 }]
         },
         "responses": {

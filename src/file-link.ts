@@ -20,7 +20,7 @@ export function linkMimeType (declared: string[], url: URL): string | undefined 
 
 /**
  * A name a file store can keep: the last path parameter's value and the segments after it
- * (`/datasets/{id}/lines` → `<id>-lines`), so two exports of different resources do not collide,
+ * (`/reports/{id}/export` → `<id>-export`), so two exports of different resources do not collide,
  * with an extension for its type when it has none — the extension is what types it if it is
  * uploaded again.
  */
