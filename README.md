@@ -109,7 +109,9 @@ inlines every `$ref` the document resolves itself: `#/…` against the nearest e
 resource (a schema with a `$id`) and then the document root, `<uri>#/…` against a schema of the
 document declaring that `$id`. A ref it cannot resolve — a URL or file it does not embed, a missing
 target, an anchor — reads as `{}` (any value) and is listed on the console (unless `lint: 'off'`);
-it never fails the document, so one service's schema detail cannot take every tool down.
+it never fails the document, so one service's schema detail cannot take every tool down. Under a
+`security` list `{}` would be the public alternative, so there the ref stays as written and the
+security check refuses the operation instead.
 
 ## Scopes
 

@@ -43,13 +43,17 @@ export type UnresolvedRef = (ref: string, at: string) => void
  * - `<uri>#/…` resolves when some schema of the document declares `$id: <uri>` (absolute, or relative
  *   to the enclosing resource's `$id`).
  * - Anything else (a file or URL the document does not embed, a missing target, an anchor) becomes
- *   {} and is reported to `onUnresolved`.
+ *   {} and is reported to `onUnresolved`. Except under a `security` list, where {} would be the
+ *   public alternative: there the $ref stays as written, so the security check refuses it.
  *
  * A ref whose target is already an ancestor of the current node (reached either by structural
  * nesting or by a previous $ref on this branch) is a cycle and becomes {}; the same ref reached
  * twice on different branches is inlined twice (schemas are small enough, and tools need
  * self-contained schemas).
  */
+/** A root, operation or x-agent entry `security` list, or anything inside one. */
+const underSecurity = (at: string) => /^(\/paths\/[^/]+\/[^/]+(\/x-agent(\/\d+)?)?)?\/security(\/|$)/.test(at)
+
 export function inlineRefs (doc: JsonSchema, onUnresolved: UnresolvedRef = () => {}): JsonSchema {
   // Every embedded schema resource (a schema with a string $id) by its absolute id, and the
   // resource each node belongs to. Ids are recorded as resources are met, so a relative $id is
@@ -98,6 +102,7 @@ export function inlineRefs (doc: JsonSchema, onUnresolved: UnresolvedRef = () =>
       const target = resolve($ref, resource)
       if (target === undefined) {
         onUnresolved($ref, at)
+        if (underSecurity(at)) return obj
         return walk(siblings, ancestors, resource, at)
       }
       if (target && typeof target === 'object' && ancestors.includes(target as object)) return {}
@@ -149,7 +154,7 @@ export async function loadSpec (input: string | JsonSchema, fetchFn: typeof fetc
   const unresolved: string[] = []
   const inlined = inlineRefs(doc, (ref, at) => { unresolved.push(`  ${at}: ${ref}`) })
   if (unresolved.length && options.lint !== 'off') {
-    console.warn(`openapi-mcp: ${unresolved.length} $ref(s) the document does not resolve itself, read as {} (any value):\n${unresolved.join('\n')}`)
+    console.warn(`openapi-mcp: ${unresolved.length} $ref(s) the document does not resolve itself, read as {} (any value), or refused under security:\n${unresolved.join('\n')}`)
   }
   checkAnnotations(inlined, onOperation, key => leftOut.has(key))
   // The annotation is what makes an operation a tool: without it the operation contributes none

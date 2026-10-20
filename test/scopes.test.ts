@@ -149,6 +149,21 @@ describe('toolsForScopes', () => {
     assert.deepEqual(names(toolsForScopes(ts, ['items:read'])), ['public_read'])
     assert.equal(warn.mock.callCount(), 1)
   })
+  it('an unresolved $ref under security is refused, never read as the public {}', async (t) => {
+    const warn = t.mock.method(console, 'warn', () => {})
+    for (const security of [[{ $ref: '#/nowhere' }], { $ref: 'https://elsewhere.test/security.json' }]) {
+      const d: any = doc()
+      d.paths['/bare'].get.security = security
+      await assert.rejects(load(d, { fetch: fetchFn }), /bare_read: the security of GET \/bare is not a list of requirements/)
+    }
+    // an entry's own is refused earlier, by the vocabulary
+    await assert.rejects(load(doc([{ $ref: '#/nowhere' }]), { fetch: fetchFn }), /x-agent invalid at \/paths\/~1items~1\{id\}\/patch\/1: \/security\/0\/\$ref must be array/)
+    // elsewhere, the same ref still reads as {}
+    const d: any = doc()
+    d.paths['/bare'].get.responses[200].content = { 'application/json': { schema: { $ref: '#/nowhere' } } }
+    await load(d, { fetch: fetchFn })
+    assert.ok(warn.mock.callCount() > 0)
+  })
   it('an oauth2 requirement with no scopes is met by any scoped token', async () => {
     const d: any = doc()
     d.paths['/bare'].get.security = [{ oauth2: [] }]
