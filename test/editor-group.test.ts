@@ -117,6 +117,37 @@ describe('editor tool group', () => {
     const alice = await get.execute({ id: 'ds', lineId: 'l1' }, { identity: 'alice' })
     assert.match(alice.text, /Brest/, "alice's session keeps her edit")
   })
+
+  // json-layout's `fetch` option answers the parsed body, not a Response: handed a Response,
+  // every getItems URL failed with "getItems didn't return an array" (2026-10-28 smoke).
+  it('suggests the items of a getItems URL, fetched with the caller\'s headers', async () => {
+    const suggestCalls: { url: string, cookie: string | null }[] = []
+    const schema = {
+      type: 'object',
+      properties: {
+        commune: {
+          type: 'string',
+          title: 'Commune',
+          layout: { getItems: { url: 'https://api.test/v1/communes?q={q}', itemKey: 'data.code', itemTitle: 'data.nom', itemsResults: 'data.results' } }
+        }
+      }
+    }
+    const suggestFetch = (async (input: Request) => {
+      suggestCalls.push({ url: input.url, cookie: input.headers.get('cookie') })
+      if (input.url.includes('/schema')) return new Response(JSON.stringify(schema), { headers: { 'content-type': 'application/json' } })
+      if (input.url.includes('/communes')) return new Response(JSON.stringify({ results: [{ code: '44162', nom: 'Saint-Herblain' }] }), { headers: { 'content-type': 'application/json' } })
+      return new Response(JSON.stringify({}), { headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof globalThis.fetch
+    const { tools } = await load(doc, { fetch: suggestFetch, baseUrl: 'https://api.test/v1' })
+    const suggest = tools.find(t => t.name === 'item_getFieldSuggestions')!
+    const result = await suggest.execute({ id: 'ds', lineId: 'l1', path: '/commune', query: 'herblain' }, { identity: 'alice', headers: { cookie: 'who=alice' } })
+    assert.equal(result.isError, undefined, result.text)
+    assert.match(result.text, /44162/)
+    assert.match(result.text, /Saint-Herblain/)
+    const items = suggestCalls.find(c => c.url.includes('/communes'))
+    assert.equal(items?.url, 'https://api.test/v1/communes?q=herblain')
+    assert.equal(items?.cookie, 'who=alice')
+  })
 })
 
 // The group's form-filling guide was meant to be served as an MCP skill; while the json-layout

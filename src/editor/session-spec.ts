@@ -89,6 +89,7 @@ export function buildSessionSpec (ops: EditorOperations, pathParams: Record<stri
       await json(ctx, editorRequest(ops.write, own, {}, data, ctx.baseUrl))
       return { version: undefined }
     },
-    options: { fetch: ctx.fetch, fetchBaseURL: ctx.baseUrl }
+    // json-layout's fetch (getItems URLs) answers the parsed body, not a Response
+    options: { fetch: async (url: string, init?: RequestInit) => (await json(ctx, new Request(url, init))).value, fetchBaseURL: ctx.baseUrl }
   }
 }
