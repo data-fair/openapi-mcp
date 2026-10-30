@@ -75,7 +75,8 @@ export function buildSessionSpec (ops: EditorOperations, pathParams: Record<stri
     prefixName: `${ops.write.toolName}_`,
     schema: registry.get(ops, pathParams, ctx),
     load: async () => {
-      if (!read) return { data: {}, version: undefined }
+      // no document: the session creates records, and empties its form after each save
+      if (!read) return { data: undefined, version: undefined }
       const own: Record<string, unknown> = {}
       for (const p of read.params) if (p.in === 'path') own[p.name] = pathParams[p.name]
       const { value } = await json(ctx, editorRequest(read, own, {}, undefined, ctx.baseUrl))

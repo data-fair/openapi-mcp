@@ -90,6 +90,30 @@ describe('editor tool group', () => {
     assert.match(result.text, /Brest/)
   })
 
+  it('publishes the tools and skill of a form that saves', async () => {
+    const { tools, skills } = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    const set = tools.find(t => t.name === 'item_setFieldValue')!
+    assert.ok(set.inputSchema.properties.save, 'writes take the save option')
+    const skill = skills.find(s => s.tools?.includes('item_saveForm'))!
+    assert.match(skill.body!, /until you save them/)
+    assert.doesNotMatch(skill.body!, /read-only/)
+  })
+
+  it('empties the form of a create editor after each save, for the next record', async () => {
+    const create = structuredClone(doc) as any
+    delete create.paths['/collections/{id}/lines/{lineId}'].put['x-agent'].editor.readOperation
+    const { tools } = await load(create, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
+    const set = tools.find(t => t.name === 'item_setFieldValue')!
+    const get = tools.find(t => t.name === 'item_getData')!
+    const save = tools.find(t => t.name === 'item_saveForm')!
+    calls.length = 0
+    await set.execute({ id: 'new', lineId: 'l1', path: '/nom', value: 'Brest' })
+    const saved = await save.execute({ id: 'new', lineId: 'l1' })
+    assert.equal(saved.isError, undefined, saved.text)
+    assert.deepEqual(calls.filter(c => c.method === 'PUT').map(c => JSON.parse(c.body!)), [{ nom: 'Brest' }])
+    assert.doesNotMatch((await get.execute({ id: 'new', lineId: 'l1' })).text, /Brest/)
+  })
+
   it('appends the group guide to the instructions', async () => {
     const toolSet = await load(doc, { fetch: fetchFn, baseUrl: 'https://api.test/v1' })
     assert.match(instructions(toolSet), /item/)

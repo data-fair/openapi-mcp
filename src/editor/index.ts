@@ -6,7 +6,11 @@ import type { ResolvedOperation, Tool } from '../types.ts'
 
 const STUB_SPEC = {
   load: () => ({}),
-  schema: () => ({ type: 'object', properties: {} })
+  schema: () => ({ type: 'object', properties: {} }),
+  // never called: every editor group has a write operation, and a session without a save
+  // function publishes itself read-only (no `save` option on its writes, a skill that says
+  // saveForm refuses)
+  save: async () => ({ version: undefined })
 }
 
 interface EditorGroup {

@@ -57,7 +57,7 @@ describe('buildSessionSpec', () => {
     op.agent.editor = { schemaOperation: 'readSchema' }
     const ops = resolveEditorOperations(op, doc)
     const spec: any = buildSessionSpec(ops, { id: 'cities', lineId: 'abc' }, ctx, registry)
-    assert.deepEqual(await spec.load(), { data: {}, version: undefined })
+    assert.deepEqual(await spec.load(), { data: undefined, version: undefined })
     assert.equal(calls.length, 0)
   })
 
