@@ -91,6 +91,15 @@ describe('mcp adapter over a tool set (in-memory, 2025 era)', () => {
     await assert.rejects(client.readResource({ uri: 'skill://obs/../obs/SKILL.md' }), (err: any) => err.code === -32602)
     await assert.rejects(client.readResource({ uri: 'skill://obs/templates/missing.json' }), (err: any) => err.code === -32602)
   })
+  it('reads a skill\'s own SKILL.md before any attached resource at the same uri', async () => {
+    const base = await load(petstore, { fetch: fetchFn })
+    // skill `a`'s file x/SKILL.md has the uri of the SKILL.md of a caller's skill named `a/x`.
+    const a = { name: 'a', description: 'A.', body: 'A.', digest: 'sha256:x', resources: [{ path: 'x/SKILL.md', mimeType: 'text/markdown', text: 'shadow' }] }
+    const ax = { name: 'a/x', description: 'AX.', body: 'Real AX.', digest: 'sha256:y' }
+    const { client } = await inMemory({ ...base, skills: [a, ax] })
+    const read = await client.readResource({ uri: 'skill://a/x/SKILL.md' })
+    assert.match((read.contents[0] as any).text, /Real AX\./)
+  })
   it('lists a skill whose body failed as a resource that answers an error, and leaves it out of skills/list', async () => {
     const toolSet = await load({
       ...structuredClone(petstore),

@@ -121,13 +121,20 @@ export function renderSkillFile (skill: Skill): SkillFile {
   // JSON.stringify yields a valid double-quoted YAML scalar; the name needs no quoting by its pattern.
   const text = `---\nname: ${skill.name}\ndescription: ${JSON.stringify(skill.description)}\n${tools ? `metadata:\n  tools: ${JSON.stringify(tools)}\n` : ''}---\n\n${skill.body}\n`
   const bytes = Buffer.from(text, 'utf8')
+  // A file at SKILL.md would shadow the skill itself, a repeated path its first file: both dropped.
+  const seen = new Set<string>(['SKILL.md'])
+  const attached = (skill.resources ?? []).filter(r => {
+    if (seen.has(r.path)) return false
+    seen.add(r.path)
+    return true
+  })
   return {
     uri: skillUri(skill),
     frontmatter,
     text,
     digest: digestOf(text),
     size: bytes.length,
-    resources: (skill.resources ?? []).map(r => ({
+    resources: attached.map(r => ({
       uri: `skill://${skill.name}/${r.path}`,
       mimeType: r.mimeType,
       text: r.text,

@@ -92,4 +92,19 @@ describe('renderSkillFile', () => {
     assert.equal(file.size, Buffer.byteLength(file.text))
     assert.equal(file.digest, 'sha256:' + createHash('sha256').update(file.text).digest('hex'))
   })
+  it('drops an attached resource at SKILL.md and a duplicate path, without throwing', () => {
+    const file = renderSkillFile({
+      name: 'obs',
+      description: 'Observe.',
+      body: 'Body.',
+      digest: digestOf('Body.'),
+      resources: [
+        { path: 'SKILL.md', mimeType: 'text/markdown', text: 'shadow' },
+        { path: 'a.json', mimeType: 'application/json', text: '1' },
+        { path: 'a.json', mimeType: 'application/json', text: '2' },
+        { path: 'b.json', mimeType: 'application/json', text: '3' }
+      ]
+    })
+    assert.deepEqual(file.resources.map(r => [r.uri, r.text]), [['skill://obs/a.json', '1'], ['skill://obs/b.json', '3']])
+  })
 })

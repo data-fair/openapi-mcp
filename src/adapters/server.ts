@@ -86,13 +86,14 @@ export function toMcpServer (toolSet: ToolSet, server: Server, options: { ctx?: 
     ]
   }))
   server.setRequestHandler('resources/read', async (req) => {
+    // A skill's own SKILL.md first: no attached file can shadow it.
     const s = byUri.get(req.params.uri)
+    if (s) return { contents: [{ uri: s.uri, mimeType: 'text/markdown', text: s.text }] }
     const broken = failed.get(req.params.uri)
     if (broken) throw new ProtocolError(INTERNAL_ERROR, `The skill ${broken.name} could not be read: ${broken.error}`)
     const file = attached.get(req.params.uri)
     if (file) return { contents: [{ uri: file.uri, mimeType: file.mimeType, text: file.text }] }
-    if (!s) throw new ProtocolError(INVALID_PARAMS, `No resource is served at ${req.params.uri}`)
-    return { contents: [{ uri: s.uri, mimeType: 'text/markdown', text: s.text }] }
+    throw new ProtocolError(INVALID_PARAMS, `No resource is served at ${req.params.uri}`)
   })
   // The extension's two methods, on the base Resources primitive (SEP-2640). Custom methods
   // do not receive the SDK's cache hints, so the fields are set on the result directly.

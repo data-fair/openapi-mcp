@@ -44,8 +44,10 @@ format: `^[a-z0-9]+(-[a-z0-9]+)*$`, at most 64 characters.
 
 A caller may append skills of its own to the `ToolSet` it hands to the adapter. Such a `Skill` can carry
 `resources` (`{ path, mimeType, text }`), text files served at `skill://<name>/<path>` and listed after
-`SKILL.md` in the skill's `skills/list` entry with their `digest` and `size`. They are not part of `resources/list`,
-and a document's skills have none.
+`SKILL.md` in the skill's `skills/list` entry with their `digest` and `size`. They are not part of `resources/list`:
+a host discovers them through the skills extension (`skills/list`, `skills/get`), then reads them with `resources/read`.
+A `path` is relative to the skill and `/`-separated (`templates/page.json`); a file at `SKILL.md` and a repeated path
+are dropped. A document's skills have none.
 
 ## Tags
 
