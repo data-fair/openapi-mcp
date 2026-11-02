@@ -42,7 +42,7 @@ export function serverOptions (toolSet: ToolSet, cacheTtlMs: number, opts: { ski
   }
 }
 
-const skillEntry = (s: SkillFile) => ({ uri: s.uri, frontmatter: s.frontmatter, resources: [{ uri: s.uri, digest: s.digest, size: s.size }] })
+const skillEntry = (s: SkillFile) => ({ uri: s.uri, frontmatter: s.frontmatter, resources: [s, ...s.resources].map(r => ({ uri: r.uri, digest: r.digest, size: r.size })) })
 
 /** Register tools, resources and the skills extension on a low-level server, for one caller. */
 export function toMcpServer (toolSet: ToolSet, server: Server, options: { ctx?: CallContext, cacheTtlMs?: number } = {}): void {
@@ -51,6 +51,8 @@ export function toMcpServer (toolSet: ToolSet, server: Server, options: { ctx?: 
   // stays listed and answers the error, so an agent following an instructions entry learns why.
   const skills = toolSet.skills.filter(s => !s.error).map(renderSkillFile)
   const byUri = new Map(skills.map(s => [s.uri, s]))
+  // Exact-match lookup of every attached resource: no path is ever interpreted.
+  const attached = new Map(skills.flatMap(s => s.resources.map(r => [r.uri, r] as const)))
   const failed = new Map(toolSet.skills.filter(s => s.error).map(s => [skillUri(s), s]))
 
   server.setRequestHandler('tools/list', async () => ({
@@ -87,6 +89,8 @@ export function toMcpServer (toolSet: ToolSet, server: Server, options: { ctx?: 
     const s = byUri.get(req.params.uri)
     const broken = failed.get(req.params.uri)
     if (broken) throw new ProtocolError(INTERNAL_ERROR, `The skill ${broken.name} could not be read: ${broken.error}`)
+    const file = attached.get(req.params.uri)
+    if (file) return { contents: [{ uri: file.uri, mimeType: file.mimeType, text: file.text }] }
     if (!s) throw new ProtocolError(INVALID_PARAMS, `No resource is served at ${req.params.uri}`)
     return { contents: [{ uri: s.uri, mimeType: 'text/markdown', text: s.text }] }
   })

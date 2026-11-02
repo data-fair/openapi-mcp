@@ -92,6 +92,15 @@ export function editorSkill (op: ResolvedOperation, body: string, tools: string[
   return { name, description, body: text, digest: digestOf(text), tools }
 }
 
+/** An attached resource as served: its uri, content and the manifest's digest and size. */
+export interface SkillResourceFile {
+  uri: string
+  mimeType: string
+  text: string
+  digest: string
+  size: number
+}
+
 export interface SkillFile {
   uri: string
   frontmatter: { name: string, description: string, metadata?: { tools: string } }
@@ -99,6 +108,8 @@ export interface SkillFile {
   /** `sha256:` + 64 lowercase hex over `text`'s UTF-8 bytes */
   digest: string
   size: number
+  /** the skill's attached resources, after SKILL.md */
+  resources: SkillResourceFile[]
 }
 
 /** The SKILL.md a host reads through `resources/read`, with the entry fields `skills/list` publishes. */
@@ -114,7 +125,14 @@ export function renderSkillFile (skill: Skill): SkillFile {
     uri: skillUri(skill),
     frontmatter,
     text,
-    digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
-    size: bytes.length
+    digest: digestOf(text),
+    size: bytes.length,
+    resources: (skill.resources ?? []).map(r => ({
+      uri: `skill://${skill.name}/${r.path}`,
+      mimeType: r.mimeType,
+      text: r.text,
+      digest: digestOf(r.text),
+      size: Buffer.byteLength(r.text, 'utf8')
+    }))
   }
 }

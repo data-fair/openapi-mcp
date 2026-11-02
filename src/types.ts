@@ -206,6 +206,14 @@ export interface Tool {
   execute (params: Record<string, unknown>, ctx?: CallContext): Promise<ToolResult>
 }
 
+/** A text file attached to a skill, served at `skill://<name>/<path>`. */
+export interface SkillResource {
+  /** relative to the skill's root, `/`-separated, e.g. `templates/page.json` */
+  path: string
+  mimeType: string
+  text: string
+}
+
 /** A resolved skill, served as the `skill://<name>/SKILL.md` resource and listed in the instructions. */
 export interface Skill {
   name: string
@@ -218,6 +226,8 @@ export interface Skill {
   /** why a linked body could not be read; the skill stays listed and its resource read reports it */
   error?: string
   tools?: string[]
+  /** files served next to SKILL.md; a caller appends them, the document's skills have none */
+  resources?: SkillResource[]
 }
 
 /** Reads a linked skill body; never throws. */

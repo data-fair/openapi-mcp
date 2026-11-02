@@ -72,6 +72,25 @@ describe('mcp adapter over a tool set (in-memory, 2025 era)', () => {
     await assert.rejects(client.request({ method: 'skills/get', params: { uri: 'skill://nope/SKILL.md' } }, z.any()), (err: any) => err.code === -32602)
     await assert.rejects(client.readResource({ uri: 'skill://nope/SKILL.md' }), (err: any) => err.code === -32602)
   })
+  it('serves a skill\'s attached resources', async () => {
+    const base = await load(petstore, { fetch: fetchFn })
+    const text = '{"a":1}'
+    const skill = { name: 'obs', description: 'Observe.', body: 'Do it.', digest: 'sha256:x', resources: [{ path: 'templates/page.json', mimeType: 'application/json', text }] }
+    const { client } = await inMemory({ ...base, skills: [skill] })
+    const listed = await client.request({ method: 'skills/list', params: {} }, SkillsList)
+    const entry = listed.skills[0]
+    assert.deepEqual(entry.resources.map((r: any) => r.uri), ['skill://obs/SKILL.md', 'skill://obs/templates/page.json'])
+    assert.equal(entry.resources[1].size, 7)
+    assert.equal(entry.resources[1].digest, 'sha256:' + createHash('sha256').update(text).digest('hex'))
+    const got = await client.request({ method: 'skills/get', params: { uri: entry.uri } }, z.object({ skill: z.any() }).passthrough())
+    assert.deepEqual(got.skill, entry)
+    const read = await client.readResource({ uri: 'skill://obs/templates/page.json' })
+    assert.deepEqual(read.contents, [{ uri: 'skill://obs/templates/page.json', mimeType: 'application/json', text }])
+    const { resources } = await client.listResources()
+    assert.deepEqual(resources.map(r => r.uri), ['skill://obs/SKILL.md'])
+    await assert.rejects(client.readResource({ uri: 'skill://obs/../obs/SKILL.md' }), (err: any) => err.code === -32602)
+    await assert.rejects(client.readResource({ uri: 'skill://obs/templates/missing.json' }), (err: any) => err.code === -32602)
+  })
   it('lists a skill whose body failed as a resource that answers an error, and leaves it out of skills/list', async () => {
     const toolSet = await load({
       ...structuredClone(petstore),
