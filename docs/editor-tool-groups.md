@@ -54,7 +54,8 @@ Names are the operation's tool name, `_`, then the verb:
 | `<name>_saveForm` | Saves through the write operation; refused while the document is invalid. |
 | `<name>_reloadForm` | Reloads, discarding local changes. |
 
-Descriptions come from the package. Every tool carries the operation's security (or its narrowed
+Descriptions come from the package. `describeState`, `getData` and `getFieldSuggestions` are
+annotated `readOnlyHint: true`, the other five `false`. Every tool carries the operation's security (or its narrowed
 `security`), so `toolsForScopes` keeps or drops the group as a whole. The group also publishes its
 fill-form skill, named after the tool name in kebab case.
 

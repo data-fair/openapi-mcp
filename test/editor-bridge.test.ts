@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { bridgeTool, toToolResult } from '../src/editor/bridge.ts'
+import { bridgeTool, isReadOnlyFormTool, toToolResult } from '../src/editor/bridge.ts'
 
 describe('toToolResult', () => {
   it('joins text content', () => {
@@ -54,5 +54,23 @@ describe('bridgeTool', () => {
     assert.equal(result.isError, true)
     assert.match(result.text, /id/)
     assert.equal(called, false)
+  })
+})
+
+describe('isReadOnlyFormTool', () => {
+  it('marks the reads read-only and every write, save or reload not', () => {
+    for (const verb of ['describeState', 'getData', 'getFieldSuggestions', 'openSection']) {
+      assert.equal(isReadOnlyFormTool(`page_config_${verb}`), true, verb)
+      assert.equal(isReadOnlyFormTool(verb), true, verb)
+    }
+    for (const verb of ['setData', 'setFieldValue', 'editArray', 'saveForm', 'reloadForm']) {
+      assert.equal(isReadOnlyFormTool(`page_config_${verb}`), false, verb)
+    }
+  })
+
+  it('gives the bridged tool its annotation', () => {
+    const tool = (name: string) => bridgeTool({ name, description: '', execute: async () => ({}) }, [], async () => { throw new Error('unused') })
+    assert.deepEqual(tool('item_getData').annotations, { readOnlyHint: true })
+    assert.deepEqual(tool('item_setData').annotations, { readOnlyHint: false })
   })
 })

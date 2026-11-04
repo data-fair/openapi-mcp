@@ -15,6 +15,19 @@ export function toToolResult (result: { content?: { type: string, text?: string 
 }
 
 /**
+ * The package tools that change neither the record nor the form's data. Every other one
+ * writes (setData, setFieldValue, editArray), persists (saveForm) or drops local changes
+ * (reloadForm). A reviewer gating writes on readOnlyHint sends a read marked as a write to
+ * the person for approval: simulations stalled on describeState and getData doing exactly that.
+ */
+const READ_ONLY_VERBS = ['describeState', 'getData', 'getFieldSuggestions', 'openSection']
+
+/** Whether a package tool, named `<prefix>_<verb>` or bare `<verb>`, only reads. */
+export function isReadOnlyFormTool (name: string): boolean {
+  return READ_ONLY_VERBS.some(verb => name === verb || name.endsWith(`_${verb}`))
+}
+
+/**
  * One package tool, addressed by resource.
  *
  * The package's tools have fixed input schemas and no notion of which record is being
@@ -34,7 +47,7 @@ export function bridgeTool (descriptor: FormTool, pathParams: ResolvedParam[], r
       properties,
       required: [...pathParams.map(p => p.name), ...(descriptor.inputSchema?.required ?? [])]
     },
-    annotations: { readOnlyHint: false },
+    annotations: { readOnlyHint: isReadOnlyFormTool(descriptor.name) },
     async execute (params: Record<string, unknown>, ctx?: CallContext): Promise<ToolResult> {
       const pathValues: Record<string, unknown> = {}
       for (const p of pathParams) {
