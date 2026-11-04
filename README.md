@@ -104,7 +104,7 @@ The `openapi-mcp` binary loads one document at startup and serves it.
 | `LINT`              | `error`     | `error`, `warn` or `off` (see [Loading](docs/x-agent.md#loading))         |
 | `API_KEY_HEADER`    |             | Header added to every upstream request                                   |
 | `API_KEY`           |             | Its value                                                                |
-| `STRUCTURED_CONTENT`| `false`     | `true` also returns `structuredContent`                                   |
+| `STRUCTURED_CONTENT`| `false`     | `true` also returns `structuredContent`, projected like the text        |
 | `FILE_URL_PREFIXES` |             | Comma-separated URL prefixes of the file store; unset: file inputs off   |
 | `FILE_MAX_SIZE`     | `104857600` | Largest file input, in bytes                                             |
 | `FILE_TIMEOUT`      | `300`       | Seconds to fetch a file input                                            |

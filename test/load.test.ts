@@ -79,6 +79,12 @@ describe('load', () => {
     const res = await ts.tools[2].execute({ id: 'p1' })
     assert.deepEqual(res.structuredContent, { id: 'p1', name: 'Rex' })
   })
+  it('projects structuredContent like the text', async () => {
+    const body = { total: 1, results: [{ id: 'p1', name: 'Rex', internalCode: 'X', owner: { name: 'Ann' } }], meta: { hints: ['h'] } }
+    const ts = await load(petstore, { fetch: stub(() => json(body)).fetchFn, structuredContent: true })
+    assert.deepEqual((await ts.tools[0].execute({})).structuredContent, { total: 1, results: [{ id: 'p1', name: 'Rex' }], meta: { hints: ['h'] } })
+    assert.deepEqual((await ts.tools[0].execute({ fields: ['name', 'owner'] })).structuredContent, { total: 1, results: [{ name: 'Rex', owner: { name: 'Ann' } }], meta: { hints: ['h'] } })
+  })
   it('uses baseUrl override and empty responses', async () => {
     const { fetchFn, calls } = stub(() => new Response(null, { status: 204 }))
     const ts = await load(petstore, { fetch: fetchFn, baseUrl: 'http://localhost:1234/v1' })
