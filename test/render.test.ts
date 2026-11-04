@@ -87,5 +87,6 @@ describe('projectResult', () => {
     assert.deepEqual(projectResult({ id: 'p1', name: 'Rex' }, { response, locale: 'en' }), { id: 'p1' })
     assert.deepEqual(projectResult([{ id: 'p1', name: 'Rex' }, 3], { response, locale: 'en' }), [{ id: 'p1' }, 3])
     assert.deepEqual(projectResult({ id: 'p1', name: 'Rex' }, { locale: 'en' }), { id: 'p1', name: 'Rex' })
+    assert.deepEqual(projectResult({ id: 'p1', name: 'Rex', meta: { hints: ['h'], other: 1 } }, { response: { ...response, hints: '/meta/hints' }, locale: 'en' }), { id: 'p1', meta: { hints: ['h'] } })
   })
 })

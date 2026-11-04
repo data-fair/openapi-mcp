@@ -124,36 +124,38 @@ function project (row: Record<string, unknown>, keys: string[] | undefined): Rec
   return out
 }
 
+/** A copy of `value` with `v` at a path of object keys, missing parents created. */
+function setAt (value: Record<string, unknown>, [key, ...more]: string[], v: unknown): Record<string, unknown> {
+  return { ...value, [key]: more.length ? setAt(isObject(value[key]) ? value[key] : {}, more, v) : v }
+}
+
 /**
- * The parsed response cut like the text: excluded properties dropped, rows (or the object itself,
- * when it has no rows) reduced to the projected fields. A client may show `structuredContent` to the
- * model instead of the text, so it must not carry more than the text does.
+ * The response as the tool returns it, before any formatting: excluded properties dropped, rows
+ * (or the object itself, when it has no rows; its hints kept) reduced to the projected fields.
+ * Both the text and `structuredContent` are this value: a client may show either to the model.
  */
 export function projectResult (body: unknown, o: RenderOptions): unknown {
   const keys = projection(o)
   const value = strip(body, o.schema)
   if (Array.isArray(value)) return value.map(v => isObject(v) ? project(v, keys) : v)
-  if (!isObject(value)) return value
+  if (!isObject(value) || !keys) return value
   const rowsPointer = o.response?.rows
-  if (!rowsPointer) return project(value, keys)
-  const keysAt = pointerKeys(rowsPointer)
-  const projectAt = (node: Record<string, unknown>, path: string[]): Record<string, unknown> => {
-    const [key, ...more] = path
-    const child = node[key]
-    if (!more.length) return Array.isArray(child) ? { ...node, [key]: child.map(r => isObject(r) ? project(r, keys) : r) } : node
-    return isObject(child) ? { ...node, [key]: projectAt(child, more) } : node
-  }
-  return projectAt(value, keysAt)
+  const rows = rowsPointer ? extract(value, rowsPointer).found : undefined
+  if (Array.isArray(rows)) return setAt(value, pointerKeys(rowsPointer!), rows.map(r => isObject(r) ? project(r, keys) : r))
+  const hintsPointer = o.response?.hints
+  const withHints = hintsPointer ? extract(value, hintsPointer) : undefined
+  if (!Array.isArray(withHints?.found)) return project(value, keys)
+  return setAt(project(withHints.rest, keys), pointerKeys(hintsPointer!), withHints.found)
 }
 
 export function render (body: unknown, o: RenderOptions): string {
   const max = o.maxStringLength ?? 500
   const keys = projection(o)
-  const value = strip(body, o.schema)
+  const value = projectResult(body, o)
 
   if (!isObject(value)) {
     if (Array.isArray(value)) {
-      if (value.some(isObject)) return table(value.filter(isObject).map(r => project(r, keys)), o.schema, keys, o, max)
+      if (value.some(isObject)) return table(value.filter(isObject), o.schema, keys, o, max)
       return value.map(v => `- ${cell(v, max)}`).join('\n')
     }
     return value === null || value === undefined ? '' : isUrl(value) ? String(value) : truncate(String(value), max)
@@ -168,10 +170,10 @@ export function render (body: unknown, o: RenderOptions): string {
   const hints = Array.isArray(withHints?.found) ? withHints.found : undefined
   const rest = hints ? withHints!.rest : rows ? withRows!.rest : value
 
-  const out: string[] = kv(hasRows ? rest : project(rest, keys), o.schema, o, max, '')
+  const out: string[] = kv(rest, o.schema, o, max, '')
   if (hasRows) {
     if (out.length) out.push('')
-    out.push(table(rows.filter(isObject).map(r => project(r, keys)), schemaAt(o.schema, rowsPointer), keys, o, max))
+    out.push(table(rows.filter(isObject), schemaAt(o.schema, rowsPointer), keys, o, max))
   }
   if (hints?.length) {
     out.push('')
