@@ -173,7 +173,9 @@ response:
 | `file` | `true`: the response is a file, returned as a link. GET only, alone. See [File outputs](#file-outputs). |
 
 A response is projected on the caller's `fields`, else its `response_format`, else `concise`, else
-nothing. Strings are truncated (`maxStringLength`), except URLs and lists of URLs. An operation whose 2xx response
+nothing. The `structuredContent` (when `structuredContent: true`) is projected the same way, with
+`exclude` applied, but not truncated: a client may hand it to the model instead of the text, so it
+never carries more fields than the text. Strings are truncated (`maxStringLength`), except URLs and lists of URLs. An operation whose 2xx response
 offers `text/markdown` is asked for it, and the body is passed through as is.
 
 ### Schema properties

@@ -124,6 +124,28 @@ function project (row: Record<string, unknown>, keys: string[] | undefined): Rec
   return out
 }
 
+/**
+ * The parsed response cut like the text: excluded properties dropped, rows (or the object itself,
+ * when it has no rows) reduced to the projected fields. A client may show `structuredContent` to the
+ * model instead of the text, so it must not carry more than the text does.
+ */
+export function projectResult (body: unknown, o: RenderOptions): unknown {
+  const keys = projection(o)
+  const value = strip(body, o.schema)
+  if (Array.isArray(value)) return value.map(v => isObject(v) ? project(v, keys) : v)
+  if (!isObject(value)) return value
+  const rowsPointer = o.response?.rows
+  if (!rowsPointer) return project(value, keys)
+  const keysAt = pointerKeys(rowsPointer)
+  const projectAt = (node: Record<string, unknown>, path: string[]): Record<string, unknown> => {
+    const [key, ...more] = path
+    const child = node[key]
+    if (!more.length) return Array.isArray(child) ? { ...node, [key]: child.map(r => isObject(r) ? project(r, keys) : r) } : node
+    return isObject(child) ? { ...node, [key]: projectAt(child, more) } : node
+  }
+  return projectAt(value, keysAt)
+}
+
 export function render (body: unknown, o: RenderOptions): string {
   const max = o.maxStringLength ?? 500
   const keys = projection(o)

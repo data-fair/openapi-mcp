@@ -2,7 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { inlineRefs, resolveOperations } from '../src/spec.ts'
-import { render, type RenderOptions } from '../src/render.ts'
+import { render, projectResult, type RenderOptions } from '../src/render.ts'
 
 const petstore = inlineRefs(JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8')))
 const listPets = resolveOperations(petstore).find(o => o.operationId === 'listPets')!
@@ -65,5 +65,27 @@ describe('render', () => {
   it('renders arrays of objects without a schema as a table', () => {
     const out = render([{ a: 1, b: 'x' }, { a: 2, b: 'y' }], { locale: 'en' })
     assert.equal(out, '| a | b |\n| --- | --- |\n| 1 | x |\n| 2 | y |')
+  })
+})
+
+describe('projectResult', () => {
+  it('cuts rows to the concise set, keeps the rest whole', () => {
+    assert.deepEqual(projectResult(body, base), {
+      total: 2,
+      results: [{ id: 'p1', name: 'Rex' }, { id: 'p2', name: 'Tom | cat' }],
+      next: 'https://pets.example/api/pets?after=2',
+      meta: { hints: ['use q for text search'] }
+    })
+  })
+  it('follows the detailed preset and an explicit fields projection, never the excludes', () => {
+    const detailed = projectResult(body, { ...base, responseFormat: 'detailed' }) as typeof body
+    assert.ok(detailed.results.every(r => !('internalCode' in r)))
+    assert.deepEqual((projectResult(body, { ...base, fields: ['name'] }) as typeof body).results, [{ name: 'Rex' }, { name: 'Tom | cat' }])
+  })
+  it('projects an object without rows, and each object of an array', () => {
+    const response = { concise: ['id'] }
+    assert.deepEqual(projectResult({ id: 'p1', name: 'Rex' }, { response, locale: 'en' }), { id: 'p1' })
+    assert.deepEqual(projectResult([{ id: 'p1', name: 'Rex' }, 3], { response, locale: 'en' }), [{ id: 'p1' }, 3])
+    assert.deepEqual(projectResult({ id: 'p1', name: 'Rex' }, { locale: 'en' }), { id: 'p1', name: 'Rex' })
   })
 })

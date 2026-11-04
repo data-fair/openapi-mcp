@@ -6,7 +6,7 @@ import { buildEditorTools } from './editor/index.ts'
 import { buildInput } from './input.ts'
 import { buildRequest } from './request.ts'
 import { fileLink } from './file-link.ts'
-import { render } from './render.ts'
+import { render, projectResult, type RenderOptions } from './render.ts'
 import { localize } from './localize.ts'
 import { callFetch, contextualFetch } from './context.ts'
 import { resolveSkills, defaultSkillFetcher, editorSkill } from './skills.ts'
@@ -146,15 +146,16 @@ function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDes
         } catch (err: any) {
           return { isError: true, text: `Invalid JSON response: ${err?.message ?? err}` }
         }
-        const text = render(json, {
+        const renderOptions: RenderOptions = {
           schema: op.responseSchema,
           response: op.agent.response,
           fields: Array.isArray(params.fields) ? params.fields as string[] : undefined,
           responseFormat: params.response_format as 'concise' | 'detailed' | undefined,
           locale: o.locale,
           maxStringLength: o.maxStringLength
-        })
-        return o.structuredContent ? { text, structuredContent: json } : { text }
+        }
+        const text = render(json, renderOptions)
+        return o.structuredContent ? { text, structuredContent: projectResult(json, renderOptions) } : { text }
       }
       return { text: body }
     }
