@@ -6,7 +6,7 @@ import { buildEditorTools } from './editor/index.ts'
 import { buildInput } from './input.ts'
 import { buildRequest } from './request.ts'
 import { fileLink } from './file-link.ts'
-import { render, projectResult, type RenderOptions } from './render.ts'
+import { render, projectResult, extract, omitProperty, type RenderOptions } from './render.ts'
 import { localize } from './localize.ts'
 import { callFetch, contextualFetch } from './context.ts'
 import { resolveSkills, defaultSkillFetcher, editorSkill } from './skills.ts'
@@ -93,7 +93,7 @@ function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDes
     title: localize(op.agent.title, o.locale),
     description: description || op.operationId,
     inputSchema,
-    outputSchema: o.structuredContent && !fileResponse ? op.responseSchema : undefined,
+    outputSchema: o.structuredContent && !fileResponse ? [op.agent.response?.image, op.agent.response?.text].reduce((s, p) => p ? omitProperty(s, p) : s, op.responseSchema) : undefined,
     annotations: { readOnlyHint: op.method === 'GET' || op.method === 'HEAD', destructiveHint: op.method === 'DELETE', ...(op.agent.annotations ?? {}) },
     examples: op.agent.examples,
     security: op.security,
@@ -154,8 +154,30 @@ function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDes
           locale: o.locale,
           maxStringLength: o.maxStringLength
         }
-        const text = render(json, renderOptions)
-        return o.structuredContent ? { text, structuredContent: projectResult(json, renderOptions) } : { text }
+        // The image and the verbatim text leave the body before rendering: neither is rendered nor structured.
+        const { image: imagePointer, text: textPointer } = op.agent.response ?? {}
+        let rest: unknown = json
+        let image: ToolResult['image']
+        let verbatim: string | undefined
+        if (json && typeof json === 'object' && !Array.isArray(json)) {
+          if (imagePointer) {
+            const extracted = extract(json as Record<string, unknown>, imagePointer)
+            rest = extracted.rest
+            const found = extracted.found as any
+            if (typeof found?.data === 'string' && typeof found?.mediaType === 'string') image = { data: found.data, mimeType: found.mediaType }
+          }
+          if (textPointer) {
+            const extracted = extract(rest as Record<string, unknown>, textPointer)
+            rest = extracted.rest
+            if (typeof extracted.found === 'string') verbatim = extracted.found
+          }
+        }
+        const text = verbatim ?? render(rest, renderOptions)
+        return {
+          text,
+          ...(o.structuredContent ? { structuredContent: projectResult(rest, renderOptions) } : {}),
+          ...(image ? { image } : {})
+        }
       }
       return { text: body }
     }

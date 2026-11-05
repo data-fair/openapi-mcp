@@ -33,6 +33,13 @@ export interface AgentResponse {
    * `resource_link`) built from its arguments. GET only; excludes every rendering key.
    */
   file?: true
+  /**
+   * JSON pointer to an `{ data, mediaType }` object holding a base64 image: the tool returns it
+   * as an MCP image part and keeps it out of the text and the structured content.
+   */
+  image?: string
+  /** JSON pointer to a string returned verbatim as the result text, in place of the rendered body */
+  text?: string
 }
 
 export interface AgentOperation {
@@ -176,6 +183,8 @@ export interface ToolResult {
   isError?: boolean
   /** a file returned by reference (`response.file`); `text` then describes it */
   resourceLink?: ResourceLink
+  /** an image returned inline (`response.image`), after the text */
+  image?: { data: string, mimeType: string }
 }
 
 /**

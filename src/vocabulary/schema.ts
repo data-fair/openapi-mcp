@@ -93,7 +93,9 @@ export const operationSchema: JsonSchema = {
         detailed: { oneOf: [{ const: true }, { type: 'array', items: { type: 'string' }, minItems: 1 }] },
         selectParam: { type: 'string' },
         hints: { type: 'string', pattern: '^(/[^/]+)+$' },
-        file: { const: true }
+        file: { const: true },
+        image: { type: 'string', pattern: '^(/[^/]+)+$' },
+        text: { type: 'string', pattern: '^(/[^/]+)+$' }
       }
     },
     editor: {

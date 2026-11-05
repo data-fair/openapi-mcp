@@ -1,5 +1,5 @@
 import { validateVocabulary, type OperationFinding } from './vocabulary/validate.ts'
-import { responseFields } from './input.ts'
+import { responseFields, schemaAt } from './input.ts'
 import { resolveEditorOperations } from './editor/operations.ts'
 import type { JsonSchema, AgentOperation, AgentOperationAnnotation, AgentParamOverride, ResolvedBody, ResolvedOperation, ResolvedParam, SecurityRequirement } from './types.ts'
 
@@ -267,7 +267,15 @@ function checkBody (op: ResolvedOperation, view: AgentOperation, at: string) {
 }
 
 function checkResponse (op: ResolvedOperation) {
-  const { selectParam, rows, file } = op.agent.response ?? {}
+  const { selectParam, rows, file, image, text } = op.agent.response ?? {}
+  for (const [key, pointer] of [['image', image], ['text', text]] as const) {
+    if (!pointer) continue
+    if (file) throw new Error(`${op.toolName}: response.${key} cannot be combined with response.file`)
+    const node = schemaAt(op.responseSchema, pointer)
+    const str = (s: any) => s?.type === 'string'
+    const ok = key === 'text' ? str(node) : str(node?.properties?.data) && str(node?.properties?.mediaType)
+    if (!ok) throw new Error(`${op.toolName}: response.${key} "${pointer}" does not resolve to ${key === 'text' ? 'a string property' : 'an object with string properties data and mediaType'} in the 2xx response schema`)
+  }
   if (selectParam) {
     if (!op.params.some(p => p.name === selectParam)) throw new Error(`${op.toolName}: response.selectParam "${selectParam}" is not a parameter`)
     if (!responseFields(op.responseSchema, rows).length) throw new Error(`${op.toolName}: response.selectParam "${selectParam}" needs response fields, but the response schema declares no properties (at ${rows ? `"${rows}"` : 'the top level'})`)

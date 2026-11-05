@@ -289,6 +289,25 @@ a text block for clients that ignore links. The client fetches it with its own c
 
 A file output cannot carry header parameters: exclude them.
 
+### Image and verbatim text outputs
+
+`response: { image: '/image', text: '/text' }` on an operation whose JSON body carries a base64
+image and a preformatted report:
+
+```yaml
+x-agent: { name: preview_page, response: { image: /image, text: /text } }
+```
+
+- `image`: pointer, through object keys, to an object with string properties `data` (base64) and
+  `mediaType`. It must resolve in the 2xx response schema. The tool result gets an MCP `image`
+  part (`{ type: 'image', data, mimeType }`) after the text part; the base64 is in neither the
+  text nor `structuredContent`, nor the output schema.
+- `text`: pointer to a string property. The result text is that string verbatim, instead of the
+  rendered body; `structuredContent` is the body without the image and the text. Without `text`,
+  the text is the usual rendering of the body minus the image.
+
+Neither combines with `file`.
+
 ## Not in the vocabulary
 
 Templates, hooks, executable composition and codegen. `x-agent` describes an API to an agent; it

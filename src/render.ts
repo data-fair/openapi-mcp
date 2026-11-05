@@ -101,7 +101,7 @@ function kv (value: unknown, schema: JsonSchema | undefined, o: RenderOptions, m
 }
 
 /** The value at a JSON pointer of object keys, and a copy of `value` without it (an emptied parent object goes too). */
-function extract (value: Record<string, unknown>, pointer: string | string[]): { found: unknown, rest: Record<string, unknown> } {
+export function extract (value: Record<string, unknown>, pointer: string | string[]): { found: unknown, rest: Record<string, unknown> } {
   const [key, ...more] = typeof pointer === 'string' ? pointerKeys(pointer) : pointer
   if (!(key in value)) return { found: undefined, rest: value }
   const rest = { ...value }
@@ -134,6 +134,19 @@ function setAt (value: Record<string, unknown>, [key, ...more]: string[], v: unk
  * (or the object itself, when it has no rows; its hints kept) reduced to the projected fields.
  * Both the text and `structuredContent` are this value: a client may show either to the model.
  */
+/** A copy of an object schema without the property at a JSON pointer (and its `required` entry). */
+export function omitProperty (schema: any, pointer: string): any {
+  const [key, ...more] = pointerKeys(pointer)
+  if (!schema?.properties || !(key in schema.properties)) return schema
+  const properties = { ...schema.properties }
+  if (more.length) properties[key] = omitProperty(properties[key], '/' + more.join('/'))
+  else delete properties[key]
+  const out = { ...schema, properties }
+  if (!more.length && Array.isArray(schema.required)) out.required = schema.required.filter((k: string) => k !== key)
+  if (out.required && !out.required.length) delete out.required
+  return out
+}
+
 export function projectResult (body: unknown, o: RenderOptions): unknown {
   const keys = projection(o)
   const value = strip(body, o.schema)

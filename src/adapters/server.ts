@@ -71,7 +71,8 @@ export function toMcpServer (toolSet: ToolSet, server: Server, options: { ctx?: 
     if (!tool) return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${req.params.name}` }] }
     const result = await tool.execute(req.params.arguments ?? {}, options.ctx)
     // The text first: a client that ignores resource links still reads where the file is.
-    const content: ({ type: 'text', text: string } | { type: 'resource_link', uri: string, name: string, mimeType?: string })[] = [{ type: 'text', text: result.text }]
+    const content: ({ type: 'text', text: string } | { type: 'image', data: string, mimeType: string } | { type: 'resource_link', uri: string, name: string, mimeType?: string })[] = [{ type: 'text', text: result.text }]
+    if (result.image) content.push({ type: 'image', ...result.image })
     if (result.resourceLink) content.push({ type: 'resource_link', ...result.resourceLink })
     return {
       content,
