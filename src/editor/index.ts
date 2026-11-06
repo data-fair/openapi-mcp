@@ -41,12 +41,13 @@ export async function buildEditorTools (op: ResolvedOperation, ctx: EditorContex
   // A declared request-body schema is known now, and it is what carries the agent guide; it
   // costs no request. A schema behind an operation would, so that one stays the stub.
   const declared = ops.schema ? undefined : ops.write.requestBody?.schema
+  const operationTitle = localize(op.agent.title, ctx.locale) ?? op.operationId
   const bootstrap = createFormSession({
     ...STUB_SPEC,
     ...(declared ? { schema: async () => await ctx.prepareSchema(structuredClone(declared)) } : {}),
     // The title is the same expression buildSessionSpec uses: the package interpolates it
     // into every tool description, so published and runtime text must not drift.
-    title: localize(op.agent.title, ctx.locale) ?? op.operationId,
+    title: operationTitle,
     prefixName: `${op.toolName}_`
   } as any)
   await bootstrap.open()
@@ -66,7 +67,7 @@ export async function buildEditorTools (op: ResolvedOperation, ctx: EditorContex
     const tool = session.getTools().find((t: FormTool) => t.name === descriptor.name)
     if (!tool) throw new Error(`the session has no tool named "${descriptor.name}"`)
     return tool
-  }, op.agent.annotations?.openWorldHint))
+  }, op.agent.annotations?.openWorldHint, { operationTitle, locale: ctx.locale }))
   // Every tool of the group drives the one operation, so each carries its security.
   const tools = bridged.map(tool => ({ ...tool, security: op.security }))
   return { tools, skill }

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { bridgeTool, isReadOnlyFormTool, toToolResult } from '../src/editor/bridge.ts'
+import { bridgeTool, formToolTitle, FORM_VERB_LABELS, isReadOnlyFormTool, toToolResult } from '../src/editor/bridge.ts'
 
 describe('toToolResult', () => {
   it('joins text content', () => {
@@ -72,6 +72,17 @@ describe('isReadOnlyFormTool', () => {
     const tool = (name: string) => bridgeTool({ name, description: '', execute: async () => ({}) }, [], async () => { throw new Error('unused') })
     assert.deepEqual(tool('item_getData').annotations, { readOnlyHint: true })
     assert.deepEqual(tool('item_setData').annotations, { readOnlyHint: false })
+  })
+
+  it('titles every form tool with the operation title and a verb label in the locale', () => {
+    const tool = (name: string, locale?: string) => bridgeTool({ name, description: '', execute: async () => ({}) }, [], async () => { throw new Error('unused') }, undefined, { operationTitle: 'Page', locale })
+    assert.equal(tool('portals_page_config_saveForm', 'fr').annotations.title, 'Page — enregistrer')
+    assert.equal(tool('portals_page_config_editArray', 'fr').annotations.title, 'Page — modifier une liste')
+    assert.equal(tool('portals_page_config_saveForm', 'en').annotations.title, 'Page — save')
+    assert.equal(tool('getData').annotations.title, 'Page — read')
+    assert.deepEqual(tool('item_getData', 'fr').annotations, { title: 'Page — lire', readOnlyHint: true })
+    for (const verb of Object.keys(FORM_VERB_LABELS)) assert.ok(formToolTitle(`x_${verb}`, 'T', 'fr')?.startsWith('T — '), verb)
+    assert.equal(formToolTitle('x_unknown', 'T'), undefined)
   })
 
   it('carries the operation\'s openWorldHint to every verb', () => {

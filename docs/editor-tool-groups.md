@@ -56,7 +56,7 @@ Names are the operation's tool name, `_`, then the verb:
 
 Descriptions come from the package. `describeState`, `getData` and `getFieldSuggestions` are
 annotated `readOnlyHint: true`, the other five `false`. An `openWorldHint` among the write operation's `annotations` is
-given to all eight: whether the record holds outside content is the API's to say. Every tool carries the operation's security (or its narrowed
+given to all eight: whether the record holds outside content is the API's to say. Each carries an `annotations.title`, `<operation title> — <verb label>` (`FORM_VERB_LABELS`, french when the locale is fr, english otherwise), so an approval card is not headed by a raw tool name. Every tool carries the operation's security (or its narrowed
 `security`), so `toolsForScopes` keeps or drops the group as a whole. The group also publishes its
 fill-form skill, named after the tool name in kebab case.
 

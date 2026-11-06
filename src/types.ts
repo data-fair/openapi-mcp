@@ -2,6 +2,7 @@ export type JsonSchema = Record<string, any>
 export type Localized = string | Record<string, string>
 
 export interface ToolAnnotations {
+  title?: string
   readOnlyHint?: boolean
   destructiveHint?: boolean
   idempotentHint?: boolean
