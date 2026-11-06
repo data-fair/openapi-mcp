@@ -73,4 +73,11 @@ describe('isReadOnlyFormTool', () => {
     assert.deepEqual(tool('item_getData').annotations, { readOnlyHint: true })
     assert.deepEqual(tool('item_setData').annotations, { readOnlyHint: false })
   })
+
+  it('carries the operation\'s openWorldHint to every verb', () => {
+    const tool = (name: string, openWorldHint?: boolean) => bridgeTool({ name, description: '', execute: async () => ({}) }, [], async () => { throw new Error('unused') }, openWorldHint)
+    assert.deepEqual(tool('item_getData', false).annotations, { readOnlyHint: true, openWorldHint: false })
+    assert.deepEqual(tool('item_saveForm', false).annotations, { readOnlyHint: false, openWorldHint: false })
+    assert.deepEqual(tool('item_getData').annotations, { readOnlyHint: true })
+  })
 })

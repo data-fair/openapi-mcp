@@ -66,7 +66,7 @@ export async function buildEditorTools (op: ResolvedOperation, ctx: EditorContex
     const tool = session.getTools().find((t: FormTool) => t.name === descriptor.name)
     if (!tool) throw new Error(`the session has no tool named "${descriptor.name}"`)
     return tool
-  }))
+  }, op.agent.annotations?.openWorldHint))
   // Every tool of the group drives the one operation, so each carries its security.
   const tools = bridged.map(tool => ({ ...tool, security: op.security }))
   return { tools, skill }

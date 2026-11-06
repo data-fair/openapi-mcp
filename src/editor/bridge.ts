@@ -1,5 +1,5 @@
 import { currentCall } from '../context.ts'
-import type { CallContext, JsonSchema, ResolvedParam, Tool, ToolResult } from '../types.ts'
+import type { CallContext, JsonSchema, ResolvedParam, Tool, ToolAnnotations, ToolResult } from '../types.ts'
 
 /** The shape @json-layout/agents hands us; typed here so this module need not import the optional peer. */
 export interface FormTool {
@@ -32,9 +32,10 @@ export function isReadOnlyFormTool (name: string): boolean {
  *
  * The package's tools have fixed input schemas and no notion of which record is being
  * edited, so the path parameters are added here and stripped back off before delegating.
- * `resolve` opens or resumes the session for those parameters.
+ * `resolve` opens or resumes the session for those parameters. `openWorldHint` is the write operation's own
+ * (x-agent annotations): whether the record holds outside content is the API's to say, for every verb alike.
  */
-export function bridgeTool (descriptor: FormTool, pathParams: ResolvedParam[], resolve: (pathValues: Record<string, unknown>, ctx: CallContext | undefined) => Promise<FormTool>): Tool {
+export function bridgeTool (descriptor: FormTool, pathParams: ResolvedParam[], resolve: (pathValues: Record<string, unknown>, ctx: CallContext | undefined) => Promise<FormTool>, openWorldHint?: boolean): Tool {
   const properties: Record<string, unknown> = {}
   for (const p of pathParams) properties[p.name] = p.schema
   for (const [k, v] of Object.entries(descriptor.inputSchema?.properties ?? {})) properties[k] = v
@@ -47,7 +48,7 @@ export function bridgeTool (descriptor: FormTool, pathParams: ResolvedParam[], r
       properties,
       required: [...pathParams.map(p => p.name), ...(descriptor.inputSchema?.required ?? [])]
     },
-    annotations: { readOnlyHint: isReadOnlyFormTool(descriptor.name) },
+    annotations: { readOnlyHint: isReadOnlyFormTool(descriptor.name), ...(openWorldHint === undefined ? {} : { openWorldHint }) } satisfies ToolAnnotations,
     async execute (params: Record<string, unknown>, ctx?: CallContext): Promise<ToolResult> {
       const pathValues: Record<string, unknown> = {}
       for (const p of pathParams) {

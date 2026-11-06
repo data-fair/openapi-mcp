@@ -55,7 +55,8 @@ Names are the operation's tool name, `_`, then the verb:
 | `<name>_reloadForm` | Reloads, discarding local changes. |
 
 Descriptions come from the package. `describeState`, `getData` and `getFieldSuggestions` are
-annotated `readOnlyHint: true`, the other five `false`. Every tool carries the operation's security (or its narrowed
+annotated `readOnlyHint: true`, the other five `false`. An `openWorldHint` among the write operation's `annotations` is
+given to all eight: whether the record holds outside content is the API's to say. Every tool carries the operation's security (or its narrowed
 `security`), so `toolsForScopes` keeps or drops the group as a whole. The group also publishes its
 fill-form skill, named after the tool name in kebab case.
 
