@@ -1,6 +1,7 @@
 import { resolveEditorOperations } from './operations.ts'
 import { buildSessionSpec, createSchemaRegistry, type EditorContext } from './session-spec.ts'
 import { bridgeTool, type FormTool } from './bridge.ts'
+import { uncheckedLine } from './server-copy.ts'
 import { localize } from '../localize.ts'
 import type { ResolvedOperation, Tool } from '../types.ts'
 
@@ -60,13 +61,25 @@ export async function buildEditorTools (op: ResolvedOperation, ctx: EditorContex
     // one. Without an identity the process is one caller (stdio) and sessions are global.
     const key = `${callCtx?.identity ?? ''}:${op.toolName}:${pathParams.map(p => String(pathValues[p.name])).join(':')}`
     const session = await store.getOrCreate(key, async () => {
-      const created = createFormSession(buildSessionSpec(ops, pathValues, ctx, registry) as any)
+      const created: any = createFormSession(buildSessionSpec(ops, pathValues, ctx, registry, () => { created.uncheckedSave = true }) as any)
       await created.open()
       return created
     })
-    const tool = session.getTools().find((t: FormTool) => t.name === descriptor.name)
+    const tool: FormTool | undefined = session.getTools().find((t: FormTool) => t.name === descriptor.name)
     if (!tool) throw new Error(`the session has no tool named "${descriptor.name}"`)
-    return tool
+    // A session that creates records empties its form after a save: nothing to check.
+    if (!ops.read) return tool
+    return {
+      ...tool,
+      async execute (args) {
+        session.uncheckedSave = false
+        const result = await tool.execute(args)
+        const unchecked = session.uncheckedSave === true
+        session.uncheckedSave = false
+        if (!unchecked || result.isError) return result
+        return { ...result, content: [...(result.content ?? []), { type: 'text', text: uncheckedLine(`${op.toolName}_reloadForm`) }] }
+      }
+    }
   }, op.agent.annotations?.openWorldHint, { operationTitle, locale: ctx.locale }))
   // Every tool of the group drives the one operation, so each carries its security.
   const tools = bridged.map(tool => ({ ...tool, security: op.security }))

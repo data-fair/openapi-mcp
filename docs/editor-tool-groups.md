@@ -67,6 +67,15 @@ one form per caller and document, resumed by any call with the same parameters u
 `reloadForm`. A save sends the whole document (PUT or POST); a failed one comes back as an
 `isError` result with the API's message.
 
+After a successful save, a response body that is the saved document goes back to the session as
+the server's copy (`@json-layout/agents` ≥ 0.5): when the server changed fields (derived,
+normalized, stamped), the form takes its copy and the save result names the changed JSON pointers
+(`the server changed 2 field(s) while saving: /theme/colors/primary, …`, ten at most). When the
+response has no body or is another resource (an acknowledgment, an envelope: fewer than half of
+the top-level keys shared with what was sent), the form keeps what was sent and the result of a
+document's save says to call `reloadForm` to read what the server stored. A session that creates
+records empties its form after each save either way.
+
 ## The schema
 
 `load`'s `prepareEditorSchema(schema)` adapts a form schema before json-layout compiles it: a

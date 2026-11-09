@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { localize } from '../localize.ts'
 import { editorRequest, type EditorOperations } from './operations.ts'
+import { sameShape } from './server-copy.ts'
 import type { AgentEditor, JsonSchema } from '../types.ts'
 
 export interface EditorContext {
@@ -68,7 +69,8 @@ export function createSchemaRegistry (): SchemaRegistry {
   }
 }
 
-export function buildSessionSpec (ops: EditorOperations, pathParams: Record<string, unknown>, ctx: EditorContext, registry: SchemaRegistry): object {
+/** `onUncheckedSave` hears of each successful save whose response is not the stored document. */
+export function buildSessionSpec (ops: EditorOperations, pathParams: Record<string, unknown>, ctx: EditorContext, registry: SchemaRegistry, onUncheckedSave?: () => void): object {
   const read = ops.read
   return {
     title: localize(ops.write.agent.title, ctx.locale) ?? ops.write.operationId,
@@ -87,7 +89,12 @@ export function buildSessionSpec (ops: EditorOperations, pathParams: Record<stri
     save: async (data: unknown) => {
       const own: Record<string, unknown> = {}
       for (const p of ops.write.params) if (p.in === 'path') own[p.name] = pathParams[p.name]
-      await json(ctx, editorRequest(ops.write, own, {}, data, ctx.baseUrl))
+      const { text, value } = await json(ctx, editorRequest(ops.write, own, {}, data, ctx.baseUrl))
+      // The stored document goes back to the session, which loads it into the form and
+      // names the fields the server changed (derived, normalized, stamped). A body that is
+      // something else (none, an acknowledgment, an envelope) must not replace the form.
+      if (text !== '' && sameShape(data, value)) return { data: value, version: undefined }
+      onUncheckedSave?.()
       return { version: undefined }
     },
     // json-layout's fetch (getItems URLs) answers the parsed body, not a Response
