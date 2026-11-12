@@ -67,7 +67,7 @@
     "mime-types": "^3.0.2"
   },
   "peerDependencies": {
-    "@json-layout/agents": "^0.5.0"
+    "@json-layout/agents": "^0.5.1"
   },
   "peerDependenciesMeta": {
     "@json-layout/agents": {
@@ -78,7 +78,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.3.269",
     "@data-fair/agent-tools-data-fair": "^0.6.4",
     "@data-fair/lib-utils": "^1.5.0",
-    "@json-layout/agents": "^0.5.0",
+    "@json-layout/agents": "^0.5.1",
     "@modelcontextprotocol/client": "^2.0.0",
     "@types/debug": "^4.1.12",
     "@types/mime-types": "^3.0.1",

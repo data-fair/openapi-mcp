@@ -67,7 +67,7 @@ describe('editor save adopts the server copy', () => {
     await set.execute({ id: 'p', path: '/color', value: 'red' })
     const saved = await save.execute({ id: 'p' })
     assert.equal(saved.isError, undefined, saved.text)
-    assert.match(saved.text, /the server changed 1 field\(s\) while saving: \/derived; the form now holds the server's copy/)
+    assert.match(saved.text, /the server changed 1 field\(s\) while saving: \/derived = "RED"; the form now holds the server's copy/)
     assert.match((await get.execute({ id: 'p' })).text, /RED/)
   })
 
