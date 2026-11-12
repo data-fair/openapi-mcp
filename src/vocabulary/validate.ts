@@ -61,6 +61,7 @@ function checkView (view: unknown, path: string, method: string) {
   const { editor, bodyFields, bodyRequired, response } = view as AgentOperation
   if (editor !== undefined && bodyFields) throw new Error(`x-agent invalid at ${path}: bodyFields does not apply to an editor group`)
   if (editor !== undefined && bodyRequired) throw new Error(`x-agent invalid at ${path}: bodyRequired does not apply to an editor group`)
+  if (editor !== undefined && (view as AgentOperation).labels) throw new Error(`x-agent invalid at ${path}: labels does not apply to an editor group`)
   if (response?.file) {
     if (method !== 'get') throw new Error(`x-agent invalid at ${path}: response.file needs a GET operation: the tool returns a link to fetch, it sends no request`)
     const rendering = RENDERING.filter(k => response[k] !== undefined)

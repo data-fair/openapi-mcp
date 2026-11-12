@@ -72,6 +72,12 @@ export interface AgentOperation {
    */
   bodyRequired?: string[]
   response?: AgentResponse
+  /**
+   * Checked labels, by the tool input they check (a parameter or a body property, by its tool-facing
+   * name): each adds an input carrying the label of what that id names, read before the call and
+   * compared, the call refused on a mismatch. See docs/x-agent.md#checked-labels.
+   */
+  labels?: Record<string, AgentLabel>
   editor?: true | AgentEditor
   /**
    * The tool's security, narrowing the operation's: each alternative must be one the
@@ -86,6 +92,17 @@ export interface AgentOperation {
  * a PATCH whose fields serve different purposes is offered as one tool per purpose.
  */
 export type AgentOperationAnnotation = AgentOperation | AgentOperation[]
+
+/**
+ * A label checked against what an id input names: the input `name` carries it, `operation` (a GET
+ * with one path parameter, the id) reads the resource, `field` points to the label in its response.
+ */
+export interface AgentLabel {
+  name: string
+  operation: string
+  field: string
+  description?: Localized
+}
 
 /** Names the operations a json-layout editor group reads its schema and document from. */
 export interface AgentEditor {

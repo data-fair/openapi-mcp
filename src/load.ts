@@ -5,6 +5,7 @@ import { loadSpec, resolveOperations } from './spec.ts'
 import { buildEditorTools } from './editor/index.ts'
 import { buildInput } from './input.ts'
 import { buildRequest } from './request.ts'
+import { resolveLabels, addLabelInputs, checkLabels, type ResolvedLabel } from './labels.ts'
 import { fileLink } from './file-link.ts'
 import { render, projectResult, extract, omitProperty, type RenderOptions } from './render.ts'
 import { localize } from './localize.ts'
@@ -73,12 +74,14 @@ type ToolOptions = Required<Omit<LoadOptions, 'documentUrl' | 'skillBodies' | 'f
 /** A fetch failure's message with its cause: undici reports a failed body stream as "fetch failed". */
 const failureText = (err: any) => err?.cause?.message ? `${err.message} (${err.cause.message})` : (err?.message ?? String(err))
 
-function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDescriptions: Set<string> }) | undefined {
+function makeTool (op: ResolvedOperation, o: ToolOptions, labels: ResolvedLabel[]): (Tool & { authoredDescriptions: Set<string> }) | undefined {
   const { inputSchema, bindings, authoredDescriptions, bodySchema, unavailable } = buildInput(op, o.locale, { files: o.files })
   if (unavailable) {
     debug('not offered: %s', unavailable)
     return undefined
   }
+  // The label inputs are the tool's own: no binding, so they never reach the API.
+  for (const name of addLabelInputs(inputSchema, labels, o.locale, op.toolName)) authoredDescriptions.add(name)
   const fileResponse = op.agent.response?.file === true
   const validate = ajv.compile(inputSchema)
   // In compact mode the tool's own schema describes the body only as `object`, so the real
@@ -109,6 +112,16 @@ function makeTool (op: ResolvedOperation, o: ToolOptions): (Tool & { authoredDes
         } catch (err: any) {
           return { isError: true, text: `Request failed: ${err?.message ?? err}` }
         }
+      }
+      // Before anything is sent, files included: a label that is not its id's refuses the call.
+      if (labels.length) {
+        let refused: string | undefined
+        try {
+          refused = await checkLabels(labels, params, ctx, o.fetch, o.baseUrl)
+        } catch (err: any) {
+          return { isError: true, text: `Request failed while checking labels: ${failureText(err)}` }
+        }
+        if (refused) return { isError: true, text: refused }
       }
       // Every file is opened before the request: its Content-Length needs every size.
       let files: Record<string, FileSource>
@@ -214,7 +227,7 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
   const built = plainOps.flatMap(op => {
     let tool: ReturnType<typeof makeTool>
     try {
-      tool = makeTool(op, o)
+      tool = makeTool(op, o, resolveLabels(op, doc))
     } catch (err) {
       failed(op, err)
     }

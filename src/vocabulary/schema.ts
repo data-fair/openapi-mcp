@@ -98,6 +98,20 @@ export const operationSchema: JsonSchema = {
         text: { type: 'string', pattern: '^(/[^/]+)+$' }
       }
     },
+    labels: {
+      type: 'object',
+      additionalProperties: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'operation', 'field'],
+        properties: {
+          name: { type: 'string', pattern: '^[a-zA-Z_][a-zA-Z0-9_]*$' },
+          operation: { type: 'string' },
+          field: { type: 'string', pattern: '^(/[^/]+)+$' },
+          description: localized
+        }
+      }
+    },
     editor: {
       oneOf: [
         { const: true },

@@ -1,6 +1,7 @@
 import { validateVocabulary, type OperationFinding } from './vocabulary/validate.ts'
 import { responseFields, schemaAt } from './input.ts'
 import { resolveEditorOperations } from './editor/operations.ts'
+import { resolveLabels } from './labels.ts'
 import type { JsonSchema, AgentOperation, AgentOperationAnnotation, AgentParamOverride, ResolvedBody, ResolvedOperation, ResolvedParam, SecurityRequirement } from './types.ts'
 
 const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']
@@ -302,6 +303,7 @@ function checkOperation (path: string, item: any, method: string, doc: JsonSchem
     }
     checkBody(op, view, at)
     checkResponse(op)
+    resolveLabels(op, doc)
   })
 }
 

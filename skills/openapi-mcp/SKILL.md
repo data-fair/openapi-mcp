@@ -22,7 +22,7 @@ this is the working guide.
 | --- | --- |
 | Document root | `skills` (`name`, `description`, `body` or `href`, `tools`) |
 | `tags[]` entry | `guide` |
-| Operation | `name`, `title`, `description`, `examples`, `annotations`, `params`, `fixed`, `body`, `bodyFields`, `bodyRequired`, `response`, `editor`, `security`; or an array of such views |
+| Operation | `name`, `title`, `description`, `examples`, `annotations`, `params`, `fixed`, `body`, `bodyFields`, `bodyRequired`, `response`, `labels`, `editor`, `security`; or an array of such views |
 | Parameter definition | the overrides of `params.<name>` |
 | Response schema property | `hint`, `exclude` |
 
@@ -73,11 +73,15 @@ schema: an unknown key fails with its JSON path.
    some required for this tool; `body: compact` replaces a huge body schema with a listing, still
    validated locally.
 
-7. **Files.** Uploads need no annotation: multipart `format: binary` parts and raw bodies become
+7. **Checked labels.** A write naming its target by an opaque id gets a label input beside it,
+   checked against a GET before the call: `labels: { id: { name: pageTitle, operation: getPage,
+   field: /title } }`. Whoever approves the call then reads which page it acts on.
+
+8. **Files.** Uploads need no annotation: multipart `format: binary` parts and raw bodies become
    URL inputs, fetched only from the configured file store (`files.urlPrefixes`). A download is
    `response: { file: true }` on a GET, returning a link.
 
-8. **Load it.**
+9. **Load it.**
 
    ```ts
    const toolSet = await load(doc, { lint: 'error' })

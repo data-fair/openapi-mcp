@@ -76,6 +76,7 @@ The presence of `x-agent` on an operation is what makes it a tool.
 | `fixed` | object | Query values sent on every call and never exposed. |
 | `body`, `bodyFields`, `bodyRequired` | | See [Request bodies](#request-bodies). |
 | `response` | object | See [Responses](#responses). |
+| `labels` | map | [Checked labels](#checked-labels), by the tool input whose id they check. |
 | `editor` | `true` or object | Form tools instead of one tool: see [editor tool groups](./editor-tool-groups.md). |
 | `security` | requirement[] | Narrows the operation's security for this tool: see [Security](#security). |
 
@@ -182,6 +183,47 @@ offers `text/markdown` is asked for it, and the body is passed through as is.
 
 On a response schema property, `hint` is a localized note shown next to the field, and
 `exclude: true` drops the property at every depth, from rendering and from `fields` enums.
+
+## Checked labels
+
+A write that names its target by an opaque id (`b51fe79c-…`) says nothing about what it acts on to
+whoever sees only its arguments: a person approving the call, an automatic reviewer. `labels`
+gives an id input a second input carrying the target's label, which the tool checks against the
+API before the call:
+
+```yaml
+patch:
+  operationId: patchPage
+  x-agent:
+    name: attach_page_to_portals
+    bodyFields: [portals]
+    labels:
+      id: { name: pageTitle, operation: getPage, field: /title }
+      portals: { name: portalTitles, operation: getPortal, field: /title }
+```
+
+| Field | Notes |
+| --- | --- |
+| key | The tool input holding the id: a parameter or a body property, by its tool-facing name; a string, or a list of strings. |
+| `name` | The label input added beside it: a string, or for a list of ids a list of labels in the same order. |
+| `operation` | `operationId` of a GET reading one resource, with one path parameter (given the id) and no other required parameter. |
+| `field` | JSON pointer to the label, a string, in that GET's response. |
+| `description` | Replaces the generated description of the label input. |
+
+The label input is required with its id input, or whenever the id is given (`dependentRequired`).
+Before the call, files included, the tool reads each id's resource with the call's own context
+and compares the label, whitespace collapsed. A mismatch, an id it cannot read, or a list of
+labels of another length refuses the call with nothing sent, saying what the id names. What
+reaches the API is the call without the labels.
+
+The label input carries `x-checked: { against, field }` in the tool's input schema, so a reader
+of the call (an approval card, a reviewer) can show the label as a fact the server checked
+rather than as text the model wrote. The read and the write are two requests: a rename in
+between is not caught. The check makes a call say what it acts on; it does not replace a
+version precondition.
+
+Not on an editor group: its form tools check their own targets (json-layout's `item` and
+`suggestionTitle` arguments).
 
 ## Loading
 
@@ -310,6 +352,8 @@ Neither combines with `file`.
 
 ## Not in the vocabulary
 
-Templates, hooks, executable composition and codegen. `x-agent` describes an API to an agent; it
-adds no behaviour. An annotation names another operation only for an editor group, which has to
-say where its document and schema come from.
+Templates, hooks, executable composition and codegen. `x-agent` describes an API to an agent and
+never changes what the API does: a tool may refuse a call before it reaches the API (a checked
+label that is not its id's), never alter one. An annotation names another operation only for an
+editor group, which has to say where its document and schema come from, and for a checked label,
+which has to say where the label is read.
