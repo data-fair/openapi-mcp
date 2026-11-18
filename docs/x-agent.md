@@ -156,7 +156,7 @@ an editor group.
 The parameter and body schemas of a tool are in its locale: each json-layout `x-i18n-<key>`
 annotation (`x-i18n-title: { fr: … }`) replaces `<key>` with its translation, the original kept
 when the locale has none, and the annotations are dropped. json-layout's display annotations
-(`layout`, `oneOfLayout`) are dropped too. The document keeps them all, for the readers that render
+(`layout`, `oneOfLayout`, `patternPropertiesLayout`) are dropped too. The document keeps them all, for the readers that render
 forms and translate per viewer (an editor group reads its form schema from the document).
 
 ### Responses

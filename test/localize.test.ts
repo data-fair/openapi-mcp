@@ -51,13 +51,14 @@ describe('localizeSchema', () => {
       layout: { cols: 6 },
       properties: {
         layout: { type: 'string', layout: { comp: 'select' } },
-        kind: { type: 'object', oneOfLayout: { emptyData: true }, oneOf: [{ title: 'A', layout: { cols: 4 } }] }
+        kind: { type: 'object', oneOfLayout: { emptyData: true }, oneOf: [{ title: 'A', layout: { cols: 4 } }] },
+        filters: { type: 'object', patternPropertiesLayout: { help: 'h' }, patternProperties: { '.*': { type: 'string', layout: { placeholder: 'p' } } } }
       },
       default: { layout: 'grid' }
     }, 'en')
     assert.deepEqual(out, {
       type: 'object',
-      properties: { layout: { type: 'string' }, kind: { type: 'object', oneOf: [{ title: 'A' }] } },
+      properties: { layout: { type: 'string' }, kind: { type: 'object', oneOf: [{ title: 'A' }] }, filters: { type: 'object', patternProperties: { '.*': { type: 'string' } } } },
       default: { layout: 'grid' }
     })
   })

@@ -11,13 +11,13 @@ const DATA_KEYWORDS = new Set(['const', 'default', 'enum', 'examples', 'example'
 const SCHEMA_MAPS = new Set(['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas'])
 // json-layout display annotations: how vjsf renders a form, nothing a tool call needs. A form tool
 // reads its schema from the document (or its schemaOperation), never from a tool definition.
-const DISPLAY_KEYWORDS = new Set(['layout', 'oneOfLayout'])
+const DISPLAY_KEYWORDS = new Set(['layout', 'oneOfLayout', 'patternPropertiesLayout'])
 
 /**
  * A copy of a JSON schema for a tool definition, in one language and without display annotations:
  * each `x-i18n-<key>` annotation (json-layout's, `{ fr: '…', en: '…' }`) replaces `<key>` with its
  * translation in the locale, the original kept when it has none, and is dropped; json-layout's
- * `layout` and `oneOfLayout` are dropped. A document keeps them for the readers that render forms
+ * `layout`, `oneOfLayout` and `patternPropertiesLayout` are dropped. A document keeps them for the readers that render forms
  * and translate per viewer (vjsf); a tool definition is read in its locale, and the rest would only
  * weigh on it.
  */
