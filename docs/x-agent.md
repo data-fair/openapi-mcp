@@ -153,6 +153,11 @@ Other `+json` and form-urlencoded bodies are not sent. Multipart file parts and 
 `bodyFields` and `bodyRequired` need an object body with declared properties, and do not apply to
 an editor group.
 
+The parameter and body schemas of a tool are in its locale: each json-layout `x-i18n-<key>`
+annotation (`x-i18n-title: { fr: … }`) replaces `<key>` with its translation, the original kept
+when the locale has none, and the annotations are dropped. The document keeps them, for the
+readers that translate per viewer.
+
 ### Responses
 
 ```yaml

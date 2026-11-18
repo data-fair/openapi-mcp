@@ -214,6 +214,19 @@ describe('buildInput — files', () => {
   })
 })
 
+describe('buildInput — x-i18n annotations', () => {
+  const op = structuredClone(createPet)
+  const body = op.requestBody!.schema
+  const name = Object.keys(body.properties)[0]
+  body.properties[name] = { ...body.properties[name], title: 'Name', 'x-i18n-title': { fr: 'Nom' } }
+  it('resolves the body properties to the tool locale', () => {
+    assert.equal(buildInput(op, 'fr').inputSchema.properties[name].title, 'Nom')
+    const en = buildInput(op, 'en').inputSchema
+    assert.equal(en.properties[name].title, 'Name')
+    assert.ok(!JSON.stringify(en).includes('x-i18n-'))
+  })
+})
+
 describe('buildInput — bodyRequired', () => {
   /** the file part is optional: the operation also creates a collection without one */
   const optionalFile = (agent: Partial<AgentOperation>) => {

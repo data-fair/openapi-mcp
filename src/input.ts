@@ -1,4 +1,4 @@
-import { localize } from './localize.ts'
+import { localize, localizeSchema } from './localize.ts'
 import { summariseSchema } from './schema-summary.ts'
 import type { JsonSchema, ResolvedOperation, ResolvedParam } from './types.ts'
 
@@ -36,7 +36,7 @@ export function responseFields (schema: JsonSchema | undefined, rows?: string): 
 }
 
 function paramSchema (p: ResolvedParam, locale: string): JsonSchema {
-  const schema: JsonSchema = { ...p.schema }
+  const schema: JsonSchema = localizeSchema({ ...p.schema }, locale)
   // The raw OpenAPI title (often untranslated, e.g. French) has no agent-facing override and
   // would otherwise sit next to a rewritten description in a different language; descriptions
   // already carry the agent-facing text, so the inherited title is dropped rather than shown.
@@ -186,13 +186,13 @@ export function buildInput (op: ResolvedOperation, locale: string, options: { fi
           if (isRequired) unavailable ??= `${op.toolName}: multipart part "${name}" is a list of files, which a tool cannot send (one URL per part)`
           continue
         } else {
-          properties[toolName] = schema
+          properties[toolName] = localizeSchema(schema, locale)
           bindings.push({ toolName, kind: 'bodyProp', apiName: name, style: undefined, explode: undefined })
         }
         if (isRequired) required.push(toolName)
       }
     } else if (requestBody.kind === 'json') {
-      properties.body = body
+      properties.body = localizeSchema(body, locale)
       if (requestBody.required) required.push('body')
       bindings.push({ toolName: 'body', kind: 'body', apiName: 'body', style: undefined, explode: undefined })
     }
