@@ -45,6 +45,22 @@ describe('localizeSchema', () => {
     assert.equal(en.items[0].title, 'Monday')
     assert.ok(!JSON.stringify({ ...en, default: undefined }).includes('x-i18n-'))
   })
+  it('drops the json-layout display annotations, not a property of that name', () => {
+    const out = localizeSchema({
+      type: 'object',
+      layout: { cols: 6 },
+      properties: {
+        layout: { type: 'string', layout: { comp: 'select' } },
+        kind: { type: 'object', oneOfLayout: { emptyData: true }, oneOf: [{ title: 'A', layout: { cols: 4 } }] }
+      },
+      default: { layout: 'grid' }
+    }, 'en')
+    assert.deepEqual(out, {
+      type: 'object',
+      properties: { layout: { type: 'string' }, kind: { type: 'object', oneOf: [{ title: 'A' }] } },
+      default: { layout: 'grid' }
+    })
+  })
   it('leaves the schema it was given unchanged', () => {
     localizeSchema(schema, 'fr')
     assert.equal(schema.title, 'Scheduling')
