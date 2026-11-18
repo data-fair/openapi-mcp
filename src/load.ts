@@ -2,7 +2,8 @@ import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js'
 import addFormatsModule, { type FormatsPlugin } from 'ajv-formats'
 import Debug from 'debug'
 import { loadSpec, resolveOperations } from './spec.ts'
-import { buildEditorTools } from './editor/index.ts'
+import { buildEditorGroup, type EditorEntry } from './editor/index.ts'
+import { resolveEditorOperations } from './editor/operations.ts'
 import { buildInput } from './input.ts'
 import { buildRequest } from './request.ts'
 import { resolveLabels, addLabelInputs, checkLabels, type ResolvedLabel } from './labels.ts'
@@ -247,19 +248,31 @@ export async function load (spec: string | JsonSchema, options: LoadOptions = {}
 
   // authoredDescriptions is scaffolding for the lint, not part of the public Tool.
   const tools: Tool[] = built.map(({ authoredDescriptions, ...tool }) => tool)
-  // Each editor group publishes its json-layout fill-form skill.
+  // The editor operations make one group of form tools, which publishes its json-layout
+  // fill-form skill. An operation that cannot be resolved is left out like a failed tool.
   const editorSkills: Skill[] = []
+  const prepareSchema = options.prepareEditorSchema ?? ((schema: JsonSchema) => schema)
+  const entries: (EditorEntry & { op: ResolvedOperation })[] = []
   for (const op of editorOps) {
-    let group: Awaited<ReturnType<typeof buildEditorTools>>
     try {
-      group = await buildEditorTools(op, { doc, baseUrl, fetch: contextualFetch(fetchFn), locale: o.locale, prepareSchema: options.prepareEditorSchema ?? (schema => schema) })
+      const resolved = resolveEditorOperations(op, doc)
+      // A declared request body is known now, and it is what carries the agent guide; a
+      // schema behind an operation would cost a request, so its guide stays unknown here.
+      const declared = resolved.schema ? undefined : resolved.write.requestBody?.schema
+      const prepared = declared ? await prepareSchema(structuredClone(declared)) : undefined
+      const guide = typeof prepared?.['x-agent-guide'] === 'string' ? prepared['x-agent-guide'] : undefined
+      entries.push({ op, ops: resolved, guide })
     } catch (err) {
       failed(op, err)
-      continue
     }
+  }
+  if (entries.length) {
+    const group = await buildEditorGroup(entries, { doc, baseUrl, fetch: contextualFetch(fetchFn), locale: o.locale, prepareSchema })
+    const clash = group.tools.find(t => tools.some(other => other.name === t.name))
+    if (clash) throw new Error(`${clash.name}: an operation's tool has the name of a form tool`)
     tools.push(...group.tools)
-    toolsByOp.set(op, group.tools.map(t => t.name))
-    editorSkills.push(editorSkill(op, group.skill, group.tools.map(t => t.name), o.locale))
+    for (const { op } of entries) toolsByOp.set(op, group.tools.map(t => t.name))
+    editorSkills.push(editorSkill(group.skill, group.tools.map(t => t.name), group.forms))
   }
   // Relative skill links resolve against the document's URL, else its server URL taken as a
   // directory: `…/api/v1` + `agents/skills/x.md` is `…/api/v1/agents/skills/x.md`.

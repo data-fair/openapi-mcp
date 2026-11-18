@@ -6,7 +6,7 @@ import type { SecurityRequirement, ToolSet } from './types.ts'
  * holds every one of. Membership is exact: a service lists each scope it accepts, umbrella
  * included, as an alternative of its own. No security declared at all is not public.
  */
-function granted (security: SecurityRequirement[] | undefined, scopes: string[]): boolean {
+export function granted (security: SecurityRequirement[] | undefined, scopes: string[]): boolean {
   if (!security) return false
   if (security.length === 0) return true
   return security.some(requirement => {
@@ -23,7 +23,8 @@ function granted (security: SecurityRequirement[] | undefined, scopes: string[])
  */
 export function toolsForScopes (toolSet: ToolSet, scopes: string[] | undefined): ToolSet {
   if (scopes === undefined) return toolSet
-  const tools = toolSet.tools.filter(t => granted(t.security, scopes))
+  // A tool serving several operations (an editor group) narrows itself to the ones granted.
+  const tools = toolSet.tools.flatMap(t => t.forScopes ? (t.forScopes(scopes) ?? []) : granted(t.security, scopes) ? [t] : [])
   const kept = new Set(tools.map(t => t.name))
   return {
     tools,

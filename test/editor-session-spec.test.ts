@@ -122,6 +122,6 @@ describe('buildSessionSpec', () => {
     const { ctx, ops, registry } = harness()
     const spec: any = buildSessionSpec(ops, { id: 'cities', lineId: 'abc' }, ctx, registry)
     assert.equal(spec.title, 'Edit a record')
-    assert.equal(spec.prefixName, 'item_')
+    assert.equal(spec.prefixName, 'form_')
   })
 })

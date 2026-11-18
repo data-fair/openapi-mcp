@@ -57,57 +57,57 @@ function server (answer: 'stored' | 'ack' | 'empty' | 'envelope') {
 
 async function tools (answer: 'stored' | 'ack' | 'empty' | 'envelope') {
   const { tools } = await load(doc, { fetch: server(answer), baseUrl: 'https://api.test' })
-  const by = (verb: string) => tools.find(t => t.name === `config_${verb}`)!
+  const by = (verb: string) => tools.find(t => t.name === `form_${verb}`)!
   return { set: by('setFieldValue'), save: by('saveForm'), get: by('getData') }
 }
 
 describe('editor save adopts the server copy', () => {
   it('loads the fields the server changed into the form and names them', async () => {
     const { set, save, get } = await tools('stored')
-    await set.execute({ id: 'p', path: '/color', value: 'red' })
-    const saved = await save.execute({ id: 'p' })
+    await set.execute({ form: 'config', id: 'p', path: '/color', value: 'red' })
+    const saved = await save.execute({ form: 'config', id: 'p' })
     assert.equal(saved.isError, undefined, saved.text)
     assert.match(saved.text, /the server changed 1 field\(s\) while saving: \/derived = "RED"; the form now holds the server's copy/)
-    assert.match((await get.execute({ id: 'p' })).text, /RED/)
+    assert.match((await get.execute({ form: 'config', id: 'p' })).text, /RED/)
   })
 
   it('says so on a write saved with save: true', async () => {
     const { set, get } = await tools('stored')
-    const result = await set.execute({ id: 'p', path: '/color', value: 'green', save: true })
+    const result = await set.execute({ form: 'config', id: 'p', path: '/color', value: 'green', save: true })
     assert.match(result.text, /saved/)
     assert.match(result.text, /\/derived/)
-    assert.match((await get.execute({ id: 'p' })).text, /GREEN/)
+    assert.match((await get.execute({ form: 'config', id: 'p' })).text, /GREEN/)
   })
 
   it('adds nothing when the server stored what was sent', async () => {
     const { set, save } = await tools('stored')
-    await set.execute({ id: 'p', path: '/color', value: 'BLUE' })
-    const saved = await save.execute({ id: 'p' })
+    await set.execute({ form: 'config', id: 'p', path: '/color', value: 'BLUE' })
+    const saved = await save.execute({ form: 'config', id: 'p' })
     assert.doesNotMatch(saved.text, /server/)
   })
 
   it('keeps an envelope out of the form', async () => {
     const { set, save, get } = await tools('envelope')
-    await set.execute({ id: 'p', path: '/color', value: 'red' })
-    const saved = await save.execute({ id: 'p' })
+    await set.execute({ form: 'config', id: 'p', path: '/color', value: 'red' })
+    const saved = await save.execute({ form: 'config', id: 'p' })
     assert.match(saved.text, /could not be checked/)
-    assert.doesNotMatch((await get.execute({ id: 'p' })).text, /portal/)
+    assert.doesNotMatch((await get.execute({ form: 'config', id: 'p' })).text, /portal/)
   })
 
   for (const answer of ['ack', 'empty'] as const) {
     it(`points to reloadForm when the answer cannot be compared (${answer})`, async () => {
       const { set, save, get } = await tools(answer)
-      await set.execute({ id: 'p', path: '/color', value: 'red' })
-      const saved = await save.execute({ id: 'p' })
+      await set.execute({ form: 'config', id: 'p', path: '/color', value: 'red' })
+      const saved = await save.execute({ form: 'config', id: 'p' })
       assert.equal(saved.isError, undefined, saved.text)
-      assert.match(saved.text, /could not be checked: call config_reloadForm/)
-      assert.match((await get.execute({ id: 'p' })).text, /BLUE/)
+      assert.match(saved.text, /could not be checked: call form_reloadForm with form "config"/)
+      assert.match((await get.execute({ form: 'config', id: 'p' })).text, /BLUE/)
     })
   }
 
   it('reports nothing on a write that does not save', async () => {
     const { set } = await tools('stored')
-    const result = await set.execute({ id: 'p', path: '/color', value: 'red' })
+    const result = await set.execute({ form: 'config', id: 'p', path: '/color', value: 'red' })
     assert.doesNotMatch(result.text, /server/)
   })
 })

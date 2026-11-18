@@ -1,7 +1,8 @@
 # Editor tool groups
 
-`x-agent.editor` on a write operation turns it into eight [json-layout](https://github.com/json-layout/json-layout)
-form tools. Instead of submitting a whole request body, the agent edits a form session: it reads
+`x-agent.editor` on a write operation makes it a form of the document's eight
+[json-layout](https://github.com/json-layout/json-layout) form tools: one group per document, whatever
+the number of editor operations, the form chosen per call. Instead of submitting a whole request body, the agent edits a form session: it reads
 the form, sets fields, asks for suggestions, edits arrays, and saves once the document is valid.
 Sessions, the save gate and the compiled-layout cache live in
 [`@json-layout/agents`](https://www.npmjs.com/package/@json-layout/agents); this library adapts an
@@ -40,31 +41,54 @@ may only ask for path parameters the write operation has, matched by name. Both 
 
 ## The tools
 
-Each tool takes the write operation's path parameters, so several documents can be edited at once.
-Names are the operation's tool name, `_`, then the verb:
+The editor operations of a document share eight tools, named `form_` then the verb. Each takes
+`form`, an enum of the operations' tool names (its description lists each with its title), the
+path parameters of every form, merged by name, and the verb's own arguments. An editor operation's x-agent `description` goes to the skill's list of forms, not to the tools:
 
 | Tool | Does |
 | --- | --- |
-| `<name>_describeState` | Every field's path, type, constraints, value and errors. Start here. |
-| `<name>_getData` | The document, whole or one part by path. |
-| `<name>_setFieldValue` | Sets one field. |
-| `<name>_setData` | Sets several fields. |
-| `<name>_getFieldSuggestions` | Accepted values of a field whose list is behind a request. |
-| `<name>_editArray` | Adds or removes array items. |
-| `<name>_saveForm` | Saves through the write operation; refused while the document is invalid. |
-| `<name>_reloadForm` | Reloads, discarding local changes. |
+| `form_describeState` | Every field's path, type, constraints, value and errors. Start here. |
+| `form_getData` | The document, whole or one part by path. |
+| `form_setFieldValue` | Sets one field. |
+| `form_setData` | Sets several fields. |
+| `form_getFieldSuggestions` | Accepted values of a field whose list is behind a request. |
+| `form_editArray` | Adds or removes array items. |
+| `form_saveForm` | Saves through the write operation; refused while the document is invalid. |
+| `form_reloadForm` | Reloads, discarding local changes. |
 
-Descriptions come from the package. `describeState`, `getData` and `getFieldSuggestions` are
-annotated `readOnlyHint: true`, the other five `false`. An `openWorldHint` among the write operation's `annotations` is
-given to all eight: whether the record holds outside content is the API's to say. Each carries an `annotations.title`, `<operation title> — <verb label>` (`FORM_VERB_LABELS`, french when the locale is fr, english otherwise), so an approval card is not headed by a raw tool name. Every tool carries the operation's security (or its narrowed
-`security`), so `toolsForScopes` keeps or drops the group as a whole. The group also publishes its
-fill-form skill, named after the tool name in kebab case.
+A path parameter every form has is required; one only some forms have says which in its
+description, and a call is refused when it misses one its form needs or passes one its form does
+not take. A parameter's description is its x-agent override, else the document's. A name whose meaning differs per form gets one description per form (portals: `for "portal_config": Id of the portal; for "page_config": Id of the page.`), and differing
+schemas an `anyOf`. A plain operation whose tool is named like a form tool fails the load.
+
+The group is per loaded document, so a document merging several services' operations (data-fair's
+platform document, whose tool names carry each service's prefix) has one group for all of them: the
+tools stay `form_<verb>` and the forms take the merged tool names (`form: "portals_page_config"`),
+and its skill is `form` too. Another skill named `form` beside it is a clash for whoever composes them.
+
+Descriptions come from the package, with the form title taken out ("Describe the form: …"): the
+form is the call's `form`, which an approval card shows among the arguments, and which the
+package's own results name (`Saved "Brouillon de page"`). `describeState`, `getData` and
+`getFieldSuggestions` are annotated `readOnlyHint: true`, the other five `false`. `openWorldHint`
+merges the write operations' own: `true` when one form says so, `false` when all do, else unsaid
+(open, by MCP's default). `annotations.title` is `<operation title> — <verb label>` while the tool
+offers one form, `Formulaire — <verb label>` (`Form — …`) while it offers several (`FORM_VERB_LABELS`,
+french when the locale is fr, english otherwise).
+
+`security` is every form's alternatives, and each tool has a `forScopes` hook that `toolsForScopes`
+calls instead: the tool comes back with `form` narrowed to the forms the scopes grant (and its title,
+openWorldHint and path parameters recomputed from them), or not at all when none is granted. A call
+naming a form outside the enum is refused.
+
+The group publishes one skill, `form`: the package's fill-form guide, the list of forms with their
+path parameters, and an `About <title> (form: "<name>")` section for each form whose declared schema
+carries an `x-agent-guide`. Its tools are the eight, so it goes with them.
 
 ## Sessions
 
-A session is keyed by the caller's `identity`, the operation and all its path parameter values:
-one form per caller and document, resumed by any call with the same parameters until
-`reloadForm`. A save sends the whole document (PUT or POST); a failed one comes back as an
+A session is keyed by the caller's `identity`, the form (its operation) and all its path parameter
+values: one session per caller, form and document, resumed by any call with the same `form` and
+parameters until `reloadForm`. A save sends the whole document (PUT or POST); a failed one comes back as an
 `isError` result with the API's message.
 
 After a successful save, a response body that is the saved document goes back to the session as
@@ -73,7 +97,7 @@ normalized, stamped), the form takes its copy and the save result names the chan
 (`the server changed 2 field(s) while saving: /theme/colors/primary, …`, ten at most). When the
 response has no body or is another resource (an acknowledgment, an envelope: fewer than half of
 the top-level keys shared with what was sent), the form keeps what was sent and the result of a
-document's save says to call `reloadForm` to read what the server stored. A session that creates
+document's save says to call `form_reloadForm` with its `form` to read what the server stored. A session that creates
 records empties its form after each save either way.
 
 ## The schema

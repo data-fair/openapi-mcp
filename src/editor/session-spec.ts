@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { localize } from '../localize.ts'
+import { FORM_PREFIX } from './bridge.ts'
 import { editorRequest, type EditorOperations } from './operations.ts'
 import { sameShape } from './server-copy.ts'
 import type { AgentEditor, JsonSchema } from '../types.ts'
@@ -74,7 +75,8 @@ export function buildSessionSpec (ops: EditorOperations, pathParams: Record<stri
   const read = ops.read
   return {
     title: localize(ops.write.agent.title, ctx.locale) ?? ops.write.operationId,
-    prefixName: `${ops.write.toolName}_`,
+    // the group's names: what a result says to call next must be a tool the agent has
+    prefixName: FORM_PREFIX,
     schema: registry.get(ops, pathParams, ctx),
     load: async () => {
       // no document: the session creates records, and empties its form after each save

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { localize } from './localize.ts'
-import type { AgentSkill, ResolvedOperation, Skill, SkillBodyFetcher } from './types.ts'
+import type { AgentSkill, Skill, SkillBodyFetcher } from './types.ts'
 
 const MAX_DESCRIPTION = 1024
 
@@ -83,13 +83,12 @@ export function skillEntries (skills: Skill[]): string {
  * The skill of an editor group: the json-layout fill-form skill its session generated. Its
  * name is the group's tool prefix in kebab case; its description, the operation's title.
  */
-export function editorSkill (op: ResolvedOperation, body: string, tools: string[], locale: string): Skill {
-  const name = op.toolName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64)
-  const title = (localize(op.agent.title, locale) ?? op.summary ?? '').trim()
-  const description = (title ? `${title}: how to use the ${op.toolName}_* form tools.` : `How to use the ${op.toolName}_* form tools.`)
+/** The skill of a document's form tools, named after their prefix: one for every editor operation. */
+export function editorSkill (body: string, tools: string[], forms: { name: string, title: string }[]): Skill {
+  const description = `How to use the form_* tools. Forms: ${forms.map(f => `"${f.name}": ${f.title}`).join('; ')}.`
     .slice(0, MAX_DESCRIPTION)
   const text = body.trim()
-  return { name, description, body: text, digest: digestOf(text), tools }
+  return { name: 'form', description, body: text, digest: digestOf(text), tools }
 }
 
 /** An attached resource as served: its uri, content and the manifest's digest and size. */

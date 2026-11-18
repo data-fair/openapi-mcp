@@ -5,7 +5,7 @@ becomes a tool only when it carries `x-agent`; the annotation says what the tool
 agent sees of its input and output, and which skills and guides come with it.
 
 - [`docs/x-agent.md`](docs/x-agent.md): the annotation reference.
-- [`docs/editor-tool-groups.md`](docs/editor-tool-groups.md): a write operation as eight form tools.
+- [`docs/editor-tool-groups.md`](docs/editor-tool-groups.md): a document's write operations as one group of eight form tools.
 - [`skills/openapi-mcp`](skills/openapi-mcp/SKILL.md): a skill teaching coding agents to write
   annotations (`npx skills add data-fair/openapi-mcp`).
 
@@ -39,7 +39,7 @@ const handler = createMcpHttpHandler(
 - `tools`: provider-agnostic tools, each with a name, a description, an input schema, MCP
   annotations, its `security` and `execute(params, ctx?)`, which never throws: a failure is
   `{ isError: true, text }`.
-- `skills`: the document's skills (and one per editor group), served as `skill://<name>/SKILL.md`.
+- `skills`: the document's skills (and `form`, the skill of the editor tools), served as `skill://<name>/SKILL.md`.
 - `guides`: the instruction sections of the document's tags, each with the tools it is about.
 
 The adapter (`@data-fair/openapi-mcp/adapters/mcp`) serves a tool set over MCP, both protocol eras,

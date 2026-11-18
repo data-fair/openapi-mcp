@@ -230,6 +230,12 @@ export interface Tool {
   examples?: Record<string, unknown>[]
   /** the security of the operation behind the tool (see ResolvedOperation.security) */
   security?: SecurityRequirement[]
+  /**
+   * The tool as offered to a token holding these scopes, or none: set on a tool serving several
+   * operations of different security (an editor group), which `toolsForScopes` calls instead of
+   * reading `security`.
+   */
+  forScopes?: (scopes: string[]) => Tool | undefined
   execute (params: Record<string, unknown>, ctx?: CallContext): Promise<ToolResult>
 }
 
