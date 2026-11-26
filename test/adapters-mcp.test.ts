@@ -10,7 +10,7 @@ import { z } from 'zod'
 import { load } from '../src/load.ts'
 import type { ToolSet } from '../src/types.ts'
 import { createMcpServer, createMcpHttpHandler } from '../src/adapters/mcp.ts'
-import { instructions } from '../src/adapters/server.ts'
+import { instructions, toMcpServer } from '../src/adapters/server.ts'
 
 const petstore = JSON.parse(await readFile(new URL('./fixtures/petstore.json', import.meta.url), 'utf8'))
 const upstream: Request[] = []
@@ -225,5 +225,23 @@ describe('mcp adapter — files', () => {
     const { tools } = await client.listTools()
     const create = tools.find(t => t.name === 'create_collection')!
     assert.deepEqual((create.inputSchema.properties as any).file['x-mcp-file'], { accept: ['text/csv', 'application/vnd.ms-excel'], maxSize: 104857600 })
+  })
+})
+
+describe('mcp adapter — per-request servers', () => {
+  // fromJsonSchema compiles on the SDK's process-wide Ajv, which caches every schema object it is
+  // given: a schema built per server would add a compiled validator per request, for good.
+  it('registers the skills methods with the same params schemas on every server', async () => {
+    const toolSet = await load(petstore, { fetch: fetchFn })
+    const paramsOf = () => {
+      const params = new Map<string, unknown>()
+      const server = { setRequestHandler: (method: string, ...rest: unknown[]) => { if (rest.length === 2) params.set(method, (rest[0] as { params: unknown }).params) } }
+      toMcpServer(toolSet, server as any)
+      return params
+    }
+    const first = paramsOf()
+    const second = paramsOf()
+    assert.deepEqual([...first.keys()].sort(), ['skills/get', 'skills/list'])
+    for (const [method, schema] of first) assert.equal(second.get(method), schema, method)
   })
 })
