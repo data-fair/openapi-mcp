@@ -7,6 +7,11 @@ import type { CallContext, ToolSet } from '../types.ts'
 const SKILLS_EXTENSION = 'io.modelcontextprotocol/skills'
 export const DEFAULT_CACHE_TTL_MS = 300_000
 
+// Built once for the process: fromJsonSchema compiles on the SDK's shared Ajv, which caches every
+// schema object it is given, so a schema built per server would leak a validator per request.
+const SKILLS_LIST_PARAMS = fromJsonSchema({ type: 'object', properties: { cursor: { type: 'string' } } })
+const SKILLS_GET_PARAMS = fromJsonSchema<{ uri: string }>({ type: 'object', required: ['uri'], properties: { uri: { type: 'string' } } })
+
 /**
  * Whether the client listing this server declared the skills extension (SEP-2640) in its `initialize`.
  * Such a client lists skills itself, so the skill entries are left out of `instructions`. Read from a
@@ -99,10 +104,10 @@ export function toMcpServer (toolSet: ToolSet, server: Server, options: { ctx?: 
   // The extension's two methods, on the base Resources primitive (SEP-2640). Custom methods
   // do not receive the SDK's cache hints, so the fields are set on the result directly.
   const cache = { ttlMs: cacheTtlMs, cacheScope: 'private' as const }
-  server.setRequestHandler('skills/list', { params: fromJsonSchema({ type: 'object', properties: { cursor: { type: 'string' } } }) }, async () => ({
+  server.setRequestHandler('skills/list', { params: SKILLS_LIST_PARAMS }, async () => ({
     skills: skills.map(skillEntry), ...cache
   }))
-  server.setRequestHandler('skills/get', { params: fromJsonSchema<{ uri: string }>({ type: 'object', required: ['uri'], properties: { uri: { type: 'string' } } }) }, async (params) => {
+  server.setRequestHandler('skills/get', { params: SKILLS_GET_PARAMS }, async (params) => {
     const s = byUri.get(params.uri)
     if (!s) throw new ProtocolError(INVALID_PARAMS, `No skill is served at ${params.uri}`)
     return { skill: skillEntry(s), ...cache }
