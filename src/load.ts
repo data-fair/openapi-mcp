@@ -67,8 +67,43 @@ function buildGuides (doc: JsonSchema, toolsByOp: Map<ResolvedOperation, string[
 }
 
 function errorsText (validate: ValidateFunction): string {
-  return (validate.errors ?? []).map(e => `${e.instancePath || 'params'} ${e.message}`).join('; ')
+  return (validate.errors ?? []).map(e => {
+    // ajv's message does not name the unknown property, which is what the caller needs
+    const extra = e.keyword === 'additionalProperties' ? ` '${e.params.additionalProperty}'` : ''
+    return `${e.instancePath || 'params'} ${e.message}${extra}`
+  }).join('; ')
 }
+
+const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+
+/**
+ * Accepts what an agent commonly sends, only toward the type the schema declares: a number or
+ * a boolean where a string is declared (also as an additionalProperties value or an array
+ * item), a comma-separated string where an array of strings is declared. Anything else is left
+ * as is, for the validation to refuse.
+ */
+function coerceInput (value: unknown, schema: JsonSchema | undefined): unknown {
+  if (!schema || typeof schema !== 'object') return value
+  if (schema.type === 'string') return typeof value === 'number' || typeof value === 'boolean' ? String(value) : value
+  if (schema.type === 'array') {
+    if (typeof value === 'string' && schema.items?.type === 'string') return value.split(',').map(s => s.trim()).filter(Boolean)
+    return Array.isArray(value) ? value.map(v => coerceInput(v, schema.items)) : value
+  }
+  if (schema.type === 'object' && isRecord(value)) {
+    const extra = isRecord(schema.additionalProperties) ? schema.additionalProperties : undefined
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, coerceInput(v, schema.properties?.[k] ?? extra)]))
+  }
+  return value
+}
+
+/** structuredContent must be an object: any other JSON body travels under `results`. */
+const structured = (v: unknown): Record<string, unknown> => isRecord(v) ? v : { results: v }
+
+/** The output schema matching `structured`: a response schema that is not an object is published wrapped under `results`. */
+const wrapOutputSchema = (schema: JsonSchema | undefined): JsonSchema | undefined =>
+  schema && schema.type !== undefined && schema.type !== 'object'
+    ? { type: 'object', properties: { results: schema }, required: ['results'] }
+    : schema
 
 type ToolOptions = Required<Omit<LoadOptions, 'documentUrl' | 'skillBodies' | 'files' | 'prepareEditorSchema'>> & { files: FileFetcher | undefined }
 
@@ -97,12 +132,12 @@ function makeTool (op: ResolvedOperation, o: ToolOptions, labels: ResolvedLabel[
     title: localize(op.agent.title, o.locale),
     description: description || op.operationId,
     inputSchema,
-    outputSchema: o.structuredContent && !fileResponse ? [op.agent.response?.image, op.agent.response?.text].reduce((s, p) => p ? omitProperty(s, p) : s, op.responseSchema) : undefined,
+    outputSchema: o.structuredContent && !fileResponse ? wrapOutputSchema([op.agent.response?.image, op.agent.response?.text].reduce((s, p) => p ? omitProperty(s, p) : s, op.responseSchema)) : undefined,
     annotations: { readOnlyHint: op.method === 'GET' || op.method === 'HEAD', destructiveHint: op.method === 'DELETE', ...(op.agent.annotations ?? {}) },
     examples: op.agent.examples,
     security: op.security,
     async execute (rawParams, ctx): Promise<ToolResult> {
-      const params = structuredClone(rawParams ?? {})
+      const params = coerceInput(structuredClone(rawParams ?? {}), inputSchema) as Record<string, any>
       if (!validate(params)) return { isError: true, text: `Invalid parameters: ${errorsText(validate)}` }
       if (validateBody && !validateBody(params.body)) {
         return { isError: true, text: `Invalid body: ${errorsText(validateBody)}` }
@@ -189,7 +224,7 @@ function makeTool (op: ResolvedOperation, o: ToolOptions, labels: ResolvedLabel[
         const text = verbatim ?? render(rest, renderOptions)
         return {
           text,
-          ...(o.structuredContent ? { structuredContent: projectResult(rest, renderOptions) } : {}),
+          ...(o.structuredContent ? { structuredContent: structured(projectResult(rest, renderOptions)) } : {}),
           ...(image ? { image } : {})
         }
       }
