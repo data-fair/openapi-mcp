@@ -1,6 +1,6 @@
 {
   "name": "@data-fair/openapi-mcp",
-  "version": "0.14.3",
+  "version": "0.14.4",
   "description": "MCP tools for AI agents from OpenAPI documents annotated with x-agent",
   "type": "module",
   "license": "AGPL-3.0-only",
